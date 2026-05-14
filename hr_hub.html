@@ -454,14 +454,24 @@ async function fetchJSON(url){
 }
 
 async function getGames(){
-  const d=await fetchJSON(`${MLB}/schedule?sportId=1&date=${ds()}&hydrate=team,venue,probablePitcher(note)`);
-  return (d.dates||[]).flatMap(dt=>(dt.games||[]).map(g=>({
-    pk:String(g.gamePk),
-    away:g.teams.away.team.abbreviation,home:g.teams.home.team.abbreviation,
+  const url=`${MLB}/schedule?sportId=1&date=${ds()}&hydrate=team,venue,probablePitcher(note)`;
+  const d=await fetchJSON(url);
+  console.log('Schedule API response keys:', Object.keys(d));
+  console.log('dates count:', d.dates?.length);
+  if(d.dates?.length) console.log('first date games:', d.dates[0].games?.length);
+
+  const games=(d.dates||[]).flatMap(dt=>(dt.games||[]).map(g=>({
+    pk:   String(g.gamePk),
+    away: g.teams?.away?.team?.abbreviation || g.teams?.away?.team?.teamCode || '???',
+    home: g.teams?.home?.team?.abbreviation || g.teams?.home?.team?.teamCode || '???',
     venue:g.venue?.name||'',
-    awaySpId:g.teams.away.probablePitcher?.id,awaySpName:g.teams.away.probablePitcher?.fullName||'TBD',
-    homeSpId:g.teams.home.probablePitcher?.id,homeSpName:g.teams.home.probablePitcher?.fullName||'TBD',
+    awaySpId:  g.teams?.away?.probablePitcher?.id||null,
+    awaySpName:g.teams?.away?.probablePitcher?.fullName||'TBD',
+    homeSpId:  g.teams?.home?.probablePitcher?.id||null,
+    homeSpName:g.teams?.home?.probablePitcher?.fullName||'TBD',
   })));
+  console.log('Parsed games:', games.map(g=>`${g.away}@${g.home}`));
+  return games;
 }
 
 async function getRoster(abbr){
@@ -824,24 +834,35 @@ async function loadSlate(){
         <div style="color:var(--red);font-weight:700;margin-bottom:8px">Failed to load games</div>
         <div style="font-size:.72rem;color:var(--t4);margin-bottom:6px">URL: ${MLB}/schedule?sportId=1&date=${ds()}</div>
         <div style="font-size:.7rem;background:var(--bg3);padding:8px;border-radius:6px;word-break:break-all;color:var(--t3)">${e.message}</div>
-        <div style="font-size:.7rem;color:var(--t4);margin-top:8px">Check browser console for details</div>
       </div>`;
     console.error('getGames failed:', e);
     return;
   }
+
   if(!gamesCache.length){
-    document.getElementById('hitter-list').innerHTML='<div class="empty">No games found for this date</div>';
+    document.getElementById('game-chips').innerHTML=
+      `<div style="color:var(--t4);font-size:.78rem;padding:8px 0">No games scheduled for ${ds()}</div>`;
+    document.getElementById('hitter-list').innerHTML='';
     return;
   }
+
+  // Debug: log what we got
+  console.log(`Loaded ${gamesCache.length} games:`, gamesCache.map(g=>`${g.away}@${g.home}`).join(', '));
+
   renderGameChips();
-  document.getElementById('hitter-list').innerHTML='<div class="empty">Tap a game above to load players</div>';
+  document.getElementById('hitter-list').innerHTML=
+    `<div style="color:var(--t4);font-size:.82rem;text-align:center;padding:30px 16px">
+      ☝️ Tap a game chip above to load players<br>
+      <span style="font-size:.7rem;color:var(--t4)">${gamesCache.length} games today</span>
+    </div>`;
 }
 
 function renderGameChips(){
   const el=document.getElementById('game-chips');
-  el.innerHTML=gamesCache.map((g,i)=>{
+  if(!gamesCache.length){el.innerHTML='';return;}
+  el.innerHTML=gamesCache.map(g=>{
     const active=S.selPks.has(g.pk);
-    const loaded=S.cache[`${g.pk}_away`];
+    const loaded=!!S.cache[`${g.pk}_away`];
     return`<div class="chip${active?' active':''}${loaded&&!active?' loaded':''}"
       onclick="toggleGame('${g.pk}')">${loaded?'✅ ':''}${g.away}@${g.home}</div>`;
   }).join('');
