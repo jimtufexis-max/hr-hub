@@ -254,6 +254,26 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 .ev-pos{background:#0d3320;color:var(--green);border:1px solid var(--green)}
 .ev-neg{background:#3d1110;color:var(--red);border:1px solid var(--red)}
 .ev-neu{background:var(--bg3);color:var(--t3);border:1px solid var(--bdr)}
+
+/* ── AB Explorer Statcast Table ───────────────────────────────── */
+.ab-filter-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+@media(max-width:700px){.ab-filter-grid{grid-template-columns:1fr}}
+.ab-metric-grid{display:grid;grid-template-columns:repeat(8,1fr);border:1px solid var(--bdr);border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#11101a,#0d0d14);margin:10px 0 12px}
+.ab-metric{padding:14px 8px;text-align:center;border-right:1px solid rgba(45,61,82,.7)}
+.ab-metric:last-child{border-right:none}
+.ab-metric .lbl{font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+.ab-metric .val{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:800;color:var(--t1)}
+.ab-metric .good{color:var(--green)}
+.ab-metric .warn{color:var(--amber)}
+.ab-metric .bad{color:var(--red)}
+.ab-table-wrap{overflow-x:auto;border:1px solid var(--bdr);border-radius:12px;background:var(--bg2)}
+.ab-table{width:100%;border-collapse:collapse;min-width:980px;font-size:.74rem}
+.ab-table th{background:#14101c;color:var(--t4);text-align:left;padding:10px;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--bdr)}
+.ab-table td{padding:9px 10px;border-bottom:1px solid rgba(45,61,82,.45);color:var(--t1)}
+.ab-table tr.hr-row{background:rgba(34,201,94,.10)}
+.ab-table tr:last-child td{border-bottom:none}
+@media(max-width:900px){.ab-metric-grid{grid-template-columns:repeat(4,1fr)}.ab-metric{border-bottom:1px solid rgba(45,61,82,.7)}}
+
 </style>
 </head>
 <body>
@@ -325,32 +345,43 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
   <!-- AB EXPLORER PAGE -->
   <div id="page-ab" class="page">
-    <div class="slbl">📋 AB Explorer</div>
+    <div class="slbl">📋 AB Explorer — Statcast Batted Balls</div>
     <div class="card" style="margin-bottom:10px">
       <div class="form-group">
         <label>Batter</label>
         <select id="ab-batter" onchange="loadABLog()"></select>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+
+      <div class="ab-filter-grid">
         <div class="form-group" style="margin-bottom:0">
-          <label>Last N ABs</label>
+          <label>Events</label>
           <select id="ab-count" onchange="loadABLog()">
-            <option value="10">10</option>
-            <option value="15" selected>15</option>
-            <option value="20">20</option>
-            <option value="30">30</option>
+            <option value="10">L10</option>
+            <option value="20" selected>L20</option>
+            <option value="30">L30</option>
+            <option value="50">L50</option>
+            <option value="100">L100</option>
           </select>
         </div>
+
         <div class="form-group" style="margin-bottom:0">
-          <label>Arm</label>
+          <label>Pitch Arm</label>
           <select id="ab-arm" onchange="loadABLog()">
             <option value="">Both</option>
             <option value="R">RHP</option>
             <option value="L">LHP</option>
           </select>
         </div>
+
+        <div class="form-group" style="margin-bottom:0">
+          <label>Pitch Type</label>
+          <select id="ab-pitch-type" onchange="loadABLog()">
+            <option value="">All Pitches</option>
+          </select>
+        </div>
       </div>
     </div>
+
     <div id="ab-summary" style="margin-bottom:10px"></div>
     <div id="ab-list"></div>
   </div>
