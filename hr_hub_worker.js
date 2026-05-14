@@ -38,7 +38,7 @@ export default {
       });
     }}
 
-    const allowed = ['baseballsavant.mlb.com','fangraphs.com','statsapi.mlb.com','api.open-meteo.com'];
+    const allowed = ['baseballsavant.mlb.com','fangraphs.com','www.fangraphs.com','statsapi.mlb.com','api.open-meteo.com'];
     if (!allowed.some(h => targetUrl.hostname.endsWith(h))) {
       return new Response(JSON.stringify({ error: 'Host not allowed: ' + targetUrl.hostname }), {
         status: 403, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
