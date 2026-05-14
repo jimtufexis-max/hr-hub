@@ -1123,7 +1123,7 @@ function renderHitterCard(r,showGame){
       ${statChip('Hard',r.hard_hit_pct,30,52,'%')}
       ${statChip('EV',r.avg_ev,86,94,' mph')}
       ${statChip('ISO',r.iso,0.08,0.28,'',.3)}
-      ${r.pf?`<div class="stat-chip"><span class="val">${r.pf.toFixed(2)}× park</span></div>`:''}
+      ${r.pf?'<div class="stat-chip"><span class="val">'+r.pf.toFixed(2)+'× park</span></div>':''}
     </div>
   </div>`;
 }
