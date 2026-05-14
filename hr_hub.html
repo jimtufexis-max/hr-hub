@@ -1443,95 +1443,70 @@ async function fetchABLog(pid,n,arm,pitchType=''){
   const years=[SEASON,SEASON-1,SEASON-2];
   const out=[];
 
-  function seasonDates(season){
-    return {
-      gt:`${season}-01-01`,
-      lt:`${season}-12-31`
-    };
-  }
-
-  function buildStatcastUrls(season){
-    const d=seasonDates(season);
-    const base='https://baseballsavant.mlb.com/statcast_search/csv?';
-
-    return [
-      // Most reliable Baseball Savant CSV export format
-      base +
-        `all=true&` +
-        `hfSea=${season}%7C&` +
-        `player_type=batter&` +
-        `batters_lookup%5B%5D=${pid}&` +
-        `game_date_gt=${d.gt}&` +
-        `game_date_lt=${d.lt}&` +
-        `type=details&`,
-
-      // Backup: no season filter, date window only
-      base +
-        `all=true&` +
-        `player_type=batter&` +
-        `batters_lookup%5B%5D=${pid}&` +
-        `game_date_gt=${d.gt}&` +
-        `game_date_lt=${d.lt}&` +
-        `type=details&`,
-
-      // Backup: simple Savant query
-      base +
-        `hfSea=${season}%7C&` +
-        `player_type=batter&` +
-        `batters_lookup%5B%5D=${pid}&` +
-        `type=details&`
-    ];
-  }
-
   for(const s of years){
-    const urls=buildStatcastUrls(s);
+    try{
 
-    for(const csvUrl of urls){
-      try{
-        console.log('[AB] CSV URL:', csvUrl);
+      const csvUrl =
+        `https://baseballsavant.mlb.com/statcast_search/csv?` +
+        `hfSea=${s}%7C&` +
+        `player_type=batter&` +
+        `batters_lookup%5B%5D=${pid}&` +
+        `type=details&`;
 
-        const r=await fetch(PROXY+encodeURIComponent(csvUrl), { cache:'no-store' });
-        console.log('[AB] CSV status:', r.status);
+      console.log('[AB] CSV URL:', csvUrl);
 
-        if(!r.ok) continue;
+      const r = await fetch(PROXY + encodeURIComponent(csvUrl));
 
-        const txt=await r.text();
-        console.log('[AB] CSV chars:', txt.length, 'preview:', txt.slice(0,80));
-
-        // If Cloudflare/Savant returned HTML, skip it.
-        if(txt.trim().startsWith('<')){
-          console.warn('[AB] CSV returned HTML, skipping');
-          continue;
-        }
-
-        const rows=parseCSVText(txt);
-        console.log('[AB] Parsed rows:', rows.length, rows[0] ? Object.keys(rows[0]).slice(0,12) : []);
-
-        let added=0;
-        for(const row of rows){
-          const ev=parseFloat(row.launch_speed);
-          const la=parseFloat(row.launch_angle);
-          const pt=String(row.pitch_type||'').toUpperCase();
-
-          if(isNaN(ev)||isNaN(la)) continue;
-          if(arm && row.p_throws!==arm) continue;
-          if(pitchType && pt!==pitchType) continue;
-
-          out.push(mapStatcastABRow(row));
-          added++;
-        }
-
-        console.log('[AB] Added EV/LA rows:', added, 'season:', s);
-
-        // If we found data, no need to try backup URLs for this season.
-        if(added>0) break;
-      }catch(e){
-        console.warn('[AB] Statcast CSV failed:', e.message);
+      if(!r.ok){
+        console.warn('[AB] CSV failed', r.status);
+        continue;
       }
+
+      const txt = await r.text();
+
+      console.log('[AB] CSV chars:', txt.length);
+
+      const rows = parseCSVText(txt);
+
+      for(const row of rows){
+
+        const ev = parseFloat(row.launch_speed);
+        const la = parseFloat(row.launch_angle);
+
+        if(isNaN(ev) || isNaN(la)) continue;
+
+        if(arm && row.p_throws !== arm) continue;
+
+        const pt = String(row.pitch_type || '').toUpperCase();
+
+        if(pitchType && pt !== pitchType) continue;
+
+        out.push({
+          rawDate: row.game_date || '',
+          date: row.game_date || '--',
+          pitcher: row.player_name || '--',
+          arm: row.p_throws || '',
+          pt: pt,
+          ptNm: PITCH_NAMES[pt] || pt || '--',
+          ev: Math.round(ev * 10) / 10,
+          la: Math.round(la * 10) / 10,
+          dist: row.hit_distance_sc
+            ? Math.round(parseFloat(row.hit_distance_sc))
+            : null,
+          result: row.events || '--',
+          traj: row.bb_type || '--',
+          isHR: row.events === 'home_run',
+          isBrl: ev >= 98 && la >= 8 && la <= 32
+        });
+      }
+
+    }catch(e){
+      console.warn('[AB] Statcast CSV failed:', e.message);
     }
   }
 
   out.sort((a,b)=>new Date(b.rawDate)-new Date(a.rawDate));
+
   return out.slice(0,n);
 }
 
@@ -1575,7 +1550,7 @@ function titleCase(v){
 
 function renderABLog(rows){
   if(!rows.length){
-    document.getElementById('ab-list').innerHTML='<div class="empty">No Statcast EV/LA batted-ball rows found for this player/filter. Check console for [AB] CSV status and parsed rows.</div>';
+    document.getElementById('ab-list').innerHTML='<div class="empty">No Statcast batted-ball data found. Check that your Cloudflare Worker is deployed and the PROXY URL is correct.</div>';
     document.getElementById('ab-summary').innerHTML='';
     return;
   }
