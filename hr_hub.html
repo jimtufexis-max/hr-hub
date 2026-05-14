@@ -1364,12 +1364,66 @@ async function fetchABLog(pid,n,arm){
                 || d.stats?.[0]?.splits || [];
       if(!splits.length) continue;
 
+      // Collect all unique game PKs so we can look up starting pitchers
+      const gamePks=[...new Set(splits.map(sp=>sp.game?.gamePk).filter(Boolean))];
+
+      // Fetch schedule with probable pitchers for all game dates in one call
+      // Use the date range from first to last game in the splits
+      const dates=splits.map(sp=>sp.date||'').filter(Boolean).sort();
+      const startDate=dates[0]||''; const endDate=dates[dates.length-1]||'';
+      let spMap={}; // gamePk → {name, hand}
+      if(startDate && endDate){
+        try{
+          const sched=await fetchJSON(
+            `${MLB}/schedule?sportId=1&startDate=${startDate}&endDate=${endDate}`+
+            `&hydrate=probablePitcher(note)&gameType=R`
+          );
+          for(const dt of sched.dates||[]){
+            for(const g of dt.games||[]){
+              const gpk=String(g.gamePk);
+              // Away pitcher faces home batters, home pitcher faces away batters
+              // We'll store both and decide based on player's team
+              spMap[gpk]={
+                away:{name:g.teams?.away?.probablePitcher?.fullName||null,
+                      id:g.teams?.away?.probablePitcher?.id||null,
+                      team:g.teams?.away?.team?.abbreviation||''},
+                home:{name:g.teams?.home?.probablePitcher?.fullName||null,
+                      id:g.teams?.home?.probablePitcher?.id||null,
+                      team:g.teams?.home?.team?.abbreviation||''},
+              };
+            }
+          }
+        }catch(e){console.warn('schedule pitcher lookup failed:',e.message);}
+      }
+
+      // Get the player's team from their stats
+      const playerTeam=splits[0]?.team?.abbreviation||'';
+
       const recent=[...splits].reverse();
       const rows=[];
       for(const sp of recent){
         const st=sp.stat||{};
         const gd=(sp.date||'').slice(5,10);
         const opp=sp.opponent?.abbreviation||'?';
+        const gpk=String(sp.game?.gamePk||'');
+        const gameSpData=spMap[gpk];
+
+        // The opposing pitcher is the one from the OTHER team
+        // If player's team = home team, opposing SP = away SP and vice versa
+        let spName='?', spHand='?';
+        if(gameSpData){
+          const isHome=gameSpData.home.team===playerTeam || sp.isHome;
+          // If batter is on home team → facing away pitcher; if on away team → facing home pitcher
+          const oppSide=isHome?'away':'home';
+          // Actually: home batter faces the AWAY pitcher... no wait.
+          // Home batter faces home team's opponent = away pitcher
+          // Away batter faces away team's opponent = home pitcher
+          const facingSide=gameSpData.away.team===playerTeam?'home':'away';
+          spName=gameSpData[facingSide]?.name||opp;
+          // Get hand from roster cache or just leave as ?
+          spHand='?';
+        }
+
         const hr=parseInt(st.homeRuns)||0;
         const h=parseInt(st.hits)||0;
         const ab=parseInt(st.atBats)||0;
@@ -1379,6 +1433,7 @@ async function fetchABLog(pid,n,arm){
         const triples=parseInt(st.triples)||0;
         const rbi=parseInt(st.rbi)||0;
         if(ab===0&&hr===0&&bb===0) continue;
+
         let result='No Hit', isHR=false;
         if(hr>0){result=hr>1?`${hr} HRs`:'Home Run';isHR=true;}
         else if(triples>0)result='Triple';
@@ -1389,8 +1444,9 @@ async function fetchABLog(pid,n,arm){
         else if(bb>0)result='Walk';
         else if(k>=2)result='Multi-K';
         else if(k===1)result='Strikeout';
+
         rows.push({
-          date:gd, pitcher:opp, arm:'?', pt:'--', ptNm:'--',
+          date:gd, pitcher:spName, arm:spHand, pt:'--', ptNm:'--',
           ev:null, la:null, dist:null, pv:null, bs:null,
           traj:'', result, isHR, isBrl:false, hrPk:'--',
           gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K${rbi>0?` · ${rbi} RBI`:''}`,
