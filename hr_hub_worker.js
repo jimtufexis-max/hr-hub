@@ -17,6 +17,7 @@ const ALLOWED_ORIGINS = [
 const ALLOWED_HOSTS = [
   'baseballsavant.mlb.com',
   'fangraphs.com',
+  'www.fangraphs.com',
   'statsapi.mlb.com',
   'api.open-meteo.com',
 ];
