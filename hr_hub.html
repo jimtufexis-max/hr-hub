@@ -409,7 +409,7 @@ const SEASON = 2026;
 const MLB    = 'https://statsapi.mlb.com/api/v1';
 // ── Cloudflare Worker proxy — set to your deployed worker URL ──────────────
 // Deploy hr_hub_worker.js to Cloudflare Workers, then update this:
-const PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
+const PROXY = 'https://hr-hub-worker.hrhub.workers.dev/?url=';
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
   ATL:1.04,CHC:1.03,TEX:1.03,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
   WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.97,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
@@ -1449,13 +1449,21 @@ async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
 
   for(const s of years){
     try{
-      // Note: correct Savant param is batters_lookup[] not battersLookup[]
       const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&batters_lookup%5B%5D=${pid}&type=details&min_pitches=0&min_results=0&group_by=name&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&`;
-      const r=await fetch(PROXY+encodeURIComponent(url));
-      if(!r.ok) throw new Error(`Statcast HTTP ${r.status}`);
-
+      const proxyUrl=PROXY+encodeURIComponent(url);
+      console.log('Fetching Statcast via proxy:', proxyUrl.slice(0,100)+'...');
+      const r=await fetch(proxyUrl);
+      console.log('Proxy response status:', r.status, r.statusText);
+      if(!r.ok){
+        const body=await r.text().catch(()=>'');
+        console.warn('Proxy error body:', body.slice(0,200));
+        throw new Error(`Proxy HTTP ${r.status} — check worker is deployed at ${PROXY.split('?')[0]}`);
+      }
       const txt=await r.text();
-      if(txt.includes('<!DOCTYPE')||txt.includes('<html')) throw new Error('Got HTML instead of CSV — proxy may be misconfigured');
+      console.log('Proxy response length:', txt.length, 'chars, first 100:', txt.slice(0,100));
+      if(txt.includes('<!DOCTYPE')||txt.includes('<html')){
+        throw new Error('Proxy returned HTML — worker may not be deployed correctly');
+      }
 
       const allRows=parseCSVText(txt);
       if(!allRows.length) continue;
@@ -1604,7 +1612,8 @@ function renderABLog(rows){
         ${metric('Hits',totalH,totalH>0)}
       </div>
       <div style="font-size:.68rem;color:var(--t4);padding:6px 10px;background:var(--bg3);border-radius:6px;margin-top:6px">
-        ⚠️ Proxy unavailable — showing game log. Deploy Cloudflare Worker for full Statcast EV/LA data.
+        ⚠️ Proxy unavailable — showing game log. Check your Cloudflare Worker is deployed at:<br>
+        <code style="color:var(--amber);font-size:.65rem;word-break:break-all">${PROXY.split('?')[0]}</code>
       </div>`;
   }
 
