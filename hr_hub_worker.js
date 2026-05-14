@@ -1,142 +1,109 @@
-/**
- * HR Hub — Cloudflare Worker Proxy
- * Fetches Baseball Savant and FanGraphs data server-side,
- * returns it with CORS headers so the mobile app can read it.
- *
- * Deploy: wrangler deploy  OR  paste into workers.cloudflare.com dashboard
- * Usage:  https://your-worker.workers.dev/?url=https://baseballsavant.mlb.com/...
- */
-
-const ALLOWED_ORIGINS = [
-  'https://jimtufexis-max.github.io',
-  'https://homerunhub.app',
-  'http://localhost',
-  'null', // local file:// development
-];
-
-const ALLOWED_HOSTS = [
-  'baseballsavant.mlb.com',
-  'fangraphs.com',
-  'www.fangraphs.com',
-  'statsapi.mlb.com',
-  'api.open-meteo.com',
-];
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+// HR Hub Proxy Worker — with Savant session cookie support
+// Paste into Cloudflare Workers dashboard → Save & Deploy
 
 export default {
-  async fetch(request, env, ctx) {
-    // Handle CORS preflight
+  async fetch(request) {
+
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: CORS_HEADERS });
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Access-Control-Allow-Headers': '*',
+        }
+      });
     }
 
     const url = new URL(request.url);
 
-    // Health check
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({ status: 'ok', ts: Date.now() }), {
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      return new Response(JSON.stringify({ status: 'ok', worker: 'hr-hub-proxy', v: 2, ts: Date.now() }), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
-    // Get target URL from query param
     const target = url.searchParams.get('url');
     if (!target) {
       return new Response(JSON.stringify({ error: 'Missing ?url= parameter' }), {
         status: 400,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
-    // Validate target host
     let targetUrl;
-    try {
-      targetUrl = new URL(target);
-    } catch {
+    try { targetUrl = new URL(decodeURIComponent(target)); }
+    catch { try { targetUrl = new URL(target); } catch(e) {
       return new Response(JSON.stringify({ error: 'Invalid URL' }), {
-        status: 400,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        status: 400, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
+    }}
+
+    const allowed = ['baseballsavant.mlb.com','fangraphs.com','statsapi.mlb.com','api.open-meteo.com'];
+    if (!allowed.some(h => targetUrl.hostname.endsWith(h))) {
+      return new Response(JSON.stringify({ error: 'Host not allowed: ' + targetUrl.hostname }), {
+        status: 403, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
-    const allowed = ALLOWED_HOSTS.some(h => targetUrl.hostname.endsWith(h));
-    if (!allowed) {
-      return new Response(JSON.stringify({ error: `Host not allowed: ${targetUrl.hostname}` }), {
-        status: 403,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
-    }
+    // For Savant statcast_search CSV — get session cookie first
+    const isSavantSearch = targetUrl.hostname === 'baseballsavant.mlb.com' &&
+                           targetUrl.pathname.includes('statcast_search');
 
-    // Cache key — use full target URL
-    const cacheKey = new Request(target, { method: 'GET' });
-    const cache = caches.default;
-
-    // Check cache first
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const resp = new Response(cached.body, cached);
-      resp.headers.set('X-Cache', 'HIT');
-      resp.headers.set('Access-Control-Allow-Origin', '*');
-      return resp;
-    }
-
-    // Fetch from origin
     try {
-      const originResp = await fetch(target, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/json,text/csv,*/*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Referer': 'https://baseballsavant.mlb.com/',
-        },
-        cf: {
-          // Cloudflare-specific: cache for 30 min at the edge
-          cacheTtl: 1800,
-          cacheEverything: true,
-        },
-      });
+      let cookie = '';
 
-      if (!originResp.ok) {
-        return new Response(
-          JSON.stringify({ error: `Origin returned ${originResp.status}`, url: target }),
-          {
-            status: originResp.status,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-          }
-        );
+      if (isSavantSearch) {
+        // Step 1: Hit Savant homepage to get session cookie
+        const homeResp = await fetch('https://baseballsavant.mlb.com/', {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+          redirect: 'follow',
+        });
+        // Extract all cookies from Set-Cookie headers
+        const setCookie = homeResp.headers.get('set-cookie') || '';
+        // Parse cookie name=value pairs
+        cookie = setCookie.split(',')
+          .map(c => c.split(';')[0].trim())
+          .filter(c => c.includes('='))
+          .join('; ');
       }
 
-      const body = await originResp.arrayBuffer();
-      const contentType = originResp.headers.get('Content-Type') || 'text/plain';
+      // Step 2: Make the actual request with cookie
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/json,text/csv,*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://baseballsavant.mlb.com/statcast_search',
+        'Origin': 'https://baseballsavant.mlb.com',
+      };
+      if (cookie) headers['Cookie'] = cookie;
 
-      const response = new Response(body, {
-        status: 200,
+      const resp = await fetch(targetUrl.toString(), { headers });
+      const body = await resp.arrayBuffer();
+      const contentType = resp.headers.get('Content-Type') || 'text/plain';
+
+      // Log response size for debugging
+      const size = body.byteLength;
+
+      return new Response(body, {
+        status: resp.status,
         headers: {
-          ...CORS_HEADERS,
           'Content-Type': contentType,
-          'X-Cache': 'MISS',
-          // Cache for 30 min — Savant data doesn't change mid-game
-          'Cache-Control': 'public, max-age=1800',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache',
+          'X-Response-Size': String(size),
+          'X-Had-Cookie': cookie ? 'yes' : 'no',
         },
       });
 
-      // Store in cache (don't await — fire and forget)
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
-
-      return response;
     } catch (err) {
-      return new Response(
-        JSON.stringify({ error: 'Fetch failed', message: err.message, url: target }),
-        {
-          status: 502,
-          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        }
-      );
+      return new Response(JSON.stringify({ error: err.message, target: targetUrl.hostname }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+      });
     }
-  },
+  }
 };
