@@ -489,7 +489,7 @@ async function getPitcherHand(pid){
 async function getSavantBatters(){
   try{
     const url=`https://baseballsavant.mlb.com/leaderboard/exit-velocity-barrels?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
-    const r=await fetch(PROXY+encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok)throw new Error(`savant batters ${r.status}`);
     const txt=await r.text();
     const rows=parseCSVText(txt); const out={};
@@ -511,7 +511,7 @@ async function getSavantBatters(){
 async function getFGBatters(){
   try{
     const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=bat&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=2000&pagenum=1`;
-    const r=await fetch(PROXY+encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok)throw new Error(`fg batters ${r.status}`);
     const d=await r.json(); const out={};
     for(const row of (d.data||[])){
@@ -536,7 +536,7 @@ async function getFGBatters(){
 async function getSavantPitchers(){
   try{
     const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&year=${SEASON}&position=&team=&min=10&csv=true`;
-    const r=await fetch(PROXY+encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok)throw new Error(`savant pitchers ${r.status}`);
     const txt=await r.text();
     const rows=parseCSVText(txt); const out={};
@@ -557,7 +557,7 @@ async function getSavantPitchers(){
 async function getFGPitchers(){
   try{
     const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=pit&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=1000&pagenum=1`;
-    const r=await fetch(PROXY+encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok)throw new Error(`fg pitchers ${r.status}`);
     const d=await r.json(); const out={};
     for(const row of (d.data||[])){
@@ -583,7 +583,7 @@ async function getPitcherL14(pid){
     const now=new Date(), st=new Date(); st.setDate(st.getDate()-14);
     const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${SEASON}%7C&player_type=pitcher&pitchersLookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&`;
-    const r=await fetch(PROXY+encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok)return{};
     const txt=await r.text();
     const rows=parseCSVText(txt);
@@ -1299,7 +1299,7 @@ async function fetchABLog(pid,n,arm){
   for(const s of[SEASON, SEASON-1]){
     try{
       const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&battersLookup%5B%5D=${pid}&type=details&`;
-      const r=await fetch(PROXY+encodeURIComponent(url));
+      const r = await fetch(PROXY + encodeURIComponent(url));
       if(!r.ok) throw new Error(`savant AB ${r.status}`);
       const txt=await r.text();
       const allRows=parseCSVText(txt);
