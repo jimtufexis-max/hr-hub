@@ -1437,103 +1437,77 @@ async function populatePitchTypeFilter(pid,arm,selected){
   }
 }
 
-async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
+async function fetchABLog(pid,n,arm,pitchType=''){
   if(!pid) return [];
 
-  // Savant statcast_search/csv requires a browser session cookie and returns
-  // headers-only when called server-side. Use the savant-player endpoint instead,
-  // which returns JSON without auth.
-  for(const s of[SEASON, SEASON-1]){
-    try{
-      // This endpoint returns the player's statcast game log as JSON
-      const url=`https://baseballsavant.mlb.com/savant-player/${pid}?stats=statcast-r-hitting-mlb&season=${s}`;
-      const proxyUrl=PROXY+encodeURIComponent(url);
-      console.log(`[AB] Trying savant-player page season ${s}`);
-      const r=await fetch(proxyUrl);
-      console.log(`[AB] status:`,r.status);
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      const txt2=await r.text();
-      console.log(`[AB] got ${txt2.length} chars`);
-      // Parse the embedded JSON from the HTML page
-      const match=txt2.match(/var\s+playerStatcastData\s*=\s*(\[.*?\]);/s)||
-                  txt2.match(/"statcast_hitting":\s*(\[.*?\])/s);
-      if(match){
-        const data=JSON.parse(match[1]);
-        console.log(`[AB] Found ${data.length} statcast rows`);
-        if(data.length>0) throw new Error('parse HTML route — skip to JSON');
-      }
-    }catch(e){ console.warn('[AB] savant-player failed:',e.message); }
+  const years=[SEASON,SEASON-1,SEASON-2];
+  const out=[];
 
-    // Try the statcast game log JSON endpoint
+  for(const s of years){
     try{
-      const url=`https://baseballsavant.mlb.com/player-services/statcast-pitches-approached?player_id=${pid}&position=B&team=&season=${s}&type=career`;
-      const proxyUrl=PROXY+encodeURIComponent(url);
-      console.log(`[AB] Trying statcast-pitches API season ${s}`);
-      const r=await fetch(proxyUrl);
-      console.log(`[AB] pitches API status:`,r.status,r.headers.get('content-type'));
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data=await r.json();
-      console.log(`[AB] pitches API keys:`,Object.keys(data).slice(0,8));
-    }catch(e){ console.warn('[AB] pitches API failed:',e.message); }
-  }
 
-  // MLB Stats API game log with pitcher name lookup
-  console.log('[AB] Using MLB game log');
-  for(const s of[SEASON, SEASON-1]){
-    try{
-      const d=await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
-      const splits=(d.stats||[]).find(x=>x.type?.displayName==='gameLog')?.splits||d.stats?.[0]?.splits||[];
-      if(!splits.length) continue;
+      const csvUrl =
+        `https://baseballsavant.mlb.com/statcast_search/csv?` +
+        `hfSea=${s}%7C&` +
+        `player_type=batter&` +
+        `batters_lookup%5B%5D=${pid}&` +
+        `type=details&`;
 
-      // Fetch pitcher names via schedule
-      const dates=[...new Set(splits.map(sp=>sp.date||'').filter(Boolean))].sort();
-      let spMap={};
-      if(dates.length>=2){
-        try{
-          const sched=await fetchJSON(`${MLB}/schedule?sportId=1&startDate=${dates[0]}&endDate=${dates[dates.length-1]}&hydrate=probablePitcher&gameType=R`);
-          for(const dt of sched.dates||[])
-            for(const g of dt.games||[]){
-              const gpk=String(g.gamePk);
-              spMap[gpk]={
-                away:{name:g.teams?.away?.probablePitcher?.fullName||null,abbr:g.teams?.away?.team?.abbreviation||''},
-                home:{name:g.teams?.home?.probablePitcher?.fullName||null,abbr:g.teams?.home?.team?.abbreviation||''},
-              };
-            }
-        }catch{}
+      console.log('[AB] CSV URL:', csvUrl);
+
+      const r = await fetch(PROXY + encodeURIComponent(csvUrl));
+
+      if(!r.ok){
+        console.warn('[AB] CSV failed', r.status);
+        continue;
       }
 
-      const playerTeam=splits[0]?.team?.abbreviation||'';
-      const rows=[...splits].reverse().map(sp=>{
-        const st=sp.stat||{};
-        const hr=parseInt(st.homeRuns)||0,h=parseInt(st.hits)||0,ab=parseInt(st.atBats)||0;
-        const bb=parseInt(st.baseOnBalls)||0,k=parseInt(st.strikeOuts)||0;
-        const doubles=parseInt(st.doubles)||0,triples=parseInt(st.triples)||0,rbi=parseInt(st.rbi)||0;
-        if(ab===0&&hr===0&&bb===0) return null;
-        let result='No Hit',isHR=false;
-        if(hr>0){result=hr>1?`${hr} HRs`:'Home Run';isHR=true;}
-        else if(triples>0)result='Triple';else if(doubles>0)result='Double';
-        else if(h>=3)result=`${h}-Hit Game`;else if(h===2)result='2 Hits';
-        else if(h===1)result='Single';else if(bb>0)result='Walk';
-        else if(k>=2)result='Multi-K';else if(k===1)result='Strikeout';
-        // Pitcher name from schedule
-        const gpk=String(sp.game?.gamePk||'');
-        const gm=spMap[gpk];
-        let spName=sp.opponent?.abbreviation||'?';
-        if(gm){
-          const myTeam=sp.team?.abbreviation||playerTeam;
-          const facingSide=gm.away.abbr===myTeam?'home':'away';
-          spName=gm[facingSide]?.name||spName;
-        }
-        return{rawDate:sp.date||'',date:(sp.date||'').slice(5,10),
-          pitcher:spName,arm:'?',pt:'',ptNm:'--',
-          ev:null,la:null,dist:null,isBrl:false,result,isHR,traj:'',source:'gamelog',
-          gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K`+(rbi>0?` · ${rbi} RBI`:''),
-        };
-      }).filter(Boolean);
-      if(rows.length) return rows.slice(0,n);
-    }catch(e){console.warn('[AB] game log failed:',e.message);}
+      const txt = await r.text();
+
+      console.log('[AB] CSV chars:', txt.length);
+
+      const rows = parseCSVText(txt);
+
+      for(const row of rows){
+
+        const ev = parseFloat(row.launch_speed);
+        const la = parseFloat(row.launch_angle);
+
+        if(isNaN(ev) || isNaN(la)) continue;
+
+        if(arm && row.p_throws !== arm) continue;
+
+        const pt = String(row.pitch_type || '').toUpperCase();
+
+        if(pitchType && pt !== pitchType) continue;
+
+        out.push({
+          rawDate: row.game_date || '',
+          date: row.game_date || '--',
+          pitcher: row.player_name || '--',
+          arm: row.p_throws || '',
+          pt: pt,
+          ptNm: PITCH_NAMES[pt] || pt || '--',
+          ev: Math.round(ev * 10) / 10,
+          la: Math.round(la * 10) / 10,
+          dist: row.hit_distance_sc
+            ? Math.round(parseFloat(row.hit_distance_sc))
+            : null,
+          result: row.events || '--',
+          traj: row.bb_type || '--',
+          isHR: row.events === 'home_run',
+          isBrl: ev >= 98 && la >= 8 && la <= 32
+        });
+      }
+
+    }catch(e){
+      console.warn('[AB] Statcast CSV failed:', e.message);
+    }
   }
-  return[];
+
+  out.sort((a,b)=>new Date(b.rawDate)-new Date(a.rawDate));
+
+  return out.slice(0,n);
 }
 
 
