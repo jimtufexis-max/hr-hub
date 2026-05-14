@@ -392,9 +392,9 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 </div><!-- /app -->
 
 <script>
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  STATE
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 const S = {
   date:     new Date(),
   selPks:   new Set(),
@@ -407,7 +407,7 @@ const S = {
 
 const SEASON = 2026;
 const MLB    = 'https://statsapi.mlb.com/api/v1';
-// ── Cloudflare Worker proxy — set to your deployed worker URL ──────────────
+// -- Cloudflare Worker proxy — set to your deployed worker URL --------------
 // Deploy hr_hub_worker.js to Cloudflare Workers, then update this:
 const PROXY = 'https://hr-hub-worker.hrhub.workers.dev/?url=';
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
@@ -419,9 +419,9 @@ const PITCH_NAMES = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',CU:'Curve',
 const PITCH_COLORS = {FF:'#dc2626',SI:'#b91c1c',FC:'#ea580c',SL:'#2563eb',ST:'#1d4ed8',
   SV:'#0891b2',CU:'#7c3aed',KC:'#6d28d9',CH:'#16a34a',FS:'#15803d',KN:'#6b7280'};
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  DATE
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 function ds(d=S.date){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function dlbl(d=S.date){
   const today=new Date(); today.setHours(0,0,0,0); const t=new Date(d); t.setHours(0,0,0,0);
@@ -432,9 +432,9 @@ function dlbl(d=S.date){
 function shiftDate(n){S.date.setDate(S.date.getDate()+n);S.selPks.clear();S.allRows=[];loadSlate()}
 function goToday(){S.date=new Date();S.selPks.clear();S.allRows=[];loadSlate()}
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  NAVIGATION
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
@@ -444,9 +444,9 @@ function showPage(name){
   if(name==='parlay') renderParlay();
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  DATA FETCHING
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 async function fetchJSON(url){
   const r=await fetch(url);
   if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
@@ -638,9 +638,9 @@ async function getPitcherL14(pid){
   }catch(e){console.warn('getPitcherL14 failed:',e.message);return{};}
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  PROBABILITY ENGINE (mirrors Python app)
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 const MLB_AVG = 0.035;
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
 
@@ -659,7 +659,7 @@ function calcBaseProb(h){
 
   // Counting stat proxies (used when Statcast unavailable)
   if(iso!=null)scores.push([clamp(iso/0.170,0.3,2.5),brl!=null?0.10:0.40]);
-  // HR rate is the most direct signal — league avg ~3.5% per game ≈ 1 HR per 14 AB
+  // HR rate is the most direct signal — league avg ~3.5% per game ~ 1 HR per 14 AB
   if(hrRate!=null)scores.push([clamp(hrRate/0.035,0.2,3.0),brl!=null?0.05:0.45]);
 
   if(!scores.length)return MLB_AVG;
@@ -736,9 +736,9 @@ function probToAmerican(p){
   return String(Math.round(-p/(1-p)*100));
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  CSV HELPERS
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 function parseCSVText(txt){
   const clean = String(txt || '').trim();
   if (!clean) return [];
@@ -813,9 +813,9 @@ function normName(v){
     .trim();
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  MAIN LOAD FLOW
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 let gamesCache=[];
 
 async function loadSlate(){
@@ -1061,9 +1061,9 @@ async function loadGame(g){
   }
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  RENDER SLATE
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 function setSort(key,el){
   S.sortKey=key;
   document.querySelectorAll('.filter-pill').forEach(p=>p.classList.remove('active'));
@@ -1148,9 +1148,9 @@ function renderWeather(wx,homeTeam){
     </div>`;
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  PLAYER DETAIL
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
@@ -1251,9 +1251,9 @@ function calcBetEV(id,pctStr){
   }catch{el.innerHTML=`<div style="color:var(--red);font-size:.8rem">Invalid odds format</div>`;}
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  PARLAY BUILDER
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 function renderParlay(){
   const minP=parseFloat(document.getElementById('par-min-prob').value||4)/100;
   const eligible=S.allRows.filter(r=>r.prob>=minP).sort((a,b)=>b.prob-a.prob);
@@ -1338,9 +1338,9 @@ function calcParlayEV(){
 }
 
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  AB EXPLORER — RUDEBETS-STYLE STATCAST TABLE
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 function populateABSelect(){
   const sel=document.getElementById('ab-batter');
   if(!S.allRows.length){
@@ -1438,7 +1438,7 @@ async function populatePitchTypeFilter(pid,arm,selected){
 async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
   if(!pid) return [];
 
-  // ── Try Savant pitch-by-pitch via proxy ─────────────────────────
+  // -- Try Savant pitch-by-pitch via proxy -------------------------
   const AB_EVENTS=new Set(['single','double','triple','home_run','field_out',
     'grounded_into_double_play','strikeout','strikeout_double_play','force_out',
     'field_error','fielders_choice','fielders_choice_out','double_play','sac_fly',
@@ -1493,7 +1493,7 @@ async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
     return out.slice(0,n);
   }
 
-  // ── Fallback: MLB Stats API game log ─────────────────────────────
+  // -- Fallback: MLB Stats API game log -----------------------------
   console.log('Savant unavailable — falling back to MLB game log');
   for(const s of[SEASON,SEASON-1]){
     try{
@@ -1659,16 +1659,16 @@ function renderABLog(rows){
 }
 
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  UTILS
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 function refreshData(){
   S.cache={};S.allRows=[];S.selPks.clear();loadSlate();
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  PWA — Service Worker + Install Prompt
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').then(reg=>{
     console.log('SW registered:', reg.scope);
@@ -1744,9 +1744,9 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
   }, 3000);
 }
 
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 //  INIT
-// ══════════════════════════════════════════════════════════════════
+// ==================================================================
 populateABSelect();
 loadSlate();
 </script>
