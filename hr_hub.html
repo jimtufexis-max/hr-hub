@@ -254,22 +254,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 .ev-pos{background:#0d3320;color:var(--green);border:1px solid var(--green)}
 .ev-neg{background:#3d1110;color:var(--red);border:1px solid var(--red)}
 .ev-neu{background:var(--bg3);color:var(--t3);border:1px solid var(--bdr)}
-
-/* ── Safe Statcast AB Table ───────────────────────────────────── */
-.ab-table-wrap{overflow-x:auto;border:1px solid var(--bdr);border-radius:12px;background:var(--bg2);margin-top:8px}
-.ab-table{width:100%;border-collapse:collapse;min-width:820px;font-size:.74rem}
-.ab-table th{background:#14101c;color:var(--t4);text-align:left;padding:10px;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--bdr)}
-.ab-table td{padding:9px 10px;border-bottom:1px solid rgba(45,61,82,.45);color:var(--t1)}
-.ab-table tr.hr-row{background:rgba(34,201,94,.10)}
-.ab-table tr:last-child td{border-bottom:none}
-.ab-metric-grid{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--bdr);border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#11101a,#0d0d14);margin:10px 0 12px}
-.ab-metric{padding:12px 8px;text-align:center;border-right:1px solid rgba(45,61,82,.7)}
-.ab-metric:last-child{border-right:none}
-.ab-metric .lbl{font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
-.ab-metric .val{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:800;color:var(--t1)}
-.ab-metric .good{color:var(--green)}
-@media(max-width:700px){.ab-metric-grid{grid-template-columns:repeat(2,1fr)}.ab-metric{border-bottom:1px solid rgba(45,61,82,.7)}}
-
 </style>
 </head>
 <body>
@@ -1387,8 +1371,22 @@ async function fetchABLog(pid,n,arm){
         'field_error','fielders_choice','fielders_choice_out','double_play','sac_fly',
         'sac_bunt','walk','hit_by_pitch']);
 
-      let rows=allRows.filter(r=>r.events&&AB_EVENTS.has(r.events.toLowerCase()));
-      if(arm) rows=rows.filter(r=>r.p_throws===arm);
+      // Statcast-only: keep only batted-ball rows with real EV/LA
+      let rows = allRows.filter(r => {
+        if (!r.events) return false;
+
+        const ev = parseFloat(r.launch_speed);
+        const la = parseFloat(r.launch_angle);
+
+        return (
+          AB_EVENTS.has(r.events.toLowerCase()) &&
+          !isNaN(ev) &&
+          !isNaN(la)
+        );
+      });
+
+      if (arm) rows = rows.filter(r => r.p_throws === arm);
+
       rows.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
       rows=rows.slice(0,n);
       if(!rows.length) continue;
@@ -1588,7 +1586,7 @@ function renderABLog(rows){
     ?`<div style="font-size:.64rem;color:var(--green);padding:4px 8px;background:rgba(34,201,94,.08);border-radius:5px;border:1px solid rgba(34,201,94,.2)">⚡ Full Statcast AB data via proxy — EV/LA shown</div>`
     :isFanGraphs
       ?`<div style="font-size:.64rem;color:var(--amber);padding:4px 8px;background:rgba(240,165,0,.08);border-radius:5px;border:1px solid rgba(240,165,0,.2)">📈 FanGraphs fallback — season profile shown because Statcast AB rows were unavailable</div>`
-      :`<div style="font-size:.64rem;color:var(--t4);padding:4px 8px;background:var(--bg3);border-radius:5px">📊 MLB fallback — Statcast and FanGraphs unavailable for this player/filter; EV/LA unavailable</div>`;
+      :`<div style="font-size:.64rem;color:var(--t4);padding:4px 8px;background:var(--bg3);border-radius:5px">📊 No Statcast EV/LA rows found for this player/filter</div>`;
 
   document.getElementById('ab-summary').innerHTML=`
     <div class="stat-scroll">${summaryStats}</div>
