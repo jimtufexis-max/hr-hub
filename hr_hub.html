@@ -550,14 +550,22 @@ function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
 
 function calcBaseProb(h){
   if(!h)return MLB_AVG;
-  const brl=h.barrel_pct,hard=h.hard_hit_pct,pull=h.pull_pct,fb=h.fb_pct,iso=h.iso,ev=h.avg_ev;
+  const brl=h.barrel_pct,hard=h.hard_hit_pct,pull=h.pull_pct,fb=h.fb_pct;
+  const iso=h.iso,ev=h.avg_ev,hrRate=h.hr_rate;
   const scores=[];
+
+  // Statcast metrics (best signals — only when available)
   if(brl!=null)scores.push([clamp(0.3+brl*0.115,0.3,2.8),0.35]);
   if(hard!=null)scores.push([clamp(0.3+hard/37.0,0.5,1.8),0.20]);
   if(pull!=null&&fb!=null)scores.push([clamp(0.4+(pull/38.0)*(fb/35.0)*0.60,0.4,2.0),0.20]);
   else if(pull!=null)scores.push([clamp(pull/38.0,0.4,1.8),0.10]);
-  if(iso!=null)scores.push([clamp(iso/0.170,0.3,2.5),0.15]);
   if(ev!=null)scores.push([clamp(0.2+ev/88.0*0.8,0.4,1.6),0.10]);
+
+  // Counting stat proxies (used when Statcast unavailable)
+  if(iso!=null)scores.push([clamp(iso/0.170,0.3,2.5),brl!=null?0.10:0.40]);
+  // HR rate is the most direct signal — league avg ~3.5% per game ≈ 1 HR per 14 AB
+  if(hrRate!=null)scores.push([clamp(hrRate/0.035,0.2,3.0),brl!=null?0.05:0.45]);
+
   if(!scores.length)return MLB_AVG;
   const tw=scores.reduce((s,[,w])=>s+w,0);
   const wm=scores.reduce((s,[m,w])=>s+m*w,0)/tw;
@@ -711,10 +719,47 @@ async function toggleGame(pk){
   await loadSelectedGames();
 }
 
-// Bulk leaderboard data (load once)
-let _savB=null,_fgB=null,_savP=null,_fgP=null;
+// Bulk leaderboard data — Savant/FG blocked by CORS from browser
+// Instead fetch per-player stats from MLB Stats API which allows CORS
+let _savB={},_fgB={},_savP={},_fgP={};
 async function ensureLeaderboards(){
-  if(!_savB)[_savB,_fgB,_savP,_fgP]=await Promise.all([getSavantBatters(),getFGBatters(),getSavantPitchers(),getFGPitchers()]);
+  // These are no-ops — we fetch per-player stats in loadGame instead
+  // Savant CSV and FanGraphs block cross-origin browser requests
+}
+
+// Fetch a single player's season hitting stats from MLB Stats API
+const _playerCache={};
+async function getPlayerStats(pid, season=SEASON){
+  const key=`${pid}_${season}`;
+  if(_playerCache[key]) return _playerCache[key];
+  try{
+    const d=await fetchJSON(`${MLB}/people/${pid}?hydrate=stats(group=[hitting],type=season,season=${season})`);
+    const p=d.people?.[0];
+    const st=p?.stats?.find(s=>s.group?.displayName==='hitting')?.splits?.[0]?.stat||null;
+    _playerCache[key]={hand:p?.batSide?.code||'R', stat:st};
+    return _playerCache[key];
+  }catch{_playerCache[key]=null;return null;}
+}
+
+// Convert MLB API hitting stat object to our hData format
+// MLB API doesn't have Statcast metrics so we derive proxies from counting stats
+function statToHData(st, hand){
+  if(!st) return {};
+  const n=v=>v!=null?parseFloat(v):null;
+  const slg=n(st.sluggingPercentage), avg=n(st.avg);
+  const iso=slg!=null&&avg!=null?Math.round((slg-avg)*1000)/1000:null;
+  const ops=n(st.ops);
+  const hr=n(st.homeRuns), ab=n(st.atBats), pa=n(st.plateAppearances);
+  // HR/AB as proxy for power — average ~3.5% = league avg
+  const hrRate=hr!=null&&ab!=null&&ab>0?hr/ab:null;
+  // Pull% / FB% proxied from handedness and ISO
+  return {
+    iso, ops, avg:n(st.avg), slg, obp:n(st.obp),
+    hr_rate: hrRate,
+    // These will be null — no Statcast from MLB API alone
+    barrel_pct:null, hard_hit_pct:null, avg_ev:null, avg_la:null,
+    pull_pct:null, fb_pct:null, swstr_pct:null,
+  };
 }
 
 async function loadSelectedGames(){
@@ -776,34 +821,30 @@ async function loadGame(g){
     const roster=await getRoster(team);
     const hitters=roster.filter(h=>h.pos!=='P'&&h.pos!=='');
     const rows=[];
+
+    // Fetch all player stats in parallel (max 8 at a time to avoid rate limiting)
+    const BATCH=8;
+    const allStats={};
+    for(let i=0;i<hitters.length;i+=BATCH){
+      const chunk=hitters.slice(i,i+BATCH);
+      const results=await Promise.allSettled(
+        chunk.map(h=>getPlayerStats(String(h.id)))
+      );
+      chunk.forEach((h,j)=>{
+        if(results[j].status==='fulfilled') allStats[String(h.id)]=results[j].value;
+      });
+    }
+
     for(const h of hitters){
       const pid=String(h.id);
-      // Merge stats from leaderboards
-      const savH=_savB[pid]||{};const fgH=_fgB[pid]||{};
-      const hData={
-        barrel_pct: savH.barrel_pct??fgH.barrel,
-        hard_hit_pct: savH.hard_hit_pct??fgH.hard,
-        avg_ev: savH.avg_ev??fgH.avgEV,
-        avg_la: savH.avg_la,
-        pull_pct: fgH.pull,
-        fb_pct: fgH.fb,
-        iso: fgH.iso,
-        ops: fgH.ops,
-        swstr_pct: fgH.swstr,
-      };
-      // Build rough pitcher row from leaderboards
-      const savP=_savP[String(g.homeSpId)||'']||_savP[String(g.awaySpId)||'']||{};
-      const fgP=_fgP[String(g.homeSpId)||'']||_fgP[String(g.awaySpId)||'']||{};
-      const pData={brl:savP.barrel_pct,hard:savP.hard_hit_pct,
-        kPct:fgP.kPct,hrFb:fgP.hrFb,fbPct:fgP.fbPct};
-      // L14 pitcher risk adjustment
-      const pL14Mult=pL14?.brl!=null?clamp(pL14.brl/6.5,0.4,2.2):1.0;
+      const ps=allStats[pid];
+      const hData=ps?.stat ? statToHData(ps.stat, ps.hand) : {};
 
       const base=calcBaseProb(hData);
-      const matchup=calcMatchupMult(pData,null,null);
+      const matchup=calcMatchupMult({},null,null); // pitcher data not available without Statcast
       const context=calcContextMult(pf,wx);
-      const l14mod=calcL14Mod(hData,null);
-      const prob=clamp(base*matchup*context*l14mod*(pL14Mult**0.3),0.01,0.40);
+      const l14mod=1.0; // no L14 without Savant
+      const prob=clamp(base*matchup*context*l14mod,0.01,0.40);
       const[grd,gc,gCls]=probGrade(prob);
 
       rows.push({
@@ -812,7 +853,6 @@ async function loadGame(g){
         prob,base,matchup,context,l14mod,grade:grd,gradeColor:gc,gradeCls:gCls,
         ...hData,
         l14hr:null,l14woba:null,l14brl:null,l14hard:null,l14ev:null,
-        _pData:pData,_pL14:pL14,
       });
     }
     rows.sort((a,b)=>b.prob-a.prob);
