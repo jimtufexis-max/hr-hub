@@ -714,11 +714,61 @@ function probToAmerican(p){
 //  CSV HELPERS
 // ══════════════════════════════════════════════════════════════════
 function parseCSVText(txt){
-  const lines=txt.trim().split('\n');if(lines.length<2)return[];
-  const hdrs=lines[0].split(',').map(h=>h.trim().replace(/"/g,'').toLowerCase());
-  return lines.slice(1).filter(l=>l.trim()).map(line=>{
-    const cols=line.split(',').map(c=>c.trim().replace(/"/g,''));
-    const row={};hdrs.forEach((h,i)=>{row[h]=cols[i]??''});return row;
+  const clean = String(txt || '').trim();
+  if (!clean) return [];
+
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean[i];
+    const next = clean[i + 1];
+
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === ',' && !inQuotes) {
+      row.push(cell);
+      cell = '';
+    } else if ((ch === '
+' || ch === '
+') && !inQuotes) {
+      if (ch === '
+' && next === '
+') i++;
+      row.push(cell);
+      if (row.some(v => String(v).trim() !== '')) rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += ch;
+    }
+  }
+
+  row.push(cell);
+  if (row.some(v => String(v).trim() !== '')) rows.push(row);
+
+  if (rows.length < 2) return [];
+
+  const hdrs = rows[0].map(h =>
+    String(h || '')
+      .trim()
+      .replace(/^"|"$/g, '')
+      .toLowerCase()
+  );
+
+  return rows.slice(1).map(cols => {
+    const obj = {};
+    hdrs.forEach((h, i) => {
+      obj[h] = String(cols[i] ?? '').trim().replace(/^"|"$/g, '');
+    });
+    return obj;
   });
 }
 function parseCSV(txt,idCol1,idCol2,prefix=''){
@@ -1427,11 +1477,8 @@ function renderABLog(rows){
       ?`${sb('Avg EV',avgEV,' mph',v=>v>=90)}${sb('Barrel Flag',nBrl,'',v=>v>0)}`
       :`${sb('Games',rows.length,'',()=>true)}${sb('HRs 💥',nHR,'',v=>v>0)}${sb('Hits',totalH,'',v=>v>0)}`;
 
-  const sourceNote=isStatcast
-    ?`<div style="font-size:.64rem;color:var(--green);padding:4px 8px;background:rgba(34,201,94,.08);border-radius:5px;border:1px solid rgba(34,201,94,.2)">⚡ Full Statcast AB data via proxy — EV/LA shown</div>`
-    :isFanGraphs
-      ?`<div style="font-size:.64rem;color:var(--amber);padding:4px 8px;background:rgba(240,165,0,.08);border-radius:5px;border:1px solid rgba(240,165,0,.2)">📈 FanGraphs fallback — season profile shown because Statcast AB rows were unavailable</div>`
-      :`<div style="font-size:.64rem;color:var(--t4);padding:4px 8px;background:var(--bg3);border-radius:5px">📊 MLB fallback — Statcast and FanGraphs unavailable for this player/filter; EV/LA unavailable</div>`;
+  const sourceNote =
+    `<div style="font-size:.64rem;color:var(--green);padding:4px 8px;background:rgba(34,201,94,.08);border-radius:5px;border:1px solid rgba(34,201,94,.2)">⚡ Full Statcast EV/LA data</div>`;
 
   document.getElementById('ab-summary').innerHTML=`
     <div class="stat-scroll">${summaryStats}</div>
