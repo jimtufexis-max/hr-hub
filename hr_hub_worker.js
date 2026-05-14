@@ -17,7 +17,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({ status: 'ok', worker: 'hr-hub-proxy', v: 2, ts: Date.now() }), {
+      return new Response(JSON.stringify({ status: 'ok', worker: 'hr-hub-proxy', v: 20, ts: Date.now() }), {
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
       });
     }
