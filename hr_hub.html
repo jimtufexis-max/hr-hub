@@ -1292,20 +1292,19 @@ async function loadABLog(){
   }
 }
 
-async function fetchABLog(pid, n, arm) {
-  const years = [SEASON, SEASON - 1];
+async function fetchABLog(pid,n,arm){
+  if(!pid) return [];
 
-  // 1) STATCAST FIRST — full AB data with EV/LA
-  for (const s of years) {
-    try {
-      const url = `https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&batters_lookup%5B%5D=${pid}&type=details&`;
+  // 1) STATCAST FIRST — pitch-by-pitch AB data with EV/LA/barrels
+  for(const s of [SEASON, SEASON-1]){
+    try{
+      const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&batters_lookup%5B%5D=${pid}&type=details&`;
       const r = await fetch(PROXY + encodeURIComponent(url));
-
-      if (!r.ok) throw new Error(`Statcast ${r.status}`);
+      if(!r.ok) throw new Error(`Statcast ${r.status}`);
 
       const txt = await r.text();
       const allRows = parseCSVText(txt);
-      if (!allRows.length) continue;
+      if(!allRows.length) continue;
 
       const AB_EVENTS = new Set([
         'single','double','triple','home_run','field_out',
@@ -1314,142 +1313,156 @@ async function fetchABLog(pid, n, arm) {
         'double_play','sac_fly','sac_bunt','walk','hit_by_pitch'
       ]);
 
-      let rows = allRows.filter(r => r.events && AB_EVENTS.has(r.events.toLowerCase()));
-      if (arm) rows = rows.filter(r => r.p_throws === arm);
+      let rows = allRows.filter(row => row.events && AB_EVENTS.has(row.events.toLowerCase()));
+      if(arm) rows = rows.filter(row => row.p_throws === arm);
 
-      rows.sort((a, b) => new Date(b.game_date) - new Date(a.game_date));
-      rows = rows.slice(0, n);
+      rows.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
+      rows = rows.slice(0,n);
+      if(!rows.length) continue;
 
-      if (rows.length) {
-        return rows.map(row => {
-          const ev = parseFloat(row.launch_speed);
-          const la = parseFloat(row.launch_angle);
-          const dist = parseFloat(row.hit_distance_sc);
-          const pv = parseFloat(row.release_speed);
-          const bs = parseFloat(row.bat_speed);
-          const isHR = row.events === 'home_run';
+      return rows.map(row=>{
+        const ev = parseFloat(row.launch_speed);
+        const la = parseFloat(row.launch_angle);
+        const dist = parseFloat(row.hit_distance_sc);
+        const pv = parseFloat(row.release_speed);
+        const bs = parseFloat(row.bat_speed);
+        const isHR = row.events === 'home_run';
 
-          let isBrl = false;
-          if (!isNaN(ev) && !isNaN(la) && ev >= 98) {
-            const mx = Math.min(50, 30 + (ev - 98));
-            const mn = Math.max(8, 26 - (ev - 98));
-            if (la >= mn && la <= mx) isBrl = true;
-          }
+        let isBrl = false;
+        if(!isNaN(ev) && !isNaN(la) && ev >= 98){
+          const mx = Math.min(50,30+(ev-98));
+          const mn = Math.max(8,26-(ev-98));
+          if(la >= mn && la <= mx) isBrl = true;
+        }
 
-          let hrPk = '--';
-          if (isHR) hrPk = '✓ HR';
-          else if (!isNaN(dist) && dist > 0) {
-            if (dist >= 430) hrPk = '30/30';
-            else if (dist >= 415) hrPk = '27/30';
-            else if (dist >= 400) hrPk = '22/30';
-            else if (dist >= 385) hrPk = '15/30';
-            else if (dist >= 370) hrPk = '8/30';
-            else if (dist >= 355) hrPk = '3/30';
-            else if (dist >= 335) hrPk = '1/30';
-            else hrPk = '0/30';
-          }
+        let hrPk='--';
+        if(isHR) hrPk='✓ HR';
+        else if(!isNaN(dist)&&dist>0){
+          if(dist>=430)hrPk='30/30';
+          else if(dist>=415)hrPk='27/30';
+          else if(dist>=400)hrPk='22/30';
+          else if(dist>=385)hrPk='15/30';
+          else if(dist>=370)hrPk='8/30';
+          else if(dist>=355)hrPk='3/30';
+          else if(dist>=335)hrPk='1/30';
+          else hrPk='0/30';
+        }
 
-          const ptCode = (row.pitch_type || '').toUpperCase();
-
-          return {
-            date: (row.game_date || '').slice(5, 10),
-            pitcher: row.player_name || '--',
-            arm: row.p_throws || '?',
-            pt: ptCode,
-            ptNm: PITCH_NAMES[ptCode] || (row.pitch_type || '--'),
-            ev: isNaN(ev) ? null : Math.round(ev * 10) / 10,
-            la: isNaN(la) ? null : Math.round(la * 10) / 10,
-            dist: isNaN(dist) ? null : Math.round(dist),
-            pv: isNaN(pv) ? null : Math.round(pv * 10) / 10,
-            bs: isNaN(bs) ? null : Math.round(bs * 10) / 10,
-            traj: (row.bb_type || '').replace(/_/g, ' '),
-            result: (row.events || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-            isHR,
-            isBrl,
-            hrPk,
-            gameNote: null,
-            source: 'statcast',
-          };
-        });
-      }
-    } catch (e) {
+        const ptCode=(row.pitch_type||'').toUpperCase();
+        return{
+          date:(row.game_date||'').slice(5,10),
+          pitcher:row.player_name||'--',
+          arm:row.p_throws||'?',
+          pt:ptCode,
+          ptNm:PITCH_NAMES[ptCode]||(row.pitch_type||'--'),
+          ev:isNaN(ev)?null:Math.round(ev*10)/10,
+          la:isNaN(la)?null:Math.round(la*10)/10,
+          dist:isNaN(dist)?null:Math.round(dist),
+          pv:isNaN(pv)?null:Math.round(pv*10)/10,
+          bs:isNaN(bs)?null:Math.round(bs*10)/10,
+          traj:(row.bb_type||'').replace(/_/g,' '),
+          result:(row.events||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
+          isHR,
+          isBrl,
+          hrPk,
+          h:['single','double','triple','home_run'].includes((row.events||'').toLowerCase()) ? 1 : 0,
+          gameNote:null,
+          source:'statcast',
+        };
+      });
+    }catch(e){
       console.warn(`Statcast AB log failed season=${s}:`, e.message);
     }
   }
 
-  // 2) FANGRAPHS SECOND — season skill profile fallback
-  try {
+  // 2) FANGRAPHS SECOND — season profile fallback
+  try{
     await ensureLeaderboards();
-
     const fg = (_fgB || {})[String(pid)];
-    if (fg) {
+    if(fg){
       return [{
-        date: 'FG',
-        pitcher: 'FanGraphs season profile',
-        arm: '',
-        pt: '',
-        ptNm: 'Season',
-        ev: fg.avgEV ?? null,
-        la: null,
-        dist: null,
-        pv: null,
-        bs: null,
-        traj: '',
-        result: 'FanGraphs Fallback',
-        isHR: false,
-        isBrl: (fg.barrel ?? 0) >= 10,
-        hrPk: '--',
-        h: 0,
-        gameNote: `Barrel ${fg.barrel ?? '--'}% · HardHit ${fg.hard ?? '--'}% · Pull ${fg.pull ?? '--'}% · FB ${fg.fb ?? '--'}% · ISO ${fg.iso ?? '--'} · OPS ${fg.ops ?? '--'}`,
-        source: 'fangraphs',
+        date:'FG',
+        pitcher:'FanGraphs season profile',
+        arm:'',
+        pt:'FG',
+        ptNm:'Season',
+        ev:fg.avgEV ?? null,
+        la:null,
+        dist:null,
+        pv:null,
+        bs:null,
+        traj:'',
+        result:'FanGraphs Fallback',
+        isHR:false,
+        isBrl:(fg.barrel ?? 0) >= 10,
+        hrPk:'--',
+        h:0,
+        gameNote:`Barrel ${fg.barrel ?? '--'}% · HardHit ${fg.hard ?? '--'}% · Pull ${fg.pull ?? '--'}% · FB ${fg.fb ?? '--'}% · ISO ${fg.iso ?? '--'} · OPS ${fg.ops ?? '--'}`,
+        source:'fangraphs',
       }];
     }
-  } catch (e) {
+  }catch(e){
     console.warn('FanGraphs AB fallback failed:', e.message);
   }
 
-  // 3) MLB API LAST — game log fallback, no EV/LA
-  for (const s of years) {
-    try {
-      const url = `${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}`;
-      const d = await fetchJSON(url);
-      const splits = d.stats?.[0]?.splits || [];
+  // 3) MLB LAST — game log fallback, no EV/LA
+  for(const s of [SEASON, SEASON-1]){
+    try{
+      const d = await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
+      const splits = (d.stats||[]).find(x=>x.type?.displayName==='gameLog')?.splits
+                  || d.stats?.[0]?.splits || [];
+      if(!splits.length) continue;
 
-      const rows = [];
+      const recent = [...splits].reverse();
+      const rows=[];
 
-      for (const sp of splits.slice(0, n)) {
-        const stat = sp.stat || {};
-        const ab = parseInt(stat.atBats || 0);
-        const h = parseInt(stat.hits || 0);
-        const hr = parseInt(stat.homeRuns || 0);
-        const bb = parseInt(stat.baseOnBalls || 0);
-        const k = parseInt(stat.strikeOuts || 0);
-        const rbi = parseInt(stat.rbi || 0);
+      for(const sp of recent){
+        const st=sp.stat||{};
+        const ab=parseInt(st.atBats)||0;
+        const h=parseInt(st.hits)||0;
+        const hr=parseInt(st.homeRuns)||0;
+        const bb=parseInt(st.baseOnBalls)||0;
+        const k=parseInt(st.strikeOuts)||0;
+        const doubles=parseInt(st.doubles)||0;
+        const triples=parseInt(st.triples)||0;
+        const rbi=parseInt(st.rbi)||0;
+        if(ab===0 && hr===0 && bb===0) continue;
+
+        let result='No Hit', isHR=false;
+        if(hr>0){ result=hr>1?`${hr} HRs`:'Home Run'; isHR=true; }
+        else if(triples>0) result='Triple';
+        else if(doubles>0) result='Double';
+        else if(h>=3) result=`${h}-Hit Game`;
+        else if(h===2) result='2 Hits';
+        else if(h===1) result='Single';
+        else if(bb>0) result='Walk';
+        else if(k>=2) result='Multi-K';
+        else if(k===1) result='Strikeout';
 
         rows.push({
-          date: (sp.date || '').slice(5, 10),
-          pitcher: sp.opponent?.name || 'MLB Game Log',
-          arm: '',
-          pt: '',
-          ptNm: 'Game',
-          ev: null,
-          la: null,
-          dist: null,
-          pv: null,
-          bs: null,
-          traj: '',
-          result: hr > 0 ? `${hr} HR` : h > 0 ? `${h} Hit${h > 1 ? 's' : ''}` : k > 0 ? `${k} K` : 'Game',
-          isHR: hr > 0,
-          isBrl: false,
-          hrPk: hr > 0 ? '✓ HR' : '--',
+          date:(sp.date||'').slice(5,10),
+          pitcher:sp.opponent?.name || 'MLB Game Log',
+          arm:'',
+          pt:'MLB',
+          ptNm:'Game',
+          ev:null,
+          la:null,
+          dist:null,
+          pv:null,
+          bs:null,
+          traj:'',
+          result,
+          isHR,
+          isBrl:false,
+          hrPk:isHR?'✓ HR':'--',
           h,
-          gameNote: `${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K${rbi > 0 ? ` · ${rbi} RBI` : ''}`,
-          source: 'mlb',
+          gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K${rbi>0?` · ${rbi} RBI`:''}`,
+          source:'mlb',
         });
       }
 
-      if (rows.length) return rows.slice(0, n);
-    } catch (e) {
+      if(rows.length) return rows.slice(0,n);
+    }catch(e){
       console.warn('MLB game log fallback failed:', e.message);
     }
   }
@@ -1459,14 +1472,16 @@ async function fetchABLog(pid, n, arm) {
 
 function renderABLog(rows){
   if(!rows.length){
-    document.getElementById('ab-list').innerHTML='<div class="empty">No AB data found. Try a different season or the Streamlit app.</div>';
+    document.getElementById('ab-list').innerHTML='<div class="empty">No AB data found. Try a different season or another player.</div>';
     document.getElementById('ab-summary').innerHTML='';
     return;
   }
+
   const source = rows[0]?.source || 'unknown';
   const isStatcast = source === 'statcast';
   const isFanGraphs = source === 'fangraphs';
   const isMLB = source === 'mlb';
+
   const nHR=rows.filter(r=>r.isHR).length;
   const nBrl=rows.filter(r=>r.isBrl).length;
   const evs=rows.filter(r=>r.ev!=null).map(r=>r.ev);
@@ -1485,13 +1500,15 @@ function renderABLog(rows){
 
   const summaryStats=isStatcast
     ?`${sb('ABs',rows.length,'',()=>true)}${sb('Avg EV',avgEV,' mph',v=>v>=90)}${sb('Avg LA',avgLA,'°',v=>v>=8&&v<=20)}${sb('Barrel%',brlPct,'%',v=>v>=10)}${sb('Hard%',hardPct,'%',v=>v>=50)}${sb('HRs 💥',nHR,'',v=>v>0)}${sb('Barrels 🟢',nBrl,'',v=>v>0)}`
-    :`${sb('Games',rows.length,'',()=>true)}${sb('HRs 💥',nHR,'',v=>v>0)}${sb('Hits',totalH,'',v=>v>0)}`;
+    : isFanGraphs
+      ?`${sb('FG Profile',1,'',()=>true)}${sb('Avg EV',avgEV,' mph',v=>v>=90)}${sb('Barrel?',nBrl,'',v=>v>0)}`
+      :`${sb('Games',rows.length,'',()=>true)}${sb('HRs 💥',nHR,'',v=>v>0)}${sb('Hits',totalH,'',v=>v>0)}`;
 
-  const sourceNote = isStatcast
-  ? `<div style="font-size:.64rem;color:var(--green);padding:4px 8px;background:rgba(34,201,94,.08);border-radius:5px;border:1px solid rgba(34,201,94,.2)">⚡ Full Statcast AB data via proxy</div>`
-  : isFanGraphs
-    ? `<div style="font-size:.64rem;color:var(--amber);padding:4px 8px;background:rgba(240,165,0,.08);border-radius:5px;border:1px solid rgba(240,165,0,.2)">📈 FanGraphs fallback — season skill profile shown because Statcast AB log was unavailable</div>`
-    : `<div style="font-size:.64rem;color:var(--t4);padding:4px 8px;background:var(--bg3);border-radius:5px">📊 MLB fallback — game log shown, EV/LA unavailable</div>`;
+  const sourceNote=isStatcast
+    ?`<div style="font-size:.64rem;color:var(--green);padding:4px 8px;background:rgba(34,201,94,.08);border-radius:5px;border:1px solid rgba(34,201,94,.2)">⚡ Full Statcast AB data via proxy — EV/LA shown</div>`
+    : isFanGraphs
+      ?`<div style="font-size:.64rem;color:var(--amber);padding:4px 8px;background:rgba(240,165,0,.08);border-radius:5px;border:1px solid rgba(240,165,0,.2)">📈 FanGraphs fallback — Statcast AB log unavailable, showing season skill profile</div>`
+      :`<div style="font-size:.64rem;color:var(--t4);padding:4px 8px;background:var(--bg3);border-radius:5px">📊 MLB fallback — Statcast and FanGraphs unavailable for this player/filter; EV/LA unavailable</div>`;
 
   document.getElementById('ab-summary').innerHTML=`
     <div class="stat-scroll">${summaryStats}</div>
