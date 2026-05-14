@@ -514,8 +514,10 @@ async function getPitcherHand(pid){
 
 async function getSavantBatters(){
   try{
-    const url=`https://baseballsavant.mlb.com/leaderboard/exit-velocity-barrels?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
+    // Try current year first, fall back to prior year URL format
+    const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
     const r = await fetch(PROXY + encodeURIComponent(url));
+    console.log('[Savant batters] status:', r.status);
     if(!r.ok)throw new Error(`savant batters ${r.status}`);
     const txt=await r.text();
     const rows=parseCSVText(txt); const out={};
@@ -612,7 +614,7 @@ async function getPitcherL14(pid){
   try{
     const now=new Date(), st=new Date(); st.setDate(st.getDate()-14);
     const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${SEASON}%7C&player_type=pitcher&pitchers_lookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&`;
+    const url=`https://baseballsavant.mlb.com/statcast_search/csv?player_type=pitcher&pitchers_lookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&hfGT=R%7C&min_results=0&group_by=name&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&`;
     const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok)return{};
     const txt=await r.text();
@@ -1449,20 +1451,29 @@ async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
 
   for(const s of years){
     try{
-      const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&batters_lookup%5B%5D=${pid}&type=details&min_pitches=0&min_results=0&group_by=name&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&`;
+      // Use date-range format — more reliable than hfSea pipe format
+      const startDate = s === SEASON ? `${s}-01-01` : `${s}-01-01`;
+      const endDate   = s === SEASON ? `${s}-12-31` : `${s}-12-31`;
+      const url=`https://baseballsavant.mlb.com/statcast_search/csv?player_type=batter&batters_lookup%5B%5D=${pid}&game_date_gt=${startDate}&game_date_lt=${endDate}&type=details&hfGT=R%7C&min_results=0&group_by=name&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&`;
       const proxyUrl=PROXY+encodeURIComponent(url);
-      console.log('Fetching Statcast via proxy:', proxyUrl.slice(0,100)+'...');
+      console.log(`[AB] Trying season ${s}`);
       const r=await fetch(proxyUrl);
-      console.log('Proxy response status:', r.status, r.statusText);
-      if(!r.ok){
-        const body=await r.text().catch(()=>'');
-        console.warn('Proxy error body:', body.slice(0,200));
-        throw new Error(`Proxy HTTP ${r.status} — check worker is deployed at ${PROXY.split('?')[0]}`);
-      }
+      console.log(`[AB] Response: ${r.status}, type: ${r.headers.get('Content-Type')}`);
+      if(!r.ok) throw new Error(`Proxy HTTP ${r.status}`);
+
       const txt=await r.text();
-      console.log('Proxy response length:', txt.length, 'chars, first 100:', txt.slice(0,100));
+      console.log(`[AB] Got ${txt.length} chars, first 150:`, txt.slice(0,150));
+
       if(txt.includes('<!DOCTYPE')||txt.includes('<html')){
-        throw new Error('Proxy returned HTML — worker may not be deployed correctly');
+        throw new Error('Proxy returned HTML not CSV');
+      }
+
+      // Check if we got actual data rows (more than just headers)
+      const lineCount = txt.split('\n').filter(l=>l.trim()).length;
+      console.log(`[AB] Line count: ${lineCount}`);
+      if(lineCount < 2){
+        console.warn(`[AB] Season ${s}: only headers, no data rows — player may have no PAs or wrong param`);
+        continue; // try next season
       }
 
       const allRows=parseCSVText(txt);
