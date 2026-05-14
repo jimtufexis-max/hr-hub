@@ -1340,9 +1340,8 @@ function calcParlayEV(){
 }
 
 
-
 // ==================================================================
-//  AB EXPLORER — STATCAST ONLY TABLE
+//  AB EXPLORER — RUDEBETS-STYLE STATCAST TABLE
 // ==================================================================
 function populateABSelect(){
   const sel=document.getElementById('ab-batter');
@@ -1370,20 +1369,18 @@ function ensurePitchTypeControl(){
   if(document.getElementById('ab-pitch-type')) return;
 
   const armEl=document.getElementById('ab-arm');
-  const grid=armEl?.closest('div[style*="grid-template-columns"]');
-  if(!grid) return;
-
-  grid.style.gridTemplateColumns='1fr 1fr 1fr';
+  const parent=armEl?.closest('.card');
+  if(!parent) return;
 
   const wrap=document.createElement('div');
   wrap.className='form-group';
-  wrap.style.marginBottom='0';
+  wrap.style.marginTop='12px';
   wrap.innerHTML=`
     <label>Pitch Type</label>
     <select id="ab-pitch-type" onchange="loadABLog()">
       <option value="">All Pitches</option>
     </select>`;
-  grid.appendChild(wrap);
+  parent.appendChild(wrap);
 }
 
 async function loadABLog(){
@@ -1440,53 +1437,104 @@ async function populatePitchTypeFilter(pid,arm,selected){
   }
 }
 
-async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
+async function fetchABLog(pid,n,arm,pitchType=''){
   if(!pid) return [];
 
   const years=[SEASON,SEASON-1,SEASON-2];
   const out=[];
 
-  for(const s of years){
-    try{
-      const csvUrl =
-        `https://baseballsavant.mlb.com/statcast_search/csv?` +
-        `hfSea=${s}%7C&` +
+  function seasonDates(season){
+    return {
+      gt:`${season}-01-01`,
+      lt:`${season}-12-31`
+    };
+  }
+
+  function buildStatcastUrls(season){
+    const d=seasonDates(season);
+    const base='https://baseballsavant.mlb.com/statcast_search/csv?';
+
+    return [
+      // Most reliable Baseball Savant CSV export format
+      base +
+        `all=true&` +
+        `hfSea=${season}%7C&` +
         `player_type=batter&` +
         `batters_lookup%5B%5D=${pid}&` +
-        `type=details&`;
+        `game_date_gt=${d.gt}&` +
+        `game_date_lt=${d.lt}&` +
+        `type=details&`,
 
-      console.log('[AB] CSV URL:', csvUrl);
+      // Backup: no season filter, date window only
+      base +
+        `all=true&` +
+        `player_type=batter&` +
+        `batters_lookup%5B%5D=${pid}&` +
+        `game_date_gt=${d.gt}&` +
+        `game_date_lt=${d.lt}&` +
+        `type=details&`,
 
-      const r=await fetch(PROXY+encodeURIComponent(csvUrl));
-      console.log('[AB] CSV status:', r.status);
+      // Backup: simple Savant query
+      base +
+        `hfSea=${season}%7C&` +
+        `player_type=batter&` +
+        `batters_lookup%5B%5D=${pid}&` +
+        `type=details&`
+    ];
+  }
 
-      if(!r.ok) continue;
+  for(const s of years){
+    const urls=buildStatcastUrls(s);
 
-      const txt=await r.text();
-      console.log('[AB] CSV chars:', txt.length);
+    for(const csvUrl of urls){
+      try{
+        console.log('[AB] CSV URL:', csvUrl);
 
-      const allRows=parseCSVText(txt);
-      console.log('[AB] Parsed rows:', allRows.length);
+        const r=await fetch(PROXY+encodeURIComponent(csvUrl), { cache:'no-store' });
+        console.log('[AB] CSV status:', r.status);
 
-      for(const row of allRows){
-        const ev=parseFloat(row.launch_speed);
-        const la=parseFloat(row.launch_angle);
-        const pt=String(row.pitch_type||'').toUpperCase();
+        if(!r.ok) continue;
 
-        if(isNaN(ev)||isNaN(la)) continue;
-        if(arm && row.p_throws!==arm) continue;
-        if(pitchType && pt!==pitchType) continue;
+        const txt=await r.text();
+        console.log('[AB] CSV chars:', txt.length, 'preview:', txt.slice(0,80));
 
-        out.push(mapStatcastABRow(row));
+        // If Cloudflare/Savant returned HTML, skip it.
+        if(txt.trim().startsWith('<')){
+          console.warn('[AB] CSV returned HTML, skipping');
+          continue;
+        }
+
+        const rows=parseCSVText(txt);
+        console.log('[AB] Parsed rows:', rows.length, rows[0] ? Object.keys(rows[0]).slice(0,12) : []);
+
+        let added=0;
+        for(const row of rows){
+          const ev=parseFloat(row.launch_speed);
+          const la=parseFloat(row.launch_angle);
+          const pt=String(row.pitch_type||'').toUpperCase();
+
+          if(isNaN(ev)||isNaN(la)) continue;
+          if(arm && row.p_throws!==arm) continue;
+          if(pitchType && pt!==pitchType) continue;
+
+          out.push(mapStatcastABRow(row));
+          added++;
+        }
+
+        console.log('[AB] Added EV/LA rows:', added, 'season:', s);
+
+        // If we found data, no need to try backup URLs for this season.
+        if(added>0) break;
+      }catch(e){
+        console.warn('[AB] Statcast CSV failed:', e.message);
       }
-    }catch(e){
-      console.warn('[AB] Statcast CSV failed:',e.message);
     }
   }
 
   out.sort((a,b)=>new Date(b.rawDate)-new Date(a.rawDate));
   return out.slice(0,n);
 }
+
 
 function mapStatcastABRow(row){
   const ev=parseFloat(row.launch_speed);
@@ -1527,20 +1575,22 @@ function titleCase(v){
 
 function renderABLog(rows){
   if(!rows.length){
-    document.getElementById('ab-list').innerHTML='<div class="empty">No Statcast EV/LA batted-ball data found for this player/filter.</div>';
+    document.getElementById('ab-list').innerHTML='<div class="empty">No Statcast EV/LA batted-ball rows found for this player/filter. Check console for [AB] CSV status and parsed rows.</div>';
     document.getElementById('ab-summary').innerHTML='';
     return;
   }
 
-  const n=rows.length;
-  const gb=rows.filter(r=>r.traj==='Ground Ball').length;
-  const fb=rows.filter(r=>r.traj==='Fly Ball').length;
-  const ld=rows.filter(r=>r.traj==='Line Drive').length;
-  const pu=rows.filter(r=>r.traj==='Popup'||r.traj==='Pop Up').length;
+  const isStatcast=rows[0]?.source==='statcast';
+  const bipRows=rows.filter(r=>r.ev!=null&&!isNaN(r.ev));
+  const n=bipRows.length||1;
+  const gb=bipRows.filter(r=>r.traj==='Ground Ball').length;
+  const fb=bipRows.filter(r=>r.traj==='Fly Ball').length;
+  const ld=bipRows.filter(r=>r.traj==='Line Drive').length;
+  const pu=bipRows.filter(r=>r.traj==='Popup'||r.traj==='Pop Up').length;
   const hr=rows.filter(r=>r.isHR).length;
-  const hard=rows.filter(r=>r.ev>=95).length;
-  const brl=rows.filter(r=>r.isBrl).length;
-  const avgEV=Math.round(rows.reduce((s,r)=>s+r.ev,0)/n*10)/10;
+  const hard=bipRows.filter(r=>r.ev>=95).length;
+  const brl=bipRows.filter(r=>r.isBrl).length;
+  const avgEV=bipRows.length?Math.round(bipRows.reduce((s,r)=>s+r.ev,0)/bipRows.length*10)/10:null;
   const fbDenom=Math.max(1,fb+ld+pu);
 
   const pct=x=>Math.round(x/n*100);
@@ -1552,17 +1602,32 @@ function renderABLog(rows){
       <div class="val ${good?'good':''}">${val}</div>
     </div>`;
 
-  document.getElementById('ab-summary').innerHTML=`
-    <div class="ab-metric-grid">
-      ${metric('GB%',pct(gb)+'%')}
-      ${metric('FB%',pct(fb)+'%')}
-      ${metric('LD%',pct(ld)+'%')}
-      ${metric('PU%',pct(pu)+'%')}
-      ${metric('HR/FB%',pctDen(hr,fbDenom)+'%',pctDen(hr,fbDenom)>=20)}
-      ${metric('Hard Hit%',pct(hard)+'%',pct(hard)>=45)}
-      ${metric('Avg EV',avgEV.toFixed(1),avgEV>=90)}
-      ${metric('Barrel%',pct(brl)+'%',pct(brl)>=10)}
-    </div>`;
+  if(isStatcast){
+    document.getElementById('ab-summary').innerHTML=`
+      <div class="ab-metric-grid">
+        ${metric('GB%',pct(gb)+'%')}
+        ${metric('FB%',pct(fb)+'%')}
+        ${metric('LD%',pct(ld)+'%')}
+        ${metric('PU%',pct(pu)+'%')}
+        ${metric('HR/FB%',pctDen(hr,fbDenom)+'%',pctDen(hr,fbDenom)>=20)}
+        ${metric('Hard Hit%',pct(hard)+'%',pct(hard)>=45)}
+        ${metric('Avg EV',avgEV!=null?avgEV.toFixed(1):'--',avgEV>=90)}
+        ${metric('Barrel%',pct(brl)+'%',pct(brl)>=10)}
+      </div>`;
+  } else {
+    // Game log summary
+    const totalH=rows.reduce((s,r)=>s+(r.h||0),0);
+    document.getElementById('ab-summary').innerHTML=`
+      <div class="ab-metric-grid">
+        ${metric('Games',rows.length)}
+        ${metric('HRs 💥',hr,hr>0)}
+        ${metric('Hits',totalH,totalH>0)}
+      </div>
+      <div style="font-size:.68rem;color:var(--t4);padding:6px 10px;background:var(--bg3);border-radius:6px;margin-top:6px">
+        ⚠️ Proxy unavailable — showing game log. Check your Cloudflare Worker is deployed at:<br>
+        <code style="color:var(--amber);font-size:.65rem;word-break:break-all">${PROXY.split('?')[0]}</code>
+      </div>`;
+  }
 
   document.getElementById('ab-list').innerHTML=`
     <div class="ab-table-wrap">
@@ -1571,7 +1636,7 @@ function renderABLog(rows){
           <tr>
             <th>Date ↓</th>
             <th>Pitcher</th>
-            <th>Pitch Arm</th>
+            <th>Arm</th>
             <th>Pitch Type</th>
             <th>EV</th>
             <th>LA</th>
@@ -1583,19 +1648,21 @@ function renderABLog(rows){
         </thead>
         <tbody>
           ${rows.map(r=>{
-            const evStyle=r.ev>=95?'color:var(--green);font-weight:800':r.ev<80?'color:var(--red);font-weight:800':'color:var(--amber);font-weight:800';
-            const laStyle=(r.la>=8&&r.la<=32)?'color:var(--green);font-weight:800':(r.la<0||r.la>50)?'color:var(--red);font-weight:800':'';
+            const hasEV=r.ev!=null&&!isNaN(r.ev);
+            const hasLA=r.la!=null&&!isNaN(r.la);
+            const evStyle=hasEV?(r.ev>=95?'color:var(--green);font-weight:800':r.ev<80?'color:var(--red);font-weight:800':'color:var(--amber);font-weight:800'):'';
+            const laStyle=hasLA&&(r.la>=8&&r.la<=32)?'color:var(--green);font-weight:800':(hasLA&&(r.la<0||r.la>50)?'color:var(--red);font-weight:800':'');
             return `<tr class="${r.isHR?'hr-row':''}">
-              <td>${r.date}</td>
-              <td>${r.pitcher}</td>
+              <td>${r.date||'--'}</td>
+              <td>${r.pitcher||'--'}</td>
               <td>${r.arm||'--'}</td>
-              <td>${r.ptNm}</td>
-              <td style="${evStyle}">${r.ev.toFixed(1)}</td>
-              <td style="${laStyle}">${r.la}</td>
+              <td>${r.ptNm||'--'}</td>
+              <td style="${evStyle}">${hasEV?r.ev.toFixed(1):'--'}</td>
+              <td style="${laStyle}">${hasLA?r.la:'--'}</td>
               <td>${r.dist!=null?r.dist:'--'}</td>
-              <td style="${r.isBrl?'color:var(--amber);font-weight:800':''}">${r.isBrl?'1':'0'}</td>
-              <td style="${r.isHR?'color:var(--green);font-weight:800':''}">${r.result}</td>
-              <td>${r.traj}</td>
+              <td style="${r.isBrl?'color:var(--amber);font-weight:800':''}">${hasEV?(r.isBrl?'✓':''):''}</td>
+              <td style="${r.isHR?'color:var(--green);font-weight:800':''}">${r.result||'--'}</td>
+              <td>${r.traj||'--'}</td>
             </tr>`;
           }).join('')}
         </tbody>
