@@ -837,8 +837,11 @@ function renderSlate(){
   }
   const q=(document.getElementById('search-input').value||'').toLowerCase();
   const sortFn={
-    prob:r=>-r.prob,base:r=>-r.base,matchup:r=>-r.matchup,l14:r=>-r.l14mod
-  }[S.sortKey]||((r)=>-r.prob);
+    prob:(a,b)=>b.prob-a.prob,
+    base:(a,b)=>b.base-a.base,
+    matchup:(a,b)=>b.matchup-a.matchup,
+    l14:(a,b)=>b.l14mod-a.l14mod,
+  }[S.sortKey]||((a,b)=>b.prob-a.prob);
 
   let rows=[...S.allRows];
   if(q)rows=rows.filter(r=>r.name.toLowerCase().includes(q)||r.team.toLowerCase().includes(q));
