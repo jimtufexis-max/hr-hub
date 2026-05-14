@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="HR Hub">
 <meta name="application-name" content="HR Hub">
@@ -448,7 +449,8 @@ function showPage(name){
 //  DATA FETCHING
 // ==================================================================
 async function fetchJSON(url){
-  const r=await fetch(url);
+  const bust = url.includes('?') ? '&_cb=' + Date.now() : '?_cb=' + Date.now();
+  const r=await fetch(url + bust, { cache: 'no-store' });
   if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
   return r.json();
 }
@@ -516,7 +518,7 @@ async function getSavantBatters(){
   try{
     // Try current year first, fall back to prior year URL format
     const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url), { cache: 'no-store' });
     console.log('[Savant batters] status:', r.status);
     if(!r.ok)throw new Error(`savant batters ${r.status}`);
     const txt=await r.text();
@@ -539,7 +541,7 @@ async function getSavantBatters(){
 async function getFGBatters(){
   try{
     const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=bat&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=2000&pagenum=1`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url), { cache: 'no-store' });
     if(!r.ok)throw new Error(`fg batters ${r.status}`);
     const d=await r.json(); const out={};
     out.__byName = {};
@@ -568,7 +570,7 @@ async function getFGBatters(){
 async function getSavantPitchers(){
   try{
     const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&year=${SEASON}&position=&team=&min=10&csv=true`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url), { cache: 'no-store' });
     if(!r.ok)throw new Error(`savant pitchers ${r.status}`);
     const txt=await r.text();
     const rows=parseCSVText(txt); const out={};
@@ -589,7 +591,7 @@ async function getSavantPitchers(){
 async function getFGPitchers(){
   try{
     const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=pit&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=1000&pagenum=1`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url), { cache: 'no-store' });
     if(!r.ok)throw new Error(`fg pitchers ${r.status}`);
     const d=await r.json(); const out={};
     for(const row of (d.data||[])){
@@ -615,7 +617,7 @@ async function getPitcherL14(pid){
     const now=new Date(), st=new Date(); st.setDate(st.getDate()-14);
     const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const url=`https://baseballsavant.mlb.com/statcast_search/csv?player_type=pitcher&pitchers_lookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&hfGT=R%7C&min_results=0&group_by=name&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const r = await fetch(PROXY + encodeURIComponent(url), { cache: 'no-store' });
     if(!r.ok)return{};
     const txt=await r.text();
     const rows=parseCSVText(txt);
@@ -1440,76 +1442,69 @@ async function populatePitchTypeFilter(pid,arm,selected){
 async function fetchABLog(pid,n,arm,pitchType=''){
   if(!pid) return [];
 
-  const years=[SEASON,SEASON-1,SEASON-2];
+  // iPhone/Safari safe: avoid huge multi-season pulls.
+  // Pull current + prior season, with a date floor, then use only batted balls with EV/LA.
+  const years=[SEASON, SEASON-1];
   const out=[];
 
   for(const s of years){
     try{
-
       const csvUrl =
         `https://baseballsavant.mlb.com/statcast_search/csv?` +
         `hfSea=${s}%7C&` +
         `player_type=batter&` +
         `batters_lookup%5B%5D=${pid}&` +
-        `type=details&`;
+        `game_date_gt=${s}-01-01&` +
+        `game_date_lt=${s}-12-31&` +
+        `type=details&` +
+        `_cb=${Date.now()}`;
 
-      console.log('[AB] CSV URL:', csvUrl);
+      console.log('[AB iPhone] CSV URL:', csvUrl);
 
-      const r = await fetch(PROXY + encodeURIComponent(csvUrl));
+      const r = await fetch(PROXY + encodeURIComponent(csvUrl), { cache: 'no-store' });
+
+      console.log('[AB iPhone] CSV status:', r.status);
 
       if(!r.ok){
-        console.warn('[AB] CSV failed', r.status);
+        console.warn('[AB iPhone] CSV failed', r.status);
         continue;
       }
 
       const txt = await r.text();
-
-      console.log('[AB] CSV chars:', txt.length);
+      console.log('[AB iPhone] CSV chars:', txt.length);
 
       const rows = parseCSVText(txt);
+      console.log('[AB iPhone] parsed rows:', rows.length);
+
+      let added = 0;
 
       for(const row of rows){
-
         const ev = parseFloat(row.launch_speed);
         const la = parseFloat(row.launch_angle);
 
         if(isNaN(ev) || isNaN(la)) continue;
-
         if(arm && row.p_throws !== arm) continue;
 
         const pt = String(row.pitch_type || '').toUpperCase();
-
         if(pitchType && pt !== pitchType) continue;
 
-        out.push({
-          rawDate: row.game_date || '',
-          date: row.game_date || '--',
-          pitcher: row.player_name || '--',
-          arm: row.p_throws || '',
-          pt: pt,
-          ptNm: PITCH_NAMES[pt] || pt || '--',
-          ev: Math.round(ev * 10) / 10,
-          la: Math.round(la * 10) / 10,
-          dist: row.hit_distance_sc
-            ? Math.round(parseFloat(row.hit_distance_sc))
-            : null,
-          result: row.events || '--',
-          traj: row.bb_type || '--',
-          isHR: row.events === 'home_run',
-          isBrl: ev >= 98 && la >= 8 && la <= 32
-        });
+        out.push(mapStatcastABRow(row));
+        added++;
       }
 
+      console.log('[AB iPhone] EV/LA rows added:', added);
+
+      // Stop early once we have enough rows so iPhone does less work.
+      if(out.length >= n) break;
+
     }catch(e){
-      console.warn('[AB] Statcast CSV failed:', e.message);
+      console.warn('[AB iPhone] Statcast CSV failed:', e.message);
     }
   }
 
   out.sort((a,b)=>new Date(b.rawDate)-new Date(a.rawDate));
-
   return out.slice(0,n);
 }
-
 
 function mapStatcastABRow(row){
   const ev=parseFloat(row.launch_speed);
@@ -1656,11 +1651,15 @@ function refreshData(){
 // ==================================================================
 //  PWA — Service Worker + Install Prompt
 // ==================================================================
+
+// iPhone/Safari safety: disable old PWA service worker cache while debugging data loads
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then(regs => {
     regs.forEach(reg => reg.unregister());
-  });
+    console.log('Service workers unregistered for fresh data load');
+  }).catch(err => console.warn('Service worker unregister failed:', err));
 }
+
 
 let _installPrompt=null;
 window.addEventListener('beforeinstallprompt', e=>{
