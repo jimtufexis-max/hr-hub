@@ -1,6 +1,8 @@
-name = "hr-hub-proxy"
+name = "hr_hub_worker"
 main = "hr_hub_worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-05-14"
+
+workers_dev = true
 
 [vars]
 ENVIRONMENT = "production"
