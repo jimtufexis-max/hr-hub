@@ -1447,11 +1447,36 @@ async function fetchABLog(pid,n,arm,pitchType=''){
     try{
 
       const csvUrl =
-        `https://baseballsavant.mlb.com/statcast_search/csv?` +
-        `hfSea=${s}%7C&` +
-        `player_type=batter&` +
-        `batters_lookup%5B%5D=${pid}&` +
-        `type=details&`;
+  `https://baseballsavant.mlb.com/statcast_search/csv?` +
+  `all=true&` +
+  `hfPT=&` +
+  `hfAB=&` +
+  `hfGT=R%7C&` +
+  `hfPR=&` +
+  `hfZ=&` +
+  `stadium=&` +
+  `hfBBT=&` +
+  `hfPull=&` +
+  `hfC=&` +
+  `hfSea=${s}%7C&` +
+  `hfSit=&` +
+  `player_type=batter&` +
+  `hfOuts=&` +
+  `opponent=&` +
+  `pitcher_throws=&` +
+  `batter_stands=&` +
+  `hfSA=&` +
+  `game_date_gt=${s}-01-01&` +
+  `game_date_lt=${s}-12-31&` +
+  `batters_lookup%5B%5D=${pid}&` +
+  `hfFlag=&` +
+  `metric_1=&` +
+  `group_by=name&` +
+  `sort_col=launch_speed&` +
+  `player_event_sort=api_p_release_speed&` +
+  `sort_order=desc&` +
+  `min_pas=0&` +
+  `type=details&`;
 
       console.log('[AB] CSV URL:', csvUrl);
 
