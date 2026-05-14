@@ -582,7 +582,7 @@ async function getPitcherL14(pid){
   try{
     const now=new Date(), st=new Date(); st.setDate(st.getDate()-14);
     const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${SEASON}%7C&player_type=pitcher&pitchersLookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&`;
+    const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${SEASON}%7C&player_type=pitcher&pitchers_lookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&`;
     const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok)return{};
     const txt=await r.text();
@@ -1298,7 +1298,7 @@ async function fetchABLog(pid,n,arm){
   // Try Savant pitch-by-pitch first (via proxy) — gives EV, LA, barrel, pitch type
   for(const s of[SEASON, SEASON-1]){
     try{
-      const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&battersLookup%5B%5D=${pid}&type=details&`;
+      const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&batters_lookup%5B%5D=${pid}&type=details&`;
       const r = await fetch(PROXY + encodeURIComponent(url));
       if(!r.ok) throw new Error(`savant AB ${r.status}`);
       const txt=await r.text();
