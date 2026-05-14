@@ -1390,137 +1390,20 @@ async function fetchABLog(pid,n,arm){
       });
     }catch(e){console.warn(`Savant AB log failed s=${s}:`,e.message);}
   }
-
-  // 2) FANGRAPHS SECOND — season skill profile fallback.
-  // This does not provide AB-by-AB EV/LA, but it prevents jumping straight to MLB game log
-  // and shows the player's power profile if Statcast search returns empty.
-  try{
-    await ensureLeaderboards();
-    const fg = (_fgB||{})[String(pid)] || ((_fgB||{}).__byName||{})[normName(playerName)];
-    if(fg){
-      const brl = fg.barrel ?? null;
-      const hard = fg.hard ?? null;
-      const avgEV = fg.avgEV ?? null;
-      const rows=[];
-      rows.push({
-        date:'FG',
-        pitcher:'FanGraphs season profile',
-        arm:'',
-        pt:'FG',
-        ptNm:'Season',
-        ev:avgEV,
-        la:null,
-        dist:null,
-        pv:null,
-        bs:null,
-        traj:'',
-        result:'FanGraphs Profile',
-        isHR:false,
-        isBrl:brl!=null && brl>=10,
-        hrPk:'--',
-        h:0,
-        gameNote:`Barrel ${brl??'--'}% · HardHit ${hard??'--'}% · Pull ${fg.pull??'--'}% · FB ${fg.fb??'--'}% · ISO ${fg.iso??'--'} · OPS ${fg.ops??'--'}`,
-        source:'fangraphs',
-      });
-      return rows;
-    }
-  }catch(e){console.warn('FanGraphs AB fallback failed:',e.message);}
-
-  // 3) MLB API LAST — game log fallback, no EV/LA.
-  console.log('Falling back to MLB game log for AB explorer');
-  for(const s of years){
-    try{
-      const d=await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
-      const splits=(d.stats||[]).find(s=>s.type?.displayName==='gameLog')?.splits
-                || d.stats?.[0]?.splits || [];
-      if(!splits.length) continue;
-
-      // Collect schedule pitcher lookup for display only.
-      const dates=splits.map(sp=>sp.date||'').filter(Boolean).sort();
-      const startDate=dates[0]||''; const endDate=dates[dates.length-1]||'';
-      let spMap={};
-      if(startDate && endDate){
-        try{
-          const sched=await fetchJSON(
-            `${MLB}/schedule?sportId=1&startDate=${startDate}&endDate=${endDate}`+
-            `&hydrate=probablePitcher(note)&gameType=R`
-          );
-          for(const dt of sched.dates||[]){
-            for(const g of dt.games||[]){
-              const gpk=String(g.gamePk);
-              spMap[gpk]={
-                away:{name:g.teams?.away?.probablePitcher?.fullName||null,
-                      id:g.teams?.away?.probablePitcher?.id||null,
-                      team:g.teams?.away?.team?.abbreviation||''},
-                home:{name:g.teams?.home?.probablePitcher?.fullName||null,
-                      id:g.teams?.home?.probablePitcher?.id||null,
-                      team:g.teams?.home?.team?.abbreviation||''},
-              };
-            }
-          }
-        }catch(e){console.warn('schedule pitcher lookup failed:',e.message);}
-      }
-
-      const playerTeam=splits[0]?.team?.abbreviation||'';
-      const rows=[];
-      for(const sp of splits){
-        if(rows.length>=n) break;
-        const stat=sp.stat||{};
-        const ab=parseInt(stat.atBats||0), h=parseInt(stat.hits||0);
-        const hr=parseInt(stat.homeRuns||0), bb=parseInt(stat.baseOnBalls||0);
-        const k=parseInt(stat.strikeOuts||0), rbi=parseInt(stat.rbi||0);
-        if(ab===0&&h===0&&hr===0&&bb===0) continue;
-
-        const gd=(sp.date||'').slice(5,10);
-        const gpk=String(sp.game?.gamePk||'');
-        let spName=sp.opponent?.name||'MLB Game Log', spHand='';
-        const sm=spMap[gpk];
-        if(sm){
-          const oppPitcher = sm.away.team===playerTeam ? sm.home : sm.away;
-          spName=oppPitcher?.name || spName;
-        }
-
-        let result='No Hit', isHR=false;
-        const doubles=parseInt(stat.doubles||0), triples=parseInt(stat.triples||0);
-        if(hr>0){result=hr>1?`${hr} HRs`:'Home Run';isHR=true;}
-        else if(triples>0)result='Triple';
-        else if(doubles>0)result='Double';
-        else if(h>=3)result=`${h}-Hit Game`;
-        else if(h===2)result='2 Hits';
-        else if(h===1)result='Single';
-        else if(bb>0)result='Walk';
-        else if(k>=2)result='Multi-K';
-        else if(k===1)result='Strikeout';
-
-        rows.push({
-          date:gd, pitcher:spName, arm:spHand, pt:'MLB', ptNm:'Game',
-          ev:null, la:null, dist:null, pv:null, bs:null,
-          traj:'', result, isHR, isBrl:false, hrPk:isHR?'✓ HR':'--',
-          h,
-          gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K${rbi>0?` · ${rbi} RBI`:''}`,
-          source:'mlb',
-        });
-      }
-      if(rows.length) return rows.slice(0,n);
-    }catch(e){console.warn('MLB game log fallback failed:',e.message);}
-  }
-  return[];
+  return [];
 }
 
 function renderABLog(rows){
   if(!rows.length){
-    document.getElementById('ab-list').innerHTML='<div class="empty">No AB data found. Try a different player or remove the arm filter.</div>';
+    document.getElementById('ab-list').innerHTML='<div class="empty">No Statcast EV/LA data found for this player/filter.</div>';
     document.getElementById('ab-summary').innerHTML='';
     return;
   }
 
-  const source = rows.some(r => r.ev != null && r.la != null)
-  ? 'statcast'
-  : (rows[0]?.source || 'unknown');
-
-  const isStatcast = source === 'statcast';
-  const isFanGraphs = source === 'fangraphs';
-  const isMLB = source === 'mlb';
+  const source = 'statcast';
+  const isStatcast = true;
+  const isFanGraphs = false;
+  const isMLB = false;
 
   const nHR=rows.filter(r=>r.isHR).length;
   const nBrl=rows.filter(r=>r.isBrl).length;
