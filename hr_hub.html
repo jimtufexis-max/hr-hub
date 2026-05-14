@@ -1,12 +1,18 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="HR Hub">
+<meta name="application-name" content="HR Hub">
 <meta name="theme-color" content="#0f1117">
+<meta name="description" content="Calibrated MLB home run probability analyzer">
+<link rel="manifest" href="manifest.json">
+<!-- PWA icons (add actual icon files to your repo) -->
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <title>HR Hub</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
@@ -26,23 +32,23 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 /* ── Layout shell ─────────────────────────────────────────────── */
 #app{display:flex;flex-direction:column;height:100vh;height:100dvh}
 #header{
-background:var(–bg2);border-bottom:1px solid var(–bdr);
-padding:calc(var(–safe-top) + 10px) 16px 10px;
-display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:20}
-#header-title{font-size:1.15rem;font-weight:800;color:var(–t1);letter-spacing:-.02em}
-#header-title span{color:var(–amber)}
-#header-date{font-size:.72rem;color:var(–t4);margin-left:auto}
-#content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(–safe-bot) + 60px)}
+  background:var(--bg2);border-bottom:1px solid var(--bdr);
+  padding:calc(var(--safe-top) + 10px) 16px 10px;
+  display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:20}
+#header-title{font-size:1.15rem;font-weight:800;color:var(--t1);letter-spacing:-.02em}
+#header-title span{color:var(--amber)}
+#header-date{font-size:.72rem;color:var(--t4);margin-left:auto}
+#content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--safe-bot) + 60px)}
 #nav{
-position:fixed;bottom:0;left:0;right:0;
-background:var(–bg2);border-top:1px solid var(–bdr);
-display:flex;padding-bottom:var(–safe-bot);z-index:20}
+  position:fixed;bottom:0;left:0;right:0;
+  background:var(--bg2);border-top:1px solid var(--bdr);
+  display:flex;padding-bottom:var(--safe-bot);z-index:20}
 .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;
-justify-content:center;padding:8px 4px 6px;gap:3px;
-font-size:.6rem;font-weight:600;color:var(–t4);
-text-transform:uppercase;letter-spacing:.06em;cursor:pointer;
-border:none;background:none;transition:color .15s}
-.nav-btn.active{color:var(–amber)}
+  justify-content:center;padding:8px 4px 6px;gap:3px;
+  font-size:.6rem;font-weight:600;color:var(--t4);
+  text-transform:uppercase;letter-spacing:.06em;cursor:pointer;
+  border:none;background:none;transition:color .15s}
+.nav-btn.active{color:var(--amber)}
 .nav-btn svg{width:20px;height:20px;stroke-width:1.8}
 
 /* ── Pages ────────────────────────────────────────────────────── */
@@ -50,212 +56,210 @@ border:none;background:none;transition:color .15s}
 .page.active{display:block}
 
 /* ── Section labels ───────────────────────────────────────────── */
-.slbl{font-size:.62rem;font-weight:700;letter-spacing:.1em;color:var(–t4);
-text-transform:uppercase;padding:10px 0 6px;
-display:flex;align-items:center;gap:8px}
-.slbl::after{content:’’;flex:1;height:1px;background:var(–bdr)}
+.slbl{font-size:.62rem;font-weight:700;letter-spacing:.1em;color:var(--t4);
+  text-transform:uppercase;padding:10px 0 6px;
+  display:flex;align-items:center;gap:8px}
+.slbl::after{content:'';flex:1;height:1px;background:var(--bdr)}
 
 /* ── Cards ────────────────────────────────────────────────────── */
-.card{background:var(–bg2);border:1px solid var(–bdr);border-radius:12px;
-padding:12px 14px;margin-bottom:8px}
+.card{background:var(--bg2);border:1px solid var(--bdr);border-radius:12px;
+  padding:12px 14px;margin-bottom:8px}
 
 /* ── Chips ────────────────────────────────────────────────────── */
 .chip-scroll{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;
--webkit-overflow-scrolling:touch;scrollbar-width:none}
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
 .chip-scroll::-webkit-scrollbar{display:none}
-.chip{background:var(–bg2);border:1px solid var(–bdr);border-radius:8px;
-padding:6px 10px;font-size:.74rem;font-weight:600;color:var(–t2);
-white-space:nowrap;cursor:pointer;transition:all .15s;flex-shrink:0}
-.chip.active{background:#0e2448;border-color:var(–blue);color:var(–blue)}
-.chip.loaded{border-color:#22c95e33;color:var(–green)}
+.chip{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;
+  padding:6px 10px;font-size:.74rem;font-weight:600;color:var(--t2);
+  white-space:nowrap;cursor:pointer;transition:all .15s;flex-shrink:0}
+.chip.active{background:#0e2448;border-color:var(--blue);color:var(--blue)}
+.chip.loaded{border-color:#22c95e33;color:var(--green)}
 
 /* ── Date nav ─────────────────────────────────────────────────── */
 #date-nav{display:flex;align-items:center;gap:6px;margin-bottom:10px}
-#date-nav button{background:var(–bg2);border:1px solid var(–bdr);
-border-radius:8px;color:var(–t2);font-size:.8rem;padding:7px 12px;
-cursor:pointer;font-weight:600}
-#date-nav button:active{background:var(–bg3)}
-#date-lbl{flex:1;text-align:center;font-size:.85rem;font-weight:700;color:var(–t1)}
-#today-btn{font-size:.72rem;padding:7px 10px;color:var(–amber);
-border-color:rgba(240,165,0,.3)}
+#date-nav button{background:var(--bg2);border:1px solid var(--bdr);
+  border-radius:8px;color:var(--t2);font-size:.8rem;padding:7px 12px;
+  cursor:pointer;font-weight:600}
+#date-nav button:active{background:var(--bg3)}
+#date-lbl{flex:1;text-align:center;font-size:.85rem;font-weight:700;color:var(--t1)}
+#today-btn{font-size:.72rem;padding:7px 10px;color:var(--amber);
+  border-color:rgba(240,165,0,.3)}
 
 /* ── Hitter cards ─────────────────────────────────────────────── */
-.hitter-card{background:var(–bg2);border:1px solid var(–bdr);border-radius:12px;
-padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
-.hitter-card:active{border-color:var(–blue)}
-.hitter-card.grade-a{border-left:3px solid var(–green)}
-.hitter-card.grade-b{border-left:3px solid var(–amber)}
-.hitter-card.grade-c{border-left:3px solid var(–red)}
+.hitter-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:12px;
+  padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
+.hitter-card:active{border-color:var(--blue)}
+.hitter-card.grade-a{border-left:3px solid var(--green)}
+.hitter-card.grade-b{border-left:3px solid var(--amber)}
+.hitter-card.grade-c{border-left:3px solid var(--red)}
 .hc-row1{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.hc-name{font-weight:700;font-size:.95rem;color:var(–t1);flex:1}
-.hc-prob{font-family:‘JetBrains Mono’,monospace;font-size:1.15rem;font-weight:800}
+.hc-name{font-weight:700;font-size:.95rem;color:var(--t1);flex:1}
+.hc-prob{font-family:'JetBrains Mono',monospace;font-size:1.15rem;font-weight:800}
 .hc-grade{font-size:.72rem;font-weight:800;padding:2px 7px;border-radius:5px}
 .hc-row2{display:flex;gap:6px;flex-wrap:wrap}
-.stat-chip{background:var(–bg3);border:1px solid var(–bdr);border-radius:6px;
-padding:3px 7px;font-size:.68rem;font-weight:600;color:var(–t3)}
-.stat-chip .val{color:var(–t1);margin-left:3px}
-.stat-chip.good .val{color:var(–green)}
-.stat-chip.warn .val{color:var(–amber)}
-.stat-chip.bad  .val{color:var(–red)}
+.stat-chip{background:var(--bg3);border:1px solid var(--bdr);border-radius:6px;
+  padding:3px 7px;font-size:.68rem;font-weight:600;color:var(--t3)}
+.stat-chip .val{color:var(--t1);margin-left:3px}
+.stat-chip.good .val{color:var(--green)}
+.stat-chip.warn .val{color:var(--amber)}
+.stat-chip.bad  .val{color:var(--red)}
 .mult-row{display:flex;gap:4px;margin-top:6px;font-size:.67rem}
-.mult-item{flex:1;background:var(–bg3);border-radius:5px;padding:4px 6px;text-align:center}
-.mult-label{color:var(–t4);display:block;font-size:.58rem;text-transform:uppercase;
-letter-spacing:.05em;margin-bottom:2px}
-.mult-val{font-family:‘JetBrains Mono’,monospace;font-weight:700}
-.mult-val.up{color:var(–green)}
-.mult-val.flat{color:var(–t3)}
-.mult-val.dn{color:var(–red)}
+.mult-item{flex:1;background:var(--bg3);border-radius:5px;padding:4px 6px;text-align:center}
+.mult-label{color:var(--t4);display:block;font-size:.58rem;text-transform:uppercase;
+  letter-spacing:.05em;margin-bottom:2px}
+.mult-val{font-family:'JetBrains Mono',monospace;font-weight:700}
+.mult-val.up{color:var(--green)}
+.mult-val.flat{color:var(--t3)}
+.mult-val.dn{color:var(--red)}
 
 /* ── Prob circle ──────────────────────────────────────────────── */
 .prob-circle{width:60px;height:60px;border-radius:50%;display:flex;
-flex-direction:column;align-items:center;justify-content:center;
-border:2.5px solid;flex-shrink:0}
-.prob-circle .pct{font-family:‘JetBrains Mono’,monospace;font-size:.95rem;font-weight:800;line-height:1}
+  flex-direction:column;align-items:center;justify-content:center;
+  border:2.5px solid;flex-shrink:0}
+.prob-circle .pct{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:800;line-height:1}
 .prob-circle .lbl{font-size:.5rem;font-weight:700;text-transform:uppercase;
-letter-spacing:.06em;margin-top:2px;color:var(–t4)}
+  letter-spacing:.06em;margin-top:2px;color:var(--t4)}
 
 /* ── Weather strip ────────────────────────────────────────────── */
 .wx-strip{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px;
--webkit-overflow-scrolling:touch;scrollbar-width:none}
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
 .wx-strip::-webkit-scrollbar{display:none}
-.wx-item{background:var(–bg2);border:1px solid var(–bdr);border-radius:8px;
-padding:7px 10px;text-align:center;flex-shrink:0;min-width:68px}
-.wx-val{font-size:.88rem;font-weight:700;color:var(–t1);display:block}
-.wx-lbl{font-size:.58rem;color:var(–t4);text-transform:uppercase;letter-spacing:.05em}
+.wx-item{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;
+  padding:7px 10px;text-align:center;flex-shrink:0;min-width:68px}
+.wx-val{font-size:.88rem;font-weight:700;color:var(--t1);display:block}
+.wx-lbl{font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em}
 
 /* ── Filters ──────────────────────────────────────────────────── */
 .filter-row{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;
--webkit-overflow-scrolling:touch;scrollbar-width:none}
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
 .filter-row::-webkit-scrollbar{display:none}
-.filter-pill{background:var(–bg2);border:1px solid var(–bdr);border-radius:99px;
-padding:5px 12px;font-size:.72rem;font-weight:600;color:var(–t3);
-cursor:pointer;white-space:nowrap;transition:all .15s}
-.filter-pill.active{background:#0e2448;border-color:var(–blue);color:var(–blue)}
+.filter-pill{background:var(--bg2);border:1px solid var(--bdr);border-radius:99px;
+  padding:5px 12px;font-size:.72rem;font-weight:600;color:var(--t3);
+  cursor:pointer;white-space:nowrap;transition:all .15s}
+.filter-pill.active{background:#0e2448;border-color:var(--blue);color:var(--blue)}
 
 /* ── Player detail ────────────────────────────────────────────── */
 .detail-header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-.detail-prob-big{font-family:‘JetBrains Mono’,monospace;font-size:2.2rem;
-font-weight:800;line-height:1}
-.detail-meta{font-size:.72rem;color:var(–t4);margin-top:2px}
-.factor-item{padding:8px 0;border-bottom:1px solid var(–bg3)}
+.detail-prob-big{font-family:'JetBrains Mono',monospace;font-size:2.2rem;
+  font-weight:800;line-height:1}
+.detail-meta{font-size:.72rem;color:var(--t4);margin-top:2px}
+.factor-item{padding:8px 0;border-bottom:1px solid var(--bg3)}
 .factor-item:last-child{border-bottom:none}
 .fi-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
-.fi-name{font-size:.78rem;font-weight:600;color:var(–t2)}
-.fi-val{font-family:‘JetBrains Mono’,monospace;font-size:.78rem;font-weight:700}
-.fi-bar{height:6px;background:var(–bg3);border-radius:3px;overflow:hidden}
+.fi-name{font-size:.78rem;font-weight:600;color:var(--t2)}
+.fi-val{font-family:'JetBrains Mono',monospace;font-size:.78rem;font-weight:700}
+.fi-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
 .fi-fill{height:6px;border-radius:3px;transition:width .4s}
-.fi-note{font-size:.62rem;color:var(–t4);margin-top:2px}
+.fi-note{font-size:.62rem;color:var(--t4);margin-top:2px}
 
 /* ── Bet input ────────────────────────────────────────────────── */
-.bet-input{width:100%;background:var(–bg3);border:1px solid var(–bdr);
-border-radius:8px;padding:10px 12px;font-size:1rem;color:var(–t1);
-font-family:‘JetBrains Mono’,monospace;outline:none;transition:border-color .15s}
-.bet-input:focus{border-color:var(–blue)}
-.bet-result{background:var(–bg3);border-radius:10px;padding:12px 14px;margin-top:10px}
+.bet-input{width:100%;background:var(--bg3);border:1px solid var(--bdr);
+  border-radius:8px;padding:10px 12px;font-size:1rem;color:var(--t1);
+  font-family:'JetBrains Mono',monospace;outline:none;transition:border-color .15s}
+.bet-input:focus{border-color:var(--blue)}
+.bet-result{background:var(--bg3);border-radius:10px;padding:12px 14px;margin-top:10px}
 .bet-row{display:flex;justify-content:space-between;padding:5px 0;
-border-bottom:1px solid var(–bdr);font-size:.8rem}
+  border-bottom:1px solid var(--bdr);font-size:.8rem}
 .bet-row:last-child{border-bottom:none}
-.bet-row .lbl{color:var(–t4)}
-.bet-row .val{font-weight:700;font-family:‘JetBrains Mono’,monospace}
+.bet-row .lbl{color:var(--t4)}
+.bet-row .val{font-weight:700;font-family:'JetBrains Mono',monospace}
 
 /* ── AB Explorer ──────────────────────────────────────────────── */
-.ab-card{background:var(–bg2);border:1px solid var(–bdr);border-radius:10px;
-padding:10px 12px;margin-bottom:6px}
-.ab-card.ab-hr{border-left:3px solid var(–amber);background:rgba(240,165,0,.05)}
-.ab-card.ab-brl{border-left:3px solid var(–green);background:rgba(34,201,94,.04)}
+.ab-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;
+  padding:10px 12px;margin-bottom:6px}
+.ab-card.ab-hr{border-left:3px solid var(--amber);background:rgba(240,165,0,.05)}
+.ab-card.ab-brl{border-left:3px solid var(--green);background:rgba(34,201,94,.04)}
 .ab-row1{display:flex;align-items:center;gap:8px;margin-bottom:4px}
-.ab-date{font-size:.7rem;color:var(–t4);min-width:36px}
-.ab-pitcher{font-size:.78rem;color:var(–t2);flex:1}
+.ab-date{font-size:.7rem;color:var(--t4);min-width:36px}
+.ab-pitcher{font-size:.78rem;color:var(--t2);flex:1}
 .ab-result{font-size:.72rem;font-weight:700;padding:2px 7px;border-radius:99px}
 .ab-row2{display:flex;gap:6px;flex-wrap:wrap}
 .ab-stat{font-size:.68rem;padding:2px 7px;border-radius:5px;
-background:var(–bg3);border:1px solid var(–bdr);color:var(–t3)}
+  background:var(--bg3);border:1px solid var(--bdr);color:var(--t3)}
 .ab-stat .v{font-weight:700}
-.ab-stat.ev-hot .v{color:var(–green)}
-.ab-stat.ev-warm .v{color:var(–amber)}
-.ab-stat.ev-cold .v{color:var(–red)}
-.ab-stat.la-good .v{color:var(–green)}
-.ab-stat.brl-yes .v{color:var(–green)}
+.ab-stat.ev-hot .v{color:var(--green)}
+.ab-stat.ev-warm .v{color:var(--amber)}
+.ab-stat.ev-cold .v{color:var(--red)}
+.ab-stat.la-good .v{color:var(--green)}
+.ab-stat.brl-yes .v{color:var(--green)}
 
 /* ── Parlay builder ───────────────────────────────────────────── */
-.parlay-leg{background:var(–bg2);border:1px solid var(–bdr);border-radius:10px;
-padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px;
-cursor:pointer;transition:border-color .15s}
-.parlay-leg.selected{border-color:var(–amber);background:rgba(240,165,0,.06)}
-.pl-name{flex:1;font-weight:700;font-size:.88rem;color:var(–t1)}
-.pl-prob{font-family:‘JetBrains Mono’,monospace;font-size:1rem;font-weight:800}
-.parlay-result{background:linear-gradient(135deg,var(–bg2),var(–bg));
-border:1.5px solid rgba(240,165,0,.4);border-radius:12px;padding:14px 16px;margin-top:10px}
-.pr-title{font-size:.62rem;font-weight:700;color:var(–amber);
-text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px}
+.parlay-leg{background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;
+  padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px;
+  cursor:pointer;transition:border-color .15s}
+.parlay-leg.selected{border-color:var(--amber);background:rgba(240,165,0,.06)}
+.pl-name{flex:1;font-weight:700;font-size:.88rem;color:var(--t1)}
+.pl-prob{font-family:'JetBrains Mono',monospace;font-size:1rem;font-weight:800}
+.parlay-result{background:linear-gradient(135deg,var(--bg2),var(--bg));
+  border:1.5px solid rgba(240,165,0,.4);border-radius:12px;padding:14px 16px;margin-top:10px}
+.pr-title{font-size:.62rem;font-weight:700;color:var(--amber);
+  text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px}
 .pr-stats{display:flex;gap:16px;flex-wrap:wrap}
-.pr-stat .lbl{font-size:.6rem;color:var(–t4);margin-bottom:3px}
-.pr-stat .val{font-family:‘JetBrains Mono’,monospace;font-size:1.6rem;font-weight:800}
-.pr-legs{font-size:.68rem;color:var(–t4);margin-top:10px;padding-top:8px;
-border-top:1px solid var(–bdr);line-height:1.8}
+.pr-stat .lbl{font-size:.6rem;color:var(--t4);margin-bottom:3px}
+.pr-stat .val{font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:800}
+.pr-legs{font-size:.68rem;color:var(--t4);margin-top:10px;padding-top:8px;
+  border-top:1px solid var(--bdr);line-height:1.8}
 
 /* ── Spinners & empty states ──────────────────────────────────── */
 .spinner{display:flex;flex-direction:column;align-items:center;
-justify-content:center;gap:10px;padding:40px 20px;color:var(–t4)}
-.spin{width:28px;height:28px;border:2.5px solid var(–bdr);
-border-top-color:var(–amber);border-radius:50%;animation:spin .7s linear infinite}
+  justify-content:center;gap:10px;padding:40px 20px;color:var(--t4)}
+.spin{width:28px;height:28px;border:2.5px solid var(--bdr);
+  border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.empty{text-align:center;padding:40px 20px;color:var(–t4);font-size:.88rem}
+.empty{text-align:center;padding:40px 20px;color:var(--t4);font-size:.88rem}
 
 /* ── Select & Input ───────────────────────────────────────────── */
 select,input[type=text],input[type=number]{
-width:100%;background:var(–bg3);border:1px solid var(–bdr);border-radius:8px;
-color:var(–t1);padding:9px 12px;font-size:.88rem;font-family:inherit;outline:none}
-select:focus,input:focus{border-color:var(–blue)}
+  width:100%;background:var(--bg3);border:1px solid var(--bdr);border-radius:8px;
+  color:var(--t1);padding:9px 12px;font-size:.88rem;font-family:inherit;outline:none}
+select:focus,input:focus{border-color:var(--blue)}
 label{font-size:.62rem;font-weight:700;text-transform:uppercase;
-letter-spacing:.07em;color:var(–t4);display:block;margin-bottom:4px}
+  letter-spacing:.07em;color:var(--t4);display:block;margin-bottom:4px}
 .form-group{margin-bottom:12px}
 
 /* ── Toggle ───────────────────────────────────────────────────── */
-.toggle-row{display:flex;gap:4px;background:var(–bg3);
-border-radius:8px;padding:3px;margin-bottom:10px}
+.toggle-row{display:flex;gap:4px;background:var(--bg3);
+  border-radius:8px;padding:3px;margin-bottom:10px}
 .toggle-btn{flex:1;padding:6px 8px;border-radius:6px;font-size:.72rem;
-font-weight:600;text-align:center;cursor:pointer;color:var(–t3);transition:all .15s}
-.toggle-btn.active{background:var(–bg2);color:var(–t1);
-box-shadow:0 1px 4px rgba(0,0,0,.4)}
+  font-weight:600;text-align:center;cursor:pointer;color:var(--t3);transition:all .15s}
+.toggle-btn.active{background:var(--bg2);color:var(--t1);
+  box-shadow:0 1px 4px rgba(0,0,0,.4)}
 
 /* ── Scrollable stat row ──────────────────────────────────────── */
 .stat-scroll{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;
--webkit-overflow-scrolling:touch;scrollbar-width:none}
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
 .stat-scroll::-webkit-scrollbar{display:none}
-.stat-box{background:var(–bg3);border:1px solid var(–bdr);border-radius:8px;
-padding:8px 10px;text-align:center;flex-shrink:0;min-width:70px}
-.sb-val{font-family:‘JetBrains Mono’,monospace;font-size:.92rem;
-font-weight:700;display:block;color:var(–t1)}
-.sb-lbl{font-size:.58rem;color:var(–t4);text-transform:uppercase;letter-spacing:.05em}
+.stat-box{background:var(--bg3);border:1px solid var(--bdr);border-radius:8px;
+  padding:8px 10px;text-align:center;flex-shrink:0;min-width:70px}
+.sb-val{font-family:'JetBrains Mono',monospace;font-size:.92rem;
+  font-weight:700;display:block;color:var(--t1)}
+.sb-lbl{font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em}
 
 /* ── Search bar ───────────────────────────────────────────────── */
 #search-wrap{position:relative;margin-bottom:8px}
-#search-input{width:100%;background:var(–bg2);border:1px solid var(–bdr);
-border-radius:10px;padding:9px 12px 9px 36px;font-size:.88rem;
-color:var(–t1);font-family:inherit;outline:none}
-#search-input:focus{border-color:var(–blue)}
+#search-input{width:100%;background:var(--bg2);border:1px solid var(--bdr);
+  border-radius:10px;padding:9px 12px 9px 36px;font-size:.88rem;
+  color:var(--t1);font-family:inherit;outline:none}
+#search-input:focus{border-color:var(--blue)}
 #search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);
-color:var(–t4);pointer-events:none}
+  color:var(--t4);pointer-events:none}
 
 /* ── Back button ──────────────────────────────────────────────── */
 .back-btn{display:flex;align-items:center;gap:6px;font-size:.78rem;
-font-weight:600;color:var(–blue);padding:8px 0 4px;cursor:pointer}
+  font-weight:600;color:var(--blue);padding:8px 0 4px;cursor:pointer}
 
 /* ── EV badge ─────────────────────────────────────────────────── */
 .ev-badge{display:inline-block;padding:3px 8px;border-radius:6px;
-font-size:.72rem;font-weight:700;font-family:‘JetBrains Mono’,monospace}
-.ev-pos{background:#0d3320;color:var(–green);border:1px solid var(–green)}
-.ev-neg{background:#3d1110;color:var(–red);border:1px solid var(–red)}
-.ev-neu{background:var(–bg3);color:var(–t3);border:1px solid var(–bdr)}
+  font-size:.72rem;font-weight:700;font-family:'JetBrains Mono',monospace}
+.ev-pos{background:#0d3320;color:var(--green);border:1px solid var(--green)}
+.ev-neg{background:#3d1110;color:var(--red);border:1px solid var(--red)}
+.ev-neu{background:var(--bg3);color:var(--t3);border:1px solid var(--bdr)}
 </style>
-
 </head>
 <body>
 <div id="app">
 
 <!-- ── HEADER ──────────────────────────────────────────────────── -->
-
 <div id="header">
   <div id="header-title">⚾ HR <span>Hub</span></div>
   <div id="header-date"></div>
@@ -263,11 +267,9 @@ font-size:.72rem;font-weight:700;font-family:‘JetBrains Mono’,monospace}
 </div>
 
 <!-- ── CONTENT ─────────────────────────────────────────────────── -->
-
 <div id="content">
 
   <!-- SLATE PAGE -->
-
   <div id="page-slate" class="page active">
     <div id="date-nav">
       <button onclick="shiftDate(-1)">◀</button>
@@ -293,14 +295,12 @@ font-size:.72rem;font-weight:700;font-family:‘JetBrains Mono’,monospace}
   </div>
 
   <!-- DETAIL PAGE -->
-
   <div id="page-detail" class="page">
     <div class="back-btn" onclick="showPage('slate')">← All Players</div>
     <div id="detail-content"></div>
   </div>
 
   <!-- PARLAY PAGE -->
-
   <div id="page-parlay" class="page">
     <div class="slbl">🎰 Parlay Builder</div>
     <div class="card" style="margin-bottom:10px">
@@ -324,7 +324,6 @@ font-size:.72rem;font-weight:700;font-family:‘JetBrains Mono’,monospace}
   </div>
 
   <!-- AB EXPLORER PAGE -->
-
   <div id="page-ab" class="page">
     <div class="slbl">📋 AB Explorer</div>
     <div class="card" style="margin-bottom:10px">
@@ -359,7 +358,6 @@ font-size:.72rem;font-weight:700;font-family:‘JetBrains Mono’,monospace}
 </div><!-- /content -->
 
 <!-- ── BOTTOM NAV ──────────────────────────────────────────────── -->
-
 <nav id="nav">
   <button class="nav-btn active" onclick="showPage('slate')" id="nav-slate">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
@@ -393,6 +391,9 @@ const S = {
 
 const SEASON = 2026;
 const MLB    = 'https://statsapi.mlb.com/api/v1';
+// ── Cloudflare Worker proxy — set to your deployed worker URL ──────────────
+// Deploy hr_hub_worker.js to Cloudflare Workers, then update this:
+const PROXY  = 'https://hr-scout2.jimtufexis-max.workers.dev/?url=';
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
   ATL:1.04,CHC:1.03,TEX:1.03,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
   WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.97,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
@@ -487,59 +488,124 @@ async function getPitcherHand(pid){
 
 async function getSavantBatters(){
   try{
-    const r=await fetch(`https://baseballsavant.mlb.com/leaderboard/exit-velocity-barrels?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`);
-    const txt=await r.text();return parseCSV(txt,'player_id','batter');
-  }catch{return{}}
+    const url=`https://baseballsavant.mlb.com/leaderboard/exit-velocity-barrels?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
+    const r=await fetch(PROXY+encodeURIComponent(url));
+    if(!r.ok)throw new Error(`savant batters ${r.status}`);
+    const txt=await r.text();
+    const rows=parseCSVText(txt); const out={};
+    for(const row of rows){
+      const pid=(row.player_id||row.batter||'').replace(/\.0$/,'');
+      if(!pid)continue;
+      out[pid]={
+        barrel_pct:  parseF(row.brl_percent ?? row.barrel_batted_rate),
+        hard_hit_pct:parseF(row.ev95percent),
+        avg_ev:      parseF(row.avg_hit_speed ?? row.avg_exit_velocity),
+        avg_la:      parseF(row.avg_hit_angle ?? row.avg_launch_angle),
+      };
+    }
+    console.log(`Savant batters: ${Object.keys(out).length} players`);
+    return out;
+  }catch(e){console.warn('getSavantBatters failed:',e.message);return{};}
 }
+
 async function getFGBatters(){
   try{
-    const r=await fetch(`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=bat&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=2000&pagenum=1`);
-    const d=await r.json();const out={};
-    for(const row of d.data||[]){
+    const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=bat&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=2000&pagenum=1`;
+    const r=await fetch(PROXY+encodeURIComponent(url));
+    if(!r.ok)throw new Error(`fg batters ${r.status}`);
+    const d=await r.json(); const out={};
+    for(const row of (d.data||[])){
       const pid=String(row.xMLBAMID||row.mlbamid||row.playerid||'').replace(/\.0$/,'').trim();
       if(!pid||pid==='undefined')continue;
-      out[pid]={pull:parsePct(row['Pull%']||row.pull),fb:parsePct(row['FB%']),
-        swstr:parsePct(row['SwStr%']),barrel:parsePct(row['Barrel%']),
-        hard:parsePct(row['HardHit%']),avgEV:parseF(row['AvgEV']),iso:parseF(row['ISO']),ops:parseF(row['OPS'])};
-    }return out;
-  }catch{return{}}
+      out[pid]={
+        pull:  parsePct(row['Pull%']||row.pull),
+        fb:    parsePct(row['FB%']),
+        swstr: parsePct(row['SwStr%']),
+        barrel:parsePct(row['Barrel%']),
+        hard:  parsePct(row['HardHit%']),
+        avgEV: parseF(row['AvgEV']),
+        iso:   parseF(row['ISO']),
+        ops:   parseF(row['OPS']),
+      };
+    }
+    console.log(`FanGraphs batters: ${Object.keys(out).length} players`);
+    return out;
+  }catch(e){console.warn('getFGBatters failed:',e.message);return{};}
 }
+
 async function getSavantPitchers(){
   try{
-    const r=await fetch(`https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&year=${SEASON}&position=&team=&min=10&csv=true`);
-    const txt=await r.text();return parseCSV(txt,'player_id','pitcher','p');
-  }catch{return{}}
+    const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&year=${SEASON}&position=&team=&min=10&csv=true`;
+    const r=await fetch(PROXY+encodeURIComponent(url));
+    if(!r.ok)throw new Error(`savant pitchers ${r.status}`);
+    const txt=await r.text();
+    const rows=parseCSVText(txt); const out={};
+    for(const row of rows){
+      const pid=(row.player_id||row.pitcher||'').replace(/\.0$/,'');
+      if(!pid)continue;
+      out[pid]={
+        barrel_pct:  parseF(row.brl_percent ?? row.barrel_batted_rate),
+        hard_hit_pct:parseF(row.ev95percent),
+        avg_ev:      parseF(row.avg_hit_speed ?? row.avg_exit_velocity),
+      };
+    }
+    console.log(`Savant pitchers: ${Object.keys(out).length} players`);
+    return out;
+  }catch(e){console.warn('getSavantPitchers failed:',e.message);return{};}
 }
+
 async function getFGPitchers(){
   try{
-    const r=await fetch(`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=pit&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=1000&pagenum=1`);
-    const d=await r.json();const out={};
-    for(const row of d.data||[]){
+    const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=pit&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=1000&pagenum=1`;
+    const r=await fetch(PROXY+encodeURIComponent(url));
+    if(!r.ok)throw new Error(`fg pitchers ${r.status}`);
+    const d=await r.json(); const out={};
+    for(const row of (d.data||[])){
       const pid=String(row.xMLBAMID||row.mlbamid||row.playerid||'').replace(/\.0$/,'').trim();
       if(!pid||pid==='undefined')continue;
-      out[pid]={era:parseF(row.ERA),fip:parseF(row.FIP),kPct:parsePct(row['K%']),
-        hrFb:parsePct(row['HR/FB']||row.hrfb),fbPct:parsePct(row['FB%']),
-        hardPct:parsePct(row['HardHit%'])};
-    }return out;
-  }catch{return{}}
+      out[pid]={
+        era:   parseF(row.ERA),
+        fip:   parseF(row.FIP),
+        kPct:  parsePct(row['K%']),
+        hrFb:  parsePct(row['HR/FB']||row.hrfb),
+        fbPct: parsePct(row['FB%']),
+        hardPct:parsePct(row['HardHit%']),
+      };
+    }
+    console.log(`FanGraphs pitchers: ${Object.keys(out).length} players`);
+    return out;
+  }catch(e){console.warn('getFGPitchers failed:',e.message);return{};}
 }
+
 async function getPitcherL14(pid){
   if(!pid)return{};
   try{
-    const now=new Date(),st=new Date();st.setDate(st.getDate()-14);
+    const now=new Date(), st=new Date(); st.setDate(st.getDate()-14);
     const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const r=await fetch(`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${SEASON}%7C&player_type=pitcher&pitchersLookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&`);
-    const txt=await r.text();const rows=parseCSVText(txt);
+    const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${SEASON}%7C&player_type=pitcher&pitchersLookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&`;
+    const r=await fetch(PROXY+encodeURIComponent(url));
+    if(!r.ok)return{};
+    const txt=await r.text();
+    const rows=parseCSVText(txt);
     const evs=[],las=[];let barrels=0,hard=0;
     for(const row of rows){
       const ev=parseFloat(row.launch_speed),la=parseFloat(row.launch_angle);
-      if(!isNaN(ev)&&ev>0){evs.push(ev);if(ev>=95)hard++;
-        if(!isNaN(la)){las.push(la);if(ev>=98){const mx=Math.min(50,30+(ev-98));const mn=Math.max(8,26-(ev-98));if(la>=mn&&la<=mx)barrels++;}}}
+      if(!isNaN(ev)&&ev>0){
+        evs.push(ev); if(ev>=95)hard++;
+        if(!isNaN(la)){
+          las.push(la);
+          if(ev>=98){const mx=Math.min(50,30+(ev-98));const mn=Math.max(8,26-(ev-98));if(la>=mn&&la<=mx)barrels++;}
+        }
+      }
     }
     const n=evs.length;
-    return{brl:n>0?Math.round(barrels/n*1000)/10:null,hard:n>0?Math.round(hard/n*1000)/10:null,
-      ev:n>0?Math.round(evs.reduce((a,b)=>a+b)/n*10)/10:null,n};
-  }catch{return{}}
+    return{
+      brl:  n>0?Math.round(barrels/n*1000)/10:null,
+      hard: n>0?Math.round(hard/n*1000)/10:null,
+      ev:   n>0?Math.round(evs.reduce((a,b)=>a+b)/n*10)/10:null,
+      n,
+    };
+  }catch(e){console.warn('getPitcherL14 failed:',e.message);return{};}
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -719,12 +785,18 @@ async function toggleGame(pk){
   await loadSelectedGames();
 }
 
-// Bulk leaderboard data — Savant/FG blocked by CORS from browser
-// Instead fetch per-player stats from MLB Stats API which allows CORS
-let _savB={},_fgB={},_savP={},_fgP={};
+// Bulk leaderboard data — load once per session via Worker proxy
+let _savB=null,_fgB=null,_savP=null,_fgP=null;
 async function ensureLeaderboards(){
-  // These are no-ops — we fetch per-player stats in loadGame instead
-  // Savant CSV and FanGraphs block cross-origin browser requests
+  if(_savB!==null) return; // already loaded
+  console.log('Loading leaderboards via proxy...');
+  [_savB,_fgB,_savP,_fgP]=await Promise.all([
+    getSavantBatters(), getFGBatters(), getSavantPitchers(), getFGPitchers()
+  ]);
+  const nSav=Object.keys(_savB).length, nFG=Object.keys(_fgB).length;
+  console.log(`Leaderboards ready — Savant:${nSav} FG:${nFG}`);
+  // If both failed, set empty so we can still use MLB API fallback
+  if(!nSav && !nFG) console.warn('Both leaderboards empty — falling back to MLB API stats');
 }
 
 // Fetch a single player's season hitting stats from MLB Stats API
@@ -822,37 +894,71 @@ async function loadGame(g){
     const hitters=roster.filter(h=>h.pos!=='P'&&h.pos!=='');
     const rows=[];
 
-    // Fetch all player stats in parallel (max 8 at a time to avoid rate limiting)
-    const BATCH=8;
-    const allStats={};
-    for(let i=0;i<hitters.length;i+=BATCH){
-      const chunk=hitters.slice(i,i+BATCH);
-      const results=await Promise.allSettled(
-        chunk.map(h=>getPlayerStats(String(h.id)))
-      );
-      chunk.forEach((h,j)=>{
-        if(results[j].status==='fulfilled') allStats[String(h.id)]=results[j].value;
-      });
+    // If Savant/FG data is missing, fall back to MLB API per-player stats
+    const needsMLBFallback=Object.keys(_savB||{}).length===0 && Object.keys(_fgB||{}).length===0;
+    let mlbStats={};
+    if(needsMLBFallback){
+      console.log(`No leaderboard data — fetching MLB API stats for ${team}`);
+      const BATCH=8;
+      for(let i=0;i<hitters.length;i+=BATCH){
+        const chunk=hitters.slice(i,i+BATCH);
+        const results=await Promise.allSettled(chunk.map(h=>getPlayerStats(String(h.id))));
+        chunk.forEach((h,j)=>{
+          if(results[j].status==='fulfilled') mlbStats[String(h.id)]=results[j].value;
+        });
+      }
     }
 
     for(const h of hitters){
       const pid=String(h.id);
-      const ps=allStats[pid];
-      const hData=ps?.stat ? statToHData(ps.stat, ps.hand) : {};
+      let hData;
+      if(needsMLBFallback){
+        const ps=mlbStats[pid];
+        hData=ps?.stat?statToHData(ps.stat,ps.hand):{};
+      } else {
+        const savH=(_savB||{})[pid]||{};
+        const fgH=(_fgB||{})[pid]||{};
+        hData={
+          barrel_pct:  savH.barrel_pct  ?? fgH.barrel,
+          hard_hit_pct:savH.hard_hit_pct ?? fgH.hard,
+          avg_ev:      savH.avg_ev      ?? fgH.avgEV,
+          avg_la:      savH.avg_la,
+          pull_pct:    fgH.pull,
+          fb_pct:      fgH.fb,
+          iso:         fgH.iso,
+          ops:         fgH.ops,
+          swstr_pct:   fgH.swstr,
+        };
+      }
 
-      const base=calcBaseProb(hData);
-      const matchup=calcMatchupMult({},null,null); // pitcher data not available without Statcast
-      const context=calcContextMult(pf,wx);
-      const l14mod=1.0; // no L14 without Savant
-      const prob=clamp(base*matchup*context*l14mod,0.01,0.40);
+      // Pitcher data from leaderboards
+      const spId=key.endsWith('_away')?g.homeSpId:g.awaySpId;
+      const savP=(_savP||{})[String(spId)]||{};
+      const fgP=(_fgP||{})[String(spId)]||{};
+      const pData={
+        brl:  savP.barrel_pct,
+        hard: savP.hard_hit_pct,
+        kPct: fgP.kPct,
+        hrFb: fgP.hrFb,
+        fbPct:fgP.fbPct,
+      };
+      const pL14Mult=pL14?.brl!=null?clamp(pL14.brl/6.5,0.4,2.2):1.0;
+
+      const base    = calcBaseProb(hData);
+      const matchup = calcMatchupMult(pData,null,null);
+      const context = calcContextMult(pf,wx);
+      const l14mod  = 1.0; // per-batter L14 needs Savant per-player fetch (too slow for full roster)
+      const prob    = clamp(base*matchup*context*l14mod*(pL14Mult**0.3),0.01,0.40);
       const[grd,gc,gCls]=probGrade(prob);
 
       rows.push({
-        id:pid,name:h.name,team,pos:h.pos,batHand:h.batHand,
-        game:`${g.away}@${g.home}`,spNm,oppHand,pf,wx,
-        prob,base,matchup,context,l14mod,grade:grd,gradeColor:gc,gradeCls:gCls,
+        id:pid, name:h.name, team, pos:h.pos, batHand:h.batHand,
+        game:`${g.away}@${g.home}`, spNm, oppHand, pf, wx,
+        prob, base, matchup, context, l14mod,
+        grade:grd, gradeColor:gc, gradeCls:gCls,
         ...hData,
-        l14hr:null,l14woba:null,l14brl:null,l14hard:null,l14ev:null,
+        l14hr:null, l14woba:null, l14brl:null, l14hard:null, l14ev:null,
+        _pData:pData, _pL14:pL14,
       });
     }
     rows.sort((a,b)=>b.prob-a.prob);
@@ -1187,112 +1293,178 @@ async function loadABLog(){
 }
 
 async function fetchABLog(pid,n,arm){
-  if(!pid){return[];}
+  if(!pid) return [];
+
+  // Try Savant pitch-by-pitch first (via proxy) — gives EV, LA, barrel, pitch type
+  for(const s of[SEASON, SEASON-1]){
+    try{
+      const url=`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&battersLookup%5B%5D=${pid}&type=details&`;
+      const r=await fetch(PROXY+encodeURIComponent(url));
+      if(!r.ok) throw new Error(`savant AB ${r.status}`);
+      const txt=await r.text();
+      const allRows=parseCSVText(txt);
+      if(!allRows.length) continue;
+
+      const AB_EVENTS=new Set(['single','double','triple','home_run','field_out',
+        'grounded_into_double_play','strikeout','strikeout_double_play','force_out',
+        'field_error','fielders_choice','fielders_choice_out','double_play','sac_fly',
+        'sac_bunt','walk','hit_by_pitch']);
+
+      let rows=allRows.filter(r=>r.events&&AB_EVENTS.has(r.events.toLowerCase()));
+      if(arm) rows=rows.filter(r=>r.p_throws===arm);
+      rows.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
+      rows=rows.slice(0,n);
+
+      return rows.map(row=>{
+        const ev=parseFloat(row.launch_speed), la=parseFloat(row.launch_angle);
+        const dist=parseFloat(row.hit_distance_sc), pv=parseFloat(row.release_speed);
+        const bs=parseFloat(row.bat_speed);
+        const isHR=row.events==='home_run';
+        let isBrl=false;
+        if(!isNaN(ev)&&!isNaN(la)&&ev>=98){
+          const mx=Math.min(50,30+(ev-98)); const mn=Math.max(8,26-(ev-98));
+          if(la>=mn&&la<=mx) isBrl=true;
+        }
+        let hrPk='--';
+        if(isHR) hrPk='✓ HR';
+        else if(!isNaN(dist)&&dist>0){
+          if(dist>=430)hrPk='30/30';else if(dist>=415)hrPk='27/30';
+          else if(dist>=400)hrPk='22/30';else if(dist>=385)hrPk='15/30';
+          else if(dist>=370)hrPk='8/30'; else if(dist>=355)hrPk='3/30';
+          else if(dist>=335)hrPk='1/30'; else hrPk='0/30';
+        }
+        const ptCode=(row.pitch_type||'').toUpperCase();
+        return{
+          date:(row.game_date||'').slice(5,10),
+          pitcher:row.player_name||'--',
+          arm:row.p_throws||'?',
+          pt:ptCode,
+          ptNm:PITCH_NAMES[ptCode]||(row.pitch_type||'--'),
+          ev:isNaN(ev)?null:Math.round(ev*10)/10,
+          la:isNaN(la)?null:Math.round(la*10)/10,
+          dist:isNaN(dist)?null:Math.round(dist),
+          pv:isNaN(pv)?null:Math.round(pv*10)/10,
+          bs:isNaN(bs)?null:Math.round(bs*10)/10,
+          traj:(row.bb_type||'').replace(/_/g,' '),
+          result:(row.events||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
+          isHR, isBrl, hrPk,
+          gameNote:null,
+          source:'statcast',
+        };
+      });
+    }catch(e){console.warn(`Savant AB log failed s=${s}:`,e.message);}
+  }
+
+  // Fallback: MLB Stats API game log (no EV/LA but shows results)
+  console.log('Falling back to MLB game log for AB explorer');
   for(const s of[SEASON, SEASON-1]){
     try{
       const d=await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
-      // stats[0] = hitting game log
       const splits=(d.stats||[]).find(s=>s.type?.displayName==='gameLog')?.splits
-                || d.stats?.[0]?.splits
-                || [];
+                || d.stats?.[0]?.splits || [];
       if(!splits.length) continue;
 
-      // MLB returns oldest-first — reverse for newest-first
       const recent=[...splits].reverse();
       const rows=[];
       for(const sp of recent){
         const st=sp.stat||{};
-        const gd=(sp.date||sp.game?.gameDate||'').slice(5,10);
-        const opp=sp.opponent?.abbreviation||sp.team?.abbreviation||'?';
+        const gd=(sp.date||'').slice(5,10);
+        const opp=sp.opponent?.abbreviation||'?';
         const hr=parseInt(st.homeRuns)||0;
         const h=parseInt(st.hits)||0;
         const ab=parseInt(st.atBats)||0;
         const bb=parseInt(st.baseOnBalls)||0;
         const k=parseInt(st.strikeOuts)||0;
-        const tb=parseInt(st.totalBases)||0;
-        const rbi=parseInt(st.rbi)||0;
         const doubles=parseInt(st.doubles)||0;
         const triples=parseInt(st.triples)||0;
-
-        if(ab===0&&hr===0&&bb===0) continue; // skip no-PA games (off day entries)
-
-        // Derive best result of the game
+        const rbi=parseInt(st.rbi)||0;
+        if(ab===0&&hr===0&&bb===0) continue;
         let result='No Hit', isHR=false;
-        if(hr>0){result=hr>1?`${hr} HR`:'Home Run';isHR=true;}
-        else if(h>=3)result=`${h}-Hit Game`;
-        else if(h===2)result='2 Hits';
+        if(hr>0){result=hr>1?`${hr} HRs`:'Home Run';isHR=true;}
         else if(triples>0)result='Triple';
         else if(doubles>0)result='Double';
+        else if(h>=3)result=`${h}-Hit Game`;
+        else if(h===2)result='2 Hits';
         else if(h===1)result='Single';
         else if(bb>0)result='Walk';
         else if(k>=2)result='Multi-K';
         else if(k===1)result='Strikeout';
-
         rows.push({
           date:gd, pitcher:opp, arm:'?', pt:'--', ptNm:'--',
           ev:null, la:null, dist:null, pv:null, bs:null,
           traj:'', result, isHR, isBrl:false, hrPk:'--',
-          ab, h, hr, bb, k, rbi, doubles, triples,
-          gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K${rbi>0?' · '+rbi+' RBI':''}`,
-          season:s,
+          gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K${rbi>0?` · ${rbi} RBI`:''}`,
+          source:'gamelog',
         });
       }
-
-      if(rows.length){
-        return rows.slice(0, n);
-      }
-    }catch(e){
-      console.warn(`game log fetch s=${s} pid=${pid}:`, e);
-    }
+      if(rows.length) return rows.slice(0,n);
+    }catch(e){console.warn('MLB game log fallback failed:',e.message);}
   }
   return[];
 }
 
 function renderABLog(rows){
   if(!rows.length){
-    document.getElementById('ab-list').innerHTML='<div class="empty">No game log data found for this player this season</div>';
+    document.getElementById('ab-list').innerHTML='<div class="empty">No AB data found. Try a different season or the Streamlit app.</div>';
     document.getElementById('ab-summary').innerHTML='';
     return;
   }
+  const isStatcast=rows[0]?.source==='statcast';
   const nHR=rows.filter(r=>r.isHR).length;
-  const totalH=rows.reduce((s,r)=>s+(r.h||0),0);
-  const totalAB=rows.reduce((s,r)=>s+(r.ab||0),0);
-  const totalBB=rows.reduce((s,r)=>s+(r.bb||0),0);
-  const totalK=rows.reduce((s,r)=>s+(r.k||0),0);
-  const avgBA=totalAB>0?Math.round(totalH/totalAB*1000)/1000:null;
-  const yr=rows[0]?.season===SEASON-1?` (${SEASON-1})`:'';
+  const nBrl=rows.filter(r=>r.isBrl).length;
+  const evs=rows.filter(r=>r.ev!=null).map(r=>r.ev);
+  const las=rows.filter(r=>r.la!=null).map(r=>r.la);
+  const avgEV=evs.length?Math.round(evs.reduce((a,b)=>a+b)/evs.length*10)/10:null;
+  const avgLA=las.length?Math.round(las.reduce((a,b)=>a+b)/las.length*10)/10:null;
+  const brlPct=evs.length?Math.round(nBrl/evs.length*1000)/10:null;
+  const hard95=evs.filter(e=>e>=95).length;
+  const hardPct=evs.length?Math.round(hard95/evs.length*1000)/10:null;
+  const totalH=rows.reduce((s,r)=>s+(isStatcast?(['Single','Double','Triple','Home Run'].some(x=>r.result.includes(x))?1:0):(r.h||0)),0);
 
   function sb(lbl,v,suf,good){
-    const clr=v!=null&&good(v)?'var(--green)':'var(--t1)';
+    const clr=v!=null&&good(v)?'var(--green)':v!=null?'var(--t1)':'var(--t4)';
     return`<div class="stat-box"><span class="sb-val" style="color:${clr}">${v!=null?v+suf:'--'}</span><span class="sb-lbl">${lbl}</span></div>`;
   }
+
+  const summaryStats=isStatcast
+    ?`${sb('ABs',rows.length,'',()=>true)}${sb('Avg EV',avgEV,' mph',v=>v>=90)}${sb('Avg LA',avgLA,'°',v=>v>=8&&v<=20)}${sb('Barrel%',brlPct,'%',v=>v>=10)}${sb('Hard%',hardPct,'%',v=>v>=50)}${sb('HRs 💥',nHR,'',v=>v>0)}${sb('Barrels 🟢',nBrl,'',v=>v>0)}`
+    :`${sb('Games',rows.length,'',()=>true)}${sb('HRs 💥',nHR,'',v=>v>0)}${sb('Hits',totalH,'',v=>v>0)}`;
+
+  const sourceNote=isStatcast
+    ?`<div style="font-size:.64rem;color:var(--green);padding:4px 8px;background:rgba(34,201,94,.08);border-radius:5px;border:1px solid rgba(34,201,94,.2)">⚡ Full Statcast data via proxy</div>`
+    :`<div style="font-size:.64rem;color:var(--t4);padding:4px 8px;background:var(--bg3);border-radius:5px">📊 Game log — proxy unavailable, EV/LA not shown</div>`;
+
   document.getElementById('ab-summary').innerHTML=`
-    <div class="stat-scroll">
-      ${sb('Games'+yr, rows.length, '', ()=>true)}
-      ${sb('HRs 💥', nHR, '', v=>v>0)}
-      ${sb('Hits', totalH, '', v=>v>0)}
-      ${sb('BA', avgBA, '', v=>v>=.280)}
-      ${sb('BB', totalBB, '', v=>v>0)}
-      ${sb('K', totalK, '', ()=>false)}
-    </div>
-    <div style="font-size:.68rem;color:var(--t4);margin-bottom:8px;padding:6px 10px;background:var(--bg3);border-radius:6px">
-      📊 Game-by-game log · EV/LA/barrel% available in the Streamlit app
-    </div>`;
+    <div class="stat-scroll">${summaryStats}</div>
+    <div style="margin:6px 0 10px">${sourceNote}</div>`;
 
   document.getElementById('ab-list').innerHTML=rows.map(r=>{
+    const evCls=r.ev!=null?(r.ev>=95?'ev-hot':r.ev>=88?'ev-warm':'ev-cold'):'';
+    const laGood=r.la!=null&&r.la>=8&&r.la<=32;
     let resBg='var(--bg3)';let resTc='var(--t3)';
     if(r.isHR){resBg='#92400e';resTc='#fde68a';}
-    else if(r.result.includes('Single')||r.result.includes('Hit')||r.result.includes('Hits')||r.result.includes('Double')||r.result.includes('Triple')){resBg='#1e3a6e';resTc='#93c5fd';}
-    else if(r.result.includes('Strikeout')||r.result.includes('-K')){resBg='#3d1110';resTc='#fca5a5';}
-    else if(r.result.includes('Walk')){resBg='#1a3320';resTc='#86efac';}
+    else if(r.result.match(/Single|Double|Triple|Hit/)){resBg='#1e3a6e';resTc='#93c5fd';}
+    else if(r.result.match(/Strikeout|Multi-K/)){resBg='#3d1110';resTc='#fca5a5';}
+    else if(r.result.match(/Walk|HBP/)){resBg='#1a3320';resTc='#86efac';}
+    const ptClr=PITCH_COLORS[r.pt]||'#607080';
 
-    return`<div class="ab-card${r.isHR?' ab-hr':''}">
+    return`<div class="ab-card${r.isHR?' ab-hr':r.isBrl?' ab-brl':''}">
       <div class="ab-row1">
         <span class="ab-date">${r.date}</span>
-        <span class="ab-pitcher" style="flex:1">vs <b>${r.pitcher}</b></span>
-        <span class="ab-result" style="background:${resBg};color:${resTc};padding:3px 8px;border-radius:99px;font-size:.72rem;font-weight:700">${r.isHR?'💥 HR':r.result}</span>
+        <span class="ab-pitcher" style="flex:1">${r.pitcher}${r.arm&&r.arm!=='?'?` <span style="font-size:.62rem;color:var(--t4)">(${r.arm})</span>`:''}</span>
+        <span class="ab-result" style="background:${resBg};color:${resTc};padding:3px 8px;border-radius:99px;font-size:.72rem;font-weight:700;white-space:nowrap">${r.isHR?'💥 HR':r.result}</span>
       </div>
-      ${r.gameNote?`<div style="font-size:.68rem;color:var(--t4);margin-top:5px;font-family:'JetBrains Mono',monospace">${r.gameNote}</div>`:''}
+      ${r.ptNm&&r.ptNm!=='--'?`<div style="font-size:.68rem;margin-top:3px"><span style="color:${ptClr};font-weight:700">${r.ptNm}</span></div>`:''}
+      ${r.gameNote?`<div style="font-size:.68rem;color:var(--t4);margin-top:4px;font-family:'JetBrains Mono',monospace">${r.gameNote}</div>`:''}
+      <div class="ab-row2" style="margin-top:5px">
+        ${r.ev!=null?`<span class="ab-stat ${evCls}"><span class="v">${r.ev}</span> mph EV${r.isBrl?' 🟢':''}</span>`:''}
+        ${r.la!=null?`<span class="ab-stat${laGood?' la-good':''}"><span class="v">${r.la}°</span> LA</span>`:''}
+        ${r.dist!=null?`<span class="ab-stat"><span class="v">${r.dist}ft</span></span>`:''}
+        ${r.pv!=null?`<span class="ab-stat"><span class="v">${r.pv}</span> velo</span>`:''}
+        ${r.bs!=null?`<span class="ab-stat"><span class="v">${r.bs}</span> bat spd</span>`:''}
+        ${r.hrPk&&r.hrPk!=='--'?`<span class="ab-stat${r.hrPk==='✓ HR'?' ev-hot':''}"><span class="v">${r.hrPk}</span> parks</span>`:''}
+        ${r.traj?`<span class="ab-stat"><span class="v">${r.traj}</span></span>`:''}
+      </div>
     </div>`;
   }).join('');
 }
@@ -1305,11 +1477,88 @@ function refreshData(){
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  PWA — Service Worker + Install Prompt
+// ══════════════════════════════════════════════════════════════════
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    console.log('SW registered:', reg.scope);
+  }).catch(e=>console.warn('SW registration failed:',e));
+}
+
+let _installPrompt=null;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();
+  _installPrompt=e;
+  // Show install banner after a short delay
+  setTimeout(()=>{
+    if(_installPrompt) showInstallBanner();
+  }, 3000);
+});
+
+function showInstallBanner(){
+  if(document.getElementById('install-banner')) return;
+  const banner=document.createElement('div');
+  banner.id='install-banner';
+  banner.innerHTML=`
+    <div style="position:fixed;bottom:68px;left:12px;right:12px;z-index:100;
+      background:linear-gradient(135deg,#1e3a6e,#0e2448);
+      border:1.5px solid var(--blue);border-radius:12px;
+      padding:12px 14px;display:flex;align-items:center;gap:10px;
+      box-shadow:0 4px 20px rgba(0,0,0,.5)">
+      <div style="font-size:1.4rem">⚾</div>
+      <div style="flex:1">
+        <div style="font-size:.82rem;font-weight:700;color:var(--t1)">Add HR Hub to Home Screen</div>
+        <div style="font-size:.68rem;color:var(--t4)">Works offline · No App Store needed</div>
+      </div>
+      <button onclick="installApp()" style="background:var(--blue);border:none;border-radius:8px;
+        color:#fff;font-size:.78rem;font-weight:700;padding:8px 14px;cursor:pointer">Install</button>
+      <button onclick="document.getElementById('install-banner').remove()" style="background:none;
+        border:none;color:var(--t4);font-size:1.1rem;cursor:pointer;padding:4px">×</button>
+    </div>`;
+  document.body.appendChild(banner);
+}
+
+async function installApp(){
+  if(!_installPrompt) return;
+  _installPrompt.prompt();
+  const{outcome}=await _installPrompt.userChoice;
+  console.log('Install outcome:', outcome);
+  _installPrompt=null;
+  document.getElementById('install-banner')?.remove();
+}
+
+// iOS "Add to Home Screen" hint (no beforeinstallprompt on iOS)
+const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone=window.navigator.standalone===true;
+if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
+  setTimeout(()=>{
+    const hint=document.createElement('div');
+    hint.innerHTML=`
+      <div style="position:fixed;bottom:68px;left:12px;right:12px;z-index:100;
+        background:linear-gradient(135deg,#1e3a6e,#0e2448);
+        border:1.5px solid var(--blue);border-radius:12px;padding:12px 14px;
+        box-shadow:0 4px 20px rgba(0,0,0,.5)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <div style="font-size:1.4rem">⚾</div>
+          <div style="font-size:.82rem;font-weight:700;color:var(--t1)">Add HR Hub to Home Screen</div>
+          <button onclick="this.closest('div').parentElement.remove();localStorage.setItem('ios-hint-shown','1')"
+            style="background:none;border:none;color:var(--t4);font-size:1.1rem;cursor:pointer;margin-left:auto;padding:4px">×</button>
+        </div>
+        <div style="font-size:.72rem;color:var(--t3);line-height:1.6">
+          Tap <b style="color:var(--blue)">Share ↑</b> then <b style="color:var(--blue)">"Add to Home Screen"</b>
+          for full-screen app experience
+        </div>
+      </div>`;
+    document.body.appendChild(hint);
+    localStorage.setItem('ios-hint-shown','1');
+  }, 3000);
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════════════════════
-populateABSelect(); // sets empty state on load
+populateABSelect();
 loadSlate();
 </script>
-
 </body>
 </html>
