@@ -1141,10 +1141,19 @@ function calcParlayEV(){
 // ══════════════════════════════════════════════════════════════════
 function populateABSelect(){
   const sel=document.getElementById('ab-batter');
-  if(!S.allRows.length)return;
+  if(!S.allRows.length){
+    sel.innerHTML='<option value="">— Load a game first —</option>';
+    document.getElementById('ab-list').innerHTML='<div class="empty">Load a game from the Slate tab first</div>';
+    return;
+  }
   const cur=sel.value;
-  sel.innerHTML=S.allRows.map(r=>`<option value="${r.id}">${r.name} (${r.team}) — ${(r.prob*100).toFixed(1)}%</option>`).join('');
-  if(cur&&S.allRows.find(r=>r.id===cur))sel.value=cur;
+  sel.innerHTML=S.allRows
+    .slice()
+    .sort((a,b)=>b.prob-a.prob)
+    .map(r=>`<option value="${r.id}">${r.name} (${r.team}) — ${(r.prob*100).toFixed(1)}%</option>`)
+    .join('');
+  // Restore selection if still valid
+  if(cur && S.allRows.find(r=>r.id===cur)) sel.value=cur;
   loadABLog();
 }
 
@@ -1152,115 +1161,138 @@ async function loadABLog(){
   const pid=document.getElementById('ab-batter').value;
   const n=parseInt(document.getElementById('ab-count').value||15);
   const arm=document.getElementById('ab-arm').value;
-  if(!pid)return;
-  document.getElementById('ab-list').innerHTML='<div class="spinner"><div class="spin"></div>Loading ABs…</div>';
-  document.getElementById('ab-summary').innerHTML='';
+  const listEl=document.getElementById('ab-list');
+  const sumEl=document.getElementById('ab-summary');
+
+  if(!pid){
+    listEl.innerHTML='<div class="empty">Load a game from the Slate tab, then come back here</div>';
+    sumEl.innerHTML='';
+    return;
+  }
+
+  listEl.innerHTML='<div class="spinner"><div class="spin"></div>Loading game log…</div>';
+  sumEl.innerHTML='';
+
   try{
     const rows=await fetchABLog(pid,n,arm);
     S.abRows=rows;
     renderABLog(rows);
   }catch(e){
-    document.getElementById('ab-list').innerHTML=`<div class="empty">Could not load AB data</div>`;
+    console.error('loadABLog error',e);
+    listEl.innerHTML=`<div class="empty" style="text-align:left">
+      <div style="color:var(--red);font-weight:700;margin-bottom:6px">Failed to load AB log</div>
+      <div style="font-size:.72rem;background:var(--bg3);padding:8px;border-radius:6px;color:var(--t3)">${e.message}</div>
+    </div>`;
   }
 }
 
 async function fetchABLog(pid,n,arm){
-  const AB_EVENTS=new Set(['single','double','triple','home_run','field_out',
-    'grounded_into_double_play','strikeout','strikeout_double_play','force_out',
-    'field_error','fielders_choice','fielders_choice_out','double_play','sac_fly','sac_bunt']);
-  for(const s of[SEASON,SEASON-1]){
+  if(!pid){return[];}
+  for(const s of[SEASON, SEASON-1]){
     try{
-      const r=await fetch(`https://baseballsavant.mlb.com/statcast_search/csv?hfSea=${s}%7C&player_type=batter&battersLookup%5B%5D=${pid}&type=details&`);
-      const txt=await r.text();
-      const rows=parseCSVText(txt);
-      if(!rows.length)continue;
-      let abRows=rows.filter(r=>r.events&&AB_EVENTS.has(r.events.toLowerCase()));
-      if(arm)abRows=abRows.filter(r=>r.p_throws===arm);
-      abRows.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
-      abRows=abRows.slice(0,n);
-      return abRows.map(r=>{
-        const ev=parseFloat(r.launch_speed),la=parseFloat(r.launch_angle);
-        const dist=parseFloat(r.hit_distance_sc),pv=parseFloat(r.release_speed);
-        const isHR=r.events==='home_run';
-        let isBrl=false;
-        if(!isNaN(ev)&&!isNaN(la)&&ev>=98){
-          const mx=Math.min(50,30+(ev-98));const mn=Math.max(8,26-(ev-98));
-          if(la>=mn&&la<=mx)isBrl=true;
-        }
-        let hrPk='--';
-        if(isHR)hrPk='✓ HR';
-        else if(!isNaN(dist)&&dist>0){
-          if(dist>=430)hrPk='30/30';else if(dist>=410)hrPk='25/30';
-          else if(dist>=390)hrPk='18/30';else if(dist>=370)hrPk='10/30';
-          else if(dist>=350)hrPk='4/30';else if(dist>=330)hrPk='1/30';else hrPk='0/30';
-        }
-        const gd=r.game_date||'';
-        return{date:gd.slice(5,10),pitcher:r.player_name||'--',arm:r.p_throws||'?',
-          pt:(r.pitch_type||'').toUpperCase(),
-          ptNm:PITCH_NAMES[(r.pitch_type||'').toUpperCase()]||(r.pitch_type||'--'),
-          ev:isNaN(ev)?null:Math.round(ev*10)/10,la:isNaN(la)?null:Math.round(la*10)/10,
-          dist:isNaN(dist)?null:Math.round(dist),pv:isNaN(pv)?null:Math.round(pv*10)/10,
-          bs:parseFloat(r.bat_speed)||null,traj:(r.bb_type||'').replace(/_/g,' '),
-          result:(r.events||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
-          isHR,isBrl,hrPk};
-      });
-    }catch{}
+      const d=await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
+      // stats[0] = hitting game log
+      const splits=(d.stats||[]).find(s=>s.type?.displayName==='gameLog')?.splits
+                || d.stats?.[0]?.splits
+                || [];
+      if(!splits.length) continue;
+
+      // MLB returns oldest-first — reverse for newest-first
+      const recent=[...splits].reverse();
+      const rows=[];
+      for(const sp of recent){
+        const st=sp.stat||{};
+        const gd=(sp.date||sp.game?.gameDate||'').slice(5,10);
+        const opp=sp.opponent?.abbreviation||sp.team?.abbreviation||'?';
+        const hr=parseInt(st.homeRuns)||0;
+        const h=parseInt(st.hits)||0;
+        const ab=parseInt(st.atBats)||0;
+        const bb=parseInt(st.baseOnBalls)||0;
+        const k=parseInt(st.strikeOuts)||0;
+        const tb=parseInt(st.totalBases)||0;
+        const rbi=parseInt(st.rbi)||0;
+        const doubles=parseInt(st.doubles)||0;
+        const triples=parseInt(st.triples)||0;
+
+        if(ab===0&&hr===0&&bb===0) continue; // skip no-PA games (off day entries)
+
+        // Derive best result of the game
+        let result='No Hit', isHR=false;
+        if(hr>0){result=hr>1?`${hr} HR`:'Home Run';isHR=true;}
+        else if(h>=3)result=`${h}-Hit Game`;
+        else if(h===2)result='2 Hits';
+        else if(triples>0)result='Triple';
+        else if(doubles>0)result='Double';
+        else if(h===1)result='Single';
+        else if(bb>0)result='Walk';
+        else if(k>=2)result='Multi-K';
+        else if(k===1)result='Strikeout';
+
+        rows.push({
+          date:gd, pitcher:opp, arm:'?', pt:'--', ptNm:'--',
+          ev:null, la:null, dist:null, pv:null, bs:null,
+          traj:'', result, isHR, isBrl:false, hrPk:'--',
+          ab, h, hr, bb, k, rbi, doubles, triples,
+          gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K${rbi>0?' · '+rbi+' RBI':''}`,
+          season:s,
+        });
+      }
+
+      if(rows.length){
+        return rows.slice(0, n);
+      }
+    }catch(e){
+      console.warn(`game log fetch s=${s} pid=${pid}:`, e);
+    }
   }
   return[];
 }
 
 function renderABLog(rows){
   if(!rows.length){
-    document.getElementById('ab-list').innerHTML='<div class="empty">No AB data found</div>';
+    document.getElementById('ab-list').innerHTML='<div class="empty">No game log data found for this player this season</div>';
+    document.getElementById('ab-summary').innerHTML='';
     return;
   }
-  const evs=rows.filter(r=>r.ev!=null).map(r=>r.ev);
-  const las=rows.filter(r=>r.la!=null).map(r=>r.la);
   const nHR=rows.filter(r=>r.isHR).length;
-  const nBrl=rows.filter(r=>r.isBrl).length;
-  const avgEV=evs.length?Math.round(evs.reduce((a,b)=>a+b)/evs.length*10)/10:null;
-  const avgLA=las.length?Math.round(las.reduce((a,b)=>a+b)/las.length*10)/10:null;
-  const brlPct=evs.length?Math.round(nBrl/evs.length*1000)/10:null;
-  const hardPct=evs.length?Math.round(evs.filter(e=>e>=95).length/evs.length*1000)/10:null;
+  const totalH=rows.reduce((s,r)=>s+(r.h||0),0);
+  const totalAB=rows.reduce((s,r)=>s+(r.ab||0),0);
+  const totalBB=rows.reduce((s,r)=>s+(r.bb||0),0);
+  const totalK=rows.reduce((s,r)=>s+(r.k||0),0);
+  const avgBA=totalAB>0?Math.round(totalH/totalAB*1000)/1000:null;
+  const yr=rows[0]?.season===SEASON-1?` (${SEASON-1})`:'';
 
   function sb(lbl,v,suf,good){
     const clr=v!=null&&good(v)?'var(--green)':'var(--t1)';
     return`<div class="stat-box"><span class="sb-val" style="color:${clr}">${v!=null?v+suf:'--'}</span><span class="sb-lbl">${lbl}</span></div>`;
   }
-  document.getElementById('ab-summary').innerHTML=`<div class="stat-scroll">
-    ${sb('ABs',rows.length,'',()=>true)}
-    ${sb('Avg EV',avgEV,' mph',v=>v>=90)}
-    ${sb('Avg LA',avgLA,'°',v=>v>=8&&v<=20)}
-    ${sb('Barrel%',brlPct,'%',v=>v>=10)}
-    ${sb('Hard%',hardPct,'%',v=>v>=50)}
-    ${sb('HRs 💥',nHR,'',v=>v>0)}
-    ${sb('Barrels',nBrl,'',v=>v>0)}
-  </div>`;
+  document.getElementById('ab-summary').innerHTML=`
+    <div class="stat-scroll">
+      ${sb('Games'+yr, rows.length, '', ()=>true)}
+      ${sb('HRs 💥', nHR, '', v=>v>0)}
+      ${sb('Hits', totalH, '', v=>v>0)}
+      ${sb('BA', avgBA, '', v=>v>=.280)}
+      ${sb('BB', totalBB, '', v=>v>0)}
+      ${sb('K', totalK, '', ()=>false)}
+    </div>
+    <div style="font-size:.68rem;color:var(--t4);margin-bottom:8px;padding:6px 10px;background:var(--bg3);border-radius:6px">
+      📊 Game-by-game log · EV/LA/barrel% available in the Streamlit app
+    </div>`;
 
   document.getElementById('ab-list').innerHTML=rows.map(r=>{
-    const evCls=r.ev!=null?(r.ev>=95?'ev-hot':r.ev>=88?'ev-warm':'ev-cold'):'';
-    const laGood=r.la!=null&&r.la>=8&&r.la<=32;
     let resBg='var(--bg3)';let resTc='var(--t3)';
     if(r.isHR){resBg='#92400e';resTc='#fde68a';}
-    else if(['Single','Double','Triple'].includes(r.result)){resBg='#1e3a6e';resTc='#93c5fd';}
-    else if(r.result.includes('Strikeout')){resBg='#3d1110';resTc='#fca5a5';}
+    else if(r.result.includes('Single')||r.result.includes('Hit')||r.result.includes('Hits')||r.result.includes('Double')||r.result.includes('Triple')){resBg='#1e3a6e';resTc='#93c5fd';}
+    else if(r.result.includes('Strikeout')||r.result.includes('-K')){resBg='#3d1110';resTc='#fca5a5';}
     else if(r.result.includes('Walk')){resBg='#1a3320';resTc='#86efac';}
-    const ptClr=PITCH_COLORS[r.pt]||'#607080';
-    return`<div class="ab-card${r.isHR?' ab-hr':r.isBrl?' ab-brl':''}">
+
+    return`<div class="ab-card${r.isHR?' ab-hr':''}">
       <div class="ab-row1">
         <span class="ab-date">${r.date}</span>
-        <span class="ab-pitcher">${r.pitcher} · <span style="color:${ptClr};font-weight:700">${r.ptNm}</span> · ${r.arm}</span>
-        <span class="ab-result" style="background:${resBg};color:${resTc}">${r.isHR?'💥 HR':r.result}</span>
+        <span class="ab-pitcher" style="flex:1">vs <b>${r.pitcher}</b></span>
+        <span class="ab-result" style="background:${resBg};color:${resTc};padding:3px 8px;border-radius:99px;font-size:.72rem;font-weight:700">${r.isHR?'💥 HR':r.result}</span>
       </div>
-      <div class="ab-row2">
-        ${r.ev!=null?`<span class="ab-stat ${evCls}"><span class="v">${r.ev} mph</span> EV${r.isBrl?' 🟢':''}</span>`:''}
-        ${r.la!=null?`<span class="ab-stat${laGood?' la-good':''}"><span class="v">${r.la}°</span> LA</span>`:''}
-        ${r.dist!=null?`<span class="ab-stat"><span class="v">${r.dist}ft</span></span>`:''}
-        ${r.pv!=null?`<span class="ab-stat"><span class="v">${r.pv}</span> velo</span>`:''}
-        ${r.bs!=null?`<span class="ab-stat"><span class="v">${r.bs}</span> bat</span>`:''}
-        ${r.hrPk&&r.hrPk!=='--'?`<span class="ab-stat${r.hrPk==='✓ HR'?' ev-hot':''}"><span class="v">${r.hrPk}</span> parks</span>`:''}
-        ${r.traj?`<span class="ab-stat"><span class="v">${r.traj}</span></span>`:''}
-      </div>
+      ${r.gameNote?`<div style="font-size:.68rem;color:var(--t4);margin-top:5px;font-family:'JetBrains Mono',monospace">${r.gameNote}</div>`:''}
     </div>`;
   }).join('');
 }
@@ -1275,6 +1307,7 @@ function refreshData(){
 // ══════════════════════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════════════════════
+populateABSelect(); // sets empty state on load
 loadSlate();
 </script>
 
