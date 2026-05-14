@@ -1507,7 +1507,8 @@ async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
         return{rawDate:sp.date||'',date:(sp.date||'').slice(5,10),
           pitcher:sp.opponent?.abbreviation||'?',arm:'?',pt:'',ptNm:'--',
           ev:null,la:null,dist:null,isBrl:false,result,isHR,traj:'',source:'gamelog',
-          gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K${rbi>0?` · ${rbi} RBI`:'`}`};
+          gameNote:`${ab} AB · ${h} H · ${hr} HR · ${bb} BB · ${k} K`+(rbi>0?` · ${rbi} RBI`:''),
+        };
       }).filter(Boolean);
       if(rows.length) return rows.slice(0,n);
     }catch(e){console.warn('game log fallback failed:',e.message);}
