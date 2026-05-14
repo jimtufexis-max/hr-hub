@@ -13,7 +13,7 @@
 <!-- PWA icons (add actual icon files to your repo) -->
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" href="icon-192.png">
-<title>HR Hub v3</title>
+<title>HR Hub</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -1437,94 +1437,77 @@ async function populatePitchTypeFilter(pid,arm,selected){
   }
 }
 
-async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
+async function fetchABLog(pid,n,arm,pitchType=''){
   if(!pid) return [];
 
-  // Savant's own game feed endpoint — used by their player pages, no session needed
-  for(const s of[SEASON, SEASON-1]){
-    try{
-      // This is the API Savant's own JS calls to render the player game feed table
-      const url=`https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfPT=&hfAB=&hfGT=R%7C&hfPR=&hfZ=&hfStadium=&hfBBL=&hfNewZones=&hfPull=&hfC=&hfSea=${s}%7C&hfSit=&player_type=batter&hfOuts=&hfOpponent=&pitcher_throws=&batter_stands=&hfSA=&game_date_gt=&game_date_lt=&hfMo=&hfTeam=&home_road=&hfRO=&position=&hfInfield=&hfOutfield=&hfInn=&hfBBT=&hfFlag=&metric_1=&group_by=name-date&min_pitches=0&min_results=0&min_pas=0&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&min_abs=0&type=details&batters_lookup%5B%5D=${pid}&`;
-      const r = await fetch(PROXY+encodeURIComponent(url));
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      const txt2 = await r.text();
-      const lines = txt2.split('\n').filter(l=>l.trim());
-      console.log(`[AB] CSV season ${s}: ${lines.length} lines, size ${txt2.length}, x-had-cookie: ${r.headers.get('x-had-cookie')}`);
-      if(lines.length >= 2){
-        const rows = parseCSVText(txt2);
-        const AB_EVENTS = new Set(['single','double','triple','home_run','field_out',
-          'grounded_into_double_play','strikeout','strikeout_double_play','force_out',
-          'field_error','fielders_choice','fielders_choice_out','double_play','sac_fly',
-          'sac_bunt','walk','hit_by_pitch','intent_walk']);
-        let filtered = rows.filter(r => AB_EVENTS.has((r.events||'').toLowerCase().trim()));
-        if(arm) filtered = filtered.filter(r => r.p_throws===arm);
-        if(pitchType) filtered = filtered.filter(r => String(r.pitch_type||'').toUpperCase()===pitchType);
-        filtered.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
-        const out = filtered.slice(0, forOptions?200:n).map(r=>mapStatcastABRow(r));
-        if(out.length>0){
-          console.log(`[AB] Got ${out.length} PA rows`);
-          return out;
-        }
-      }
-    }catch(e){ console.warn(`[AB] CSV failed s=${s}:`, e.message); }
-  }
+  const years=[SEASON,SEASON-1,SEASON-2];
+  const out=[];
 
-  // MLB Stats API game log fallback (no EV/LA but shows results)
-  console.log('[AB] Falling back to MLB game log');
-  for(const s of[SEASON, SEASON-1]){
+  for(const s of years){
     try{
-      const d = await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
-      const splits = (d.stats||[]).find(x=>x.type?.displayName==='gameLog')?.splits || d.stats?.[0]?.splits || [];
-      if(!splits.length) continue;
 
-      // Batch fetch pitcher names from schedule
-      const dates = [...new Set(splits.map(sp=>sp.date||'').filter(Boolean))].sort();
-      let spMap = {};
-      if(dates.length){
-        try{
-          const sched = await fetchJSON(`${MLB}/schedule?sportId=1&startDate=${dates[0]}&endDate=${dates[dates.length-1]}&hydrate=probablePitcher&gameType=R`);
-          for(const dt of sched.dates||[])
-            for(const g of dt.games||[]){
-              const gpk = String(g.gamePk);
-              spMap[gpk] = {
-                away:{name:g.teams?.away?.probablePitcher?.fullName||null, abbr:g.teams?.away?.team?.abbreviation||''},
-                home:{name:g.teams?.home?.probablePitcher?.fullName||null, abbr:g.teams?.home?.team?.abbreviation||''},
-              };
-            }
-        }catch{}
+      const csvUrl =
+        `https://baseballsavant.mlb.com/statcast_search/csv?` +
+        `hfSea=${s}%7C&` +
+        `player_type=batter&` +
+        `batters_lookup%5B%5D=${pid}&` +
+        `type=details&`;
+
+      console.log('[AB] CSV URL:', csvUrl);
+
+      const r = await fetch(PROXY + encodeURIComponent(csvUrl));
+
+      if(!r.ok){
+        console.warn('[AB] CSV failed', r.status);
+        continue;
       }
 
-      const playerTeam = splits[0]?.team?.abbreviation||'';
-      const rows = [...splits].reverse().map(sp=>{
-        const st = sp.stat||{};
-        const hr=parseInt(st.homeRuns)||0, h=parseInt(st.hits)||0, ab=parseInt(st.atBats)||0;
-        const bb=parseInt(st.baseOnBalls)||0, k=parseInt(st.strikeOuts)||0;
-        const doubles=parseInt(st.doubles)||0, triples=parseInt(st.triples)||0, rbi=parseInt(st.rbi)||0;
-        if(ab===0&&hr===0&&bb===0) return null;
-        let result='No Hit', isHR=false;
-        if(hr>0){result=hr>1?`${hr} HRs`:'Home Run';isHR=true;}
-        else if(triples>0)result='Triple'; else if(doubles>0)result='Double';
-        else if(h>=3)result=`${h}-Hit Game`; else if(h===2)result='2 Hits';
-        else if(h===1)result='Single'; else if(bb>0)result='Walk';
-        else if(k>=2)result='Multi-K'; else if(k===1)result='Strikeout';
-        // Pitcher name
-        const gpk = String(sp.game?.gamePk||'');
-        const gm = spMap[gpk];
-        let spName = sp.opponent?.abbreviation||'?';
-        if(gm){
-          const myTeam = sp.team?.abbreviation||playerTeam;
-          spName = (gm.away.abbr===myTeam ? gm.home.name : gm.away.name) || spName;
-        }
-        return{rawDate:sp.date||'', date:(sp.date||'').slice(5,10),
-          pitcher:spName, arm:'?', pt:'', ptNm:'--',
-          ev:null, la:null, dist:null, isBrl:false, result, isHR, traj:'', source:'gamelog',
-          gameNote:`${ab} AB \xb7 ${h} H \xb7 ${hr} HR \xb7 ${bb} BB \xb7 ${k} K`+(rbi>0?` \xb7 ${rbi} RBI`:''),
-        };
-      }).filter(Boolean);
-      if(rows.length) return rows.slice(0,n);
-    }catch(e){ console.warn('[AB] game log failed:',e.message); }
+      const txt = await r.text();
+
+      console.log('[AB] CSV chars:', txt.length);
+
+      const rows = parseCSVText(txt);
+
+      for(const row of rows){
+
+        const ev = parseFloat(row.launch_speed);
+        const la = parseFloat(row.launch_angle);
+
+        if(isNaN(ev) || isNaN(la)) continue;
+
+        if(arm && row.p_throws !== arm) continue;
+
+        const pt = String(row.pitch_type || '').toUpperCase();
+
+        if(pitchType && pt !== pitchType) continue;
+
+        out.push({
+          rawDate: row.game_date || '',
+          date: row.game_date || '--',
+          pitcher: row.player_name || '--',
+          arm: row.p_throws || '',
+          pt: pt,
+          ptNm: PITCH_NAMES[pt] || pt || '--',
+          ev: Math.round(ev * 10) / 10,
+          la: Math.round(la * 10) / 10,
+          dist: row.hit_distance_sc
+            ? Math.round(parseFloat(row.hit_distance_sc))
+            : null,
+          result: row.events || '--',
+          traj: row.bb_type || '--',
+          isHR: row.events === 'home_run',
+          isBrl: ev >= 98 && la >= 8 && la <= 32
+        });
+      }
+
+    }catch(e){
+      console.warn('[AB] Statcast CSV failed:', e.message);
+    }
   }
-  return [];
+
+  out.sort((a,b)=>new Date(b.rawDate)-new Date(a.rawDate));
+
+  return out.slice(0,n);
 }
 
 
