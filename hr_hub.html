@@ -555,24 +555,27 @@ async function getSavantBatters(){
         for(const row of rows2){
           const pid = String(row.id||'').replace(/\.0$/,'');
           if(!pid) continue;
-
-          // Ensure entry exists in out (batted-ball may have players statcast missed)
           if(!out[pid]) out[pid] = {};
           const entry = out[pid];
 
-          const pull = parseF(row.pull_rate);
-          const air  = parseF(row.air_rate);
-          const fb   = parseF(row.fb_rate);
+          // All values are 0-1 decimals — multiply by 100 for percentage display
+          const toP = v => v!=null ? Math.round(v*1000)/10 : null;
 
-          if(pull!=null) entry.pull_pct = pull;
-          if(fb!=null)   entry.fb_pct   = fb;
-          if(air!=null)  entry.air_pct  = air;
+          const pull     = toP(parseF(row.pull_rate));
+          const air      = toP(parseF(row.air_rate));
+          const fb       = toP(parseF(row.fb_rate));
+          const pullAir  = toP(parseF(row.pull_air_rate));  // Savant computes this directly!
 
-          if(pull!=null && air!=null)
-            entry.pull_air_pct = Math.round((pull * air) / 1000 * 10) / 10;
+          if(pull!=null)    entry.pull_pct     = pull;
+          if(fb!=null)      entry.fb_pct       = fb;
+          if(air!=null)     entry.air_pct      = air;
+          if(pullAir!=null) entry.pull_air_pct = pullAir;
 
           enriched++;
         }
+        console.log(`[Savant batted-ball] enriched ${enriched} players. Sample:`,
+          Object.values(out).filter(v=>v.pull_air_pct!=null).slice(0,3)
+            .map(v=>`pull:${v.pull_pct}% air:${v.air_pct}% pullAir:${v.pull_air_pct}%`));
         console.log(`[Savant batted-ball] enriched ${enriched} players. Sample:`,
           Object.values(out).filter(v=>v.pull_pct!=null).slice(0,3)
             .map(v=>`pull:${v.pull_pct}% air:${v.air_pct}% pullAir:${v.pull_air_pct}%`));
