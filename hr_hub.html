@@ -414,7 +414,7 @@ const MLB    = 'https://statsapi.mlb.com/api/v1';
 const PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
 // The Odds API key — get free at https://the-odds-api.com (500 req/month free)
 // Enables FanDuel live HR prop odds + edge on every hitter card
-const ODDS_API_KEY = ''; // <-- paste your key between these quotes
+const ODDS_API_KEY = 'bf91db045e38231e73ae42c9be422163'; // <-- paste your key between these quotes
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
   ATL:1.04,CHC:1.03,TEX:1.03,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
   WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.97,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
@@ -558,13 +558,16 @@ async function getSavantBatters(){
           if(!out[pid]) out[pid] = {};
           const entry = out[pid];
 
-          // All values are 0-1 decimals — multiply by 100 for percentage display
-          const toP = v => v!=null ? Math.round(v*1000)/10 : null;
+          // Values are 0–1 decimals — convert directly without parseF's rounding
+          const toP = v => {
+            const f = parseFloat(v);
+            return isNaN(f) ? null : Math.round(f*1000)/10;  // 0.4245 → 42.5
+          };
 
-          const pull     = toP(parseF(row.pull_rate));
-          const air      = toP(parseF(row.air_rate));
-          const fb       = toP(parseF(row.fb_rate));
-          const pullAir  = toP(parseF(row.pull_air_rate));  // Savant computes this directly!
+          const pull    = toP(row.pull_rate);
+          const air     = toP(row.air_rate);
+          const fb      = toP(row.fb_rate);
+          const pullAir = toP(row.pull_air_rate);
 
           if(pull!=null)    entry.pull_pct     = pull;
           if(fb!=null)      entry.fb_pct       = fb;
@@ -575,9 +578,6 @@ async function getSavantBatters(){
         }
         console.log(`[Savant batted-ball] enriched ${enriched} players. Sample:`,
           Object.values(out).filter(v=>v.pull_air_pct!=null).slice(0,3)
-            .map(v=>`pull:${v.pull_pct}% air:${v.air_pct}% pullAir:${v.pull_air_pct}%`));
-        console.log(`[Savant batted-ball] enriched ${enriched} players. Sample:`,
-          Object.values(out).filter(v=>v.pull_pct!=null).slice(0,3)
             .map(v=>`pull:${v.pull_pct}% air:${v.air_pct}% pullAir:${v.pull_air_pct}%`));
       } else {
         console.warn('[Savant batted-ball] HTTP', r2.status);
