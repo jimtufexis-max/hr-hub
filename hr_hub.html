@@ -538,28 +538,48 @@ async function getSavantBatters(){
     }
 
     // Also fetch Savant's batted ball leaderboard for Pull% / FB% / HR/FB%
-    // These come from the batted_ball leaderboard type
     try{
       const url2=`https://baseballsavant.mlb.com/leaderboard/batted-ball?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
       const r2 = await fetch(PROXY + encodeURIComponent(url2));
       if(r2.ok){
         const txt2 = await r2.text();
         const rows2 = parseCSVText(txt2);
-        console.log(`[Savant batted-ball] ${rows2.length} rows, cols:`, rows2[0] ? Object.keys(rows2[0]).slice(0,10) : 'none');
+        // Log ALL column names so we can see exactly what Savant returns
+        const allCols = rows2[0] ? Object.keys(rows2[0]) : [];
+        console.log(`[Savant batted-ball] ${rows2.length} rows`);
+        console.log(`[Savant batted-ball] ALL columns:`, allCols.join(', '));
+        if(rows2.length > 0) console.log(`[Savant batted-ball] sample row:`, JSON.stringify(rows2[0]).slice(0,300));
+
         for(const row of rows2){
           const pid=(row.player_id||row.batter||'').replace(/\.0$/,'');
           if(!pid||!out[pid]) continue;
-          // Column names vary — try multiple
-          const pull = parseF(row.pull_percent ?? row.pull_pct ?? row.pull);
-          const fb   = parseF(row.flyballs_percent ?? row.flyball_percent ?? row.fb_percent ?? row.fb_pct);
-          const hrfb = parseF(row.home_run_per_flyball ?? row.hr_per_fb ?? row.hr_over_flyball);
+          // Try every possible column name Savant might use
+          const pull = parseF(
+            row.pull_percent ?? row.pulled_percent ?? row.pull_pct ?? row.pull ??
+            row['pull%'] ?? row['Pull%'] ?? row.pulled
+          );
+          const fb = parseF(
+            row.flyballs_percent ?? row.flyball_percent ?? row.fb_percent ?? row.fly_ball_percent ??
+            row.air_percent ?? row.air_pct ?? row['fb%'] ?? row['FB%'] ?? row.flyballs ??
+            row.flyBalls ?? row.flyball
+          );
+          const hrfb = parseF(
+            row.home_run_per_flyball ?? row.hr_per_fb ?? row.hr_flyball ??
+            row.hr_fb ?? row['hr/fb'] ?? row['HR/FB'] ?? row.home_run_flyball
+          );
           if(pull!=null) out[pid].pull_pct = pull;
           if(fb!=null)   out[pid].fb_pct   = fb;
           if(hrfb!=null) out[pid].hr_fb_pct = hrfb;
-          // Compute Pull-Air% = Pull% × FB% / 100
           if(pull!=null && fb!=null)
             out[pid].pull_air_pct = Math.round((pull * fb) / 1000 * 10) / 10;
         }
+        const gotData = Object.values(out).filter(v=>v.pull_pct!=null).length;
+        console.log(`[Savant batted-ball] enriched ${gotData} players with pull/fb data`);
+        if(gotData===0 && rows2.length>0){
+          console.warn('[Savant batted-ball] GOT ROWS BUT NO PULL DATA — column names do not match. All cols:', allCols.join(', '));
+        }
+      } else {
+        console.warn('[Savant batted-ball] HTTP', r2.status, '— endpoint may not exist');
       }
     }catch(e2){ console.warn('[Savant batted-ball] failed:', e2.message); }
 
