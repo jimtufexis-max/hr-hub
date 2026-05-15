@@ -1103,10 +1103,10 @@ async function loadFanDuelOdds(force=false){
     return;
   }
   try{
-    // Step 1: Get today's MLB event IDs
+    // Step 1: Get today's MLB event IDs — through proxy so it's cached
     const eventsUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events?apiKey=${ODDS_API_KEY}&dateFormat=iso`;
     console.log('[Odds] Fetching MLB events...');
-    const evResp = await fetch(eventsUrl);
+    const evResp = await fetch(PROXY + encodeURIComponent(eventsUrl));
     if(!evResp.ok) throw new Error(`Events API ${evResp.status}: ${await evResp.text().catch(()=>'')}`);
     const events = await evResp.json();
     console.log(`[Odds] Found ${events.length} events`);
@@ -1121,15 +1121,20 @@ async function loadFanDuelOdds(force=false){
     const todayEvents = events.filter(ev => (ev.commence_time||'').startsWith(today));
     console.log(`[Odds] Today's games: ${todayEvents.length} of ${events.length} total`);
 
-    // Step 3: Fetch props sequentially with delay to avoid 429
+    // Step 3: Fetch props sequentially through proxy (cached 30min at edge)
     const map = {};
     let total = 0;
     for(const ev of todayEvents){
       try{
-        const propResp = await fetch(
-          `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${ev.id}/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`
-        );
-        if(propResp.status===429){ console.warn('[Odds] Rate limited — stopping early'); break; }
+        // Route through Cloudflare Worker — it caches for 30 min so rate limits don't apply on refresh
+        const propUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${ev.id}/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`;
+        const propResp = await fetch(PROXY + encodeURIComponent(propUrl));
+        if(propResp.status===429){
+          console.warn('[Odds] Rate limited — try again in 60s');
+          const statusEl=document.getElementById('odds-status');
+          if(statusEl) statusEl.textContent='FD odds: rate limited';
+          break;
+        }
         if(!propResp.ok) continue;
         const data = await propResp.json();
         const fd = (data.bookmakers||[]).find(b=>b.key==='fanduel');
@@ -1143,8 +1148,8 @@ async function loadFanDuelOdds(force=false){
           map[normName(playerName)] = { odds: outcome.price, raw: playerName };
           total++;
         }
-        // Small delay between requests to avoid rate limiting
-        await new Promise(res=>setTimeout(res,300));
+        // 500ms between requests to stay under rate limits
+        await new Promise(res=>setTimeout(res,500));
       }catch(e){ console.warn('[Odds] Event fetch failed:', e.message); }
     }
 
