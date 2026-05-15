@@ -1126,29 +1126,31 @@ async function loadFanDuelOdds(force=false){
     let total = 0;
     for(const ev of todayEvents){
       try{
-        // Route through Cloudflare Worker — it caches for 30 min so rate limits don't apply on refresh
         const propUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${ev.id}/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`;
         const propResp = await fetch(PROXY + encodeURIComponent(propUrl));
+        console.log(`[Odds] ${ev.home_team} vs ${ev.away_team}: HTTP ${propResp.status}`);
         if(propResp.status===429){
           console.warn('[Odds] Rate limited — try again in 60s');
           const statusEl=document.getElementById('odds-status');
           if(statusEl) statusEl.textContent='FD odds: rate limited';
           break;
         }
-        if(!propResp.ok) continue;
+        if(!propResp.ok){ console.warn('[Odds] Non-OK response:', propResp.status); continue; }
         const data = await propResp.json();
+        console.log(`[Odds] ${ev.home_team}: bookmakers=${data.bookmakers?.length}, raw sample:`, JSON.stringify(data).slice(0,200));
         const fd = (data.bookmakers||[]).find(b=>b.key==='fanduel');
-        if(!fd) continue;
+        if(!fd){ console.log('[Odds] No FanDuel book for this game'); continue; }
         const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
-        if(!mkt) continue;
+        if(!mkt){ console.log('[Odds] FanDuel markets available:', fd.markets?.map(m=>m.key)); continue; }
+        let gameTotal = 0;
         for(const outcome of mkt.outcomes||[]){
           if(outcome.name!=='Over') continue;
           const playerName = outcome.description||outcome.name;
           if(!playerName||playerName==='Over'||playerName==='Under') continue;
           map[normName(playerName)] = { odds: outcome.price, raw: playerName };
-          total++;
+          total++; gameTotal++;
         }
-        // 500ms between requests to stay under rate limits
+        console.log(`[Odds] ${ev.home_team}: loaded ${gameTotal} props`);
         await new Promise(res=>setTimeout(res,500));
       }catch(e){ console.warn('[Odds] Event fetch failed:', e.message); }
     }
