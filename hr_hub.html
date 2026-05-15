@@ -561,7 +561,14 @@ async function getFGBatters(){
         avgEV: parseF(row['AvgEV']),
         iso:   parseF(row['ISO']),
         ops:   parseF(row['OPS']),
+        hr_fb_pct: parsePct(row['HR/FB%'] || row.hrfb),
       };
+
+      // Pull-Air% = Pull% × FB%
+      fgRow.pull_air_pct =
+        (fgRow.pull != null && fgRow.fb != null)
+          ? Math.round((fgRow.pull * fgRow.fb) / 1000 * 10) / 10
+          : null;
 
       // Pull-Air% = Pull% × FB%
       fgRow.pull_air_pct =
@@ -1289,7 +1296,7 @@ function detectAngles(r){
         tier:2,
         label:`${gap.toFixed(0)} xHR gap`,
         color:'var(--blue)',
-        tip:`Underlying power quality exceeds actual HR results`
+        tip:`${gap >= 0 ? '+' : '-'}${Math.abs(gap).toFixed(1)} regression signal`
       });
     }
 
@@ -1338,6 +1345,18 @@ function detectAngles(r){
       label:`${r.pull_air_pct}% Pull-Air`,
       color:'var(--green)',
       tip:'Elite pulled fly-ball profile'
+    });
+  }
+
+  // Strong Pull-Air%
+  else if(r.pull_air_pct!=null && r.pull_air_pct >= 15){
+    angles.push({
+      icon:'📈',
+      cat:'power',
+      tier:2,
+      label:`${r.pull_air_pct}% Pull-Air`,
+      color:'var(--green)',
+      tip:'Strong pulled air contact profile'
     });
   }
 
