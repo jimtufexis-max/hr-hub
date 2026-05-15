@@ -13,7 +13,7 @@
 <!-- PWA icons (add actual icon files to your repo) -->
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" href="icon-192.png">
-<title>HR Hub v7</title>
+<title>HR Hub v8 - Enhanced xHR Model</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -562,6 +562,12 @@ async function getFGBatters(){
         iso:   parseF(row['ISO']),
         ops:   parseF(row['OPS']),
       };
+
+      // Pull-Air% = Pull% × FB%
+      fgRow.pull_air_pct =
+        (fgRow.pull != null && fgRow.fb != null)
+          ? Math.round((fgRow.pull * fgRow.fb) / 1000 * 10) / 10
+          : null;
       if(pid && pid!=='undefined') out[pid]=fgRow;
       if(playerName) out.__byName[normName(playerName)] = fgRow;
     }
@@ -664,49 +670,103 @@ const LG_FB_PCT  = 0.365;   // league avg FB rate
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
 
-// ── ANCHOR: blended HR rate ────────────────────────────────────────
-// Uses MLB Stats API game log (L30) + season stats
-// Returns probability per game (0.0 - 0.40)
-function calcAnchor(stats){
-  const{l30hr, l30pa, szHR, szPA, careerHR, careerPA, barrel_pct, hard_hit_pct, avg_ev, iso} = stats;
+// ── ANCHOR v3: stabilized HR probability engine ─────────────────
+// Philosophy:
+//   - Real HR conversion skill is primary
+//   - Statcast refines but does not dominate
+//   - Pull-Air added as elite HR predictor
+//   - Larger recent sample reduces volatility
 
-  // Direct HR rates (most predictive)
-  const l30Rate  = (l30pa  >= 20) ? l30hr  / l30pa  : null;
-  const sznRate  = (szPA   >= 30) ? szHR   / szPA   : null;
-  const carRate  = (careerPA>=100) ? careerHR/ careerPA: null;
+function calcAnchor(stats){
+  const {
+    l100hr,
+    l100pa,
+    szHR,
+    szPA,
+    careerHR,
+    careerPA,
+    barrel_pct,
+    hard_hit_pct,
+    iso,
+    pull_air_pct
+  } = stats;
+
+  // ── REAL HR RATES ─────────────────────────────────────────────
+
+  const l100Rate = (l100pa >= 60)
+    ? l100hr / l100pa
+    : null;
+
+  const sznRate = (szPA >= 40)
+    ? szHR / szPA
+    : null;
+
+  const careerRate = (careerPA >= 150)
+    ? careerHR / careerPA
+    : null;
 
   let rateScore = null;
-  if(l30Rate!=null && sznRate!=null && carRate!=null){
-    rateScore = l30Rate*0.50 + sznRate*0.30 + carRate*0.20;
-  } else if(l30Rate!=null && sznRate!=null){
-    rateScore = l30Rate*0.60 + sznRate*0.40;
-  } else if(sznRate!=null && carRate!=null){
-    rateScore = sznRate*0.65 + carRate*0.35;
-  } else if(sznRate!=null){
+
+  if(l100Rate != null && sznRate != null && careerRate != null){
+    rateScore =
+      (l100Rate * 0.25) +
+      (sznRate  * 0.45) +
+      (careerRate * 0.15);
+  }
+  else if(l100Rate != null && sznRate != null){
+    rateScore =
+      (l100Rate * 0.35) +
+      (sznRate  * 0.65);
+  }
+  else if(sznRate != null && careerRate != null){
+    rateScore =
+      (sznRate * 0.75) +
+      (careerRate * 0.25);
+  }
+  else if(sznRate != null){
     rateScore = sznRate;
-  } else if(carRate!=null){
-    rateScore = carRate;
+  }
+  else if(careerRate != null){
+    rateScore = careerRate;
   }
 
-  // Statcast power profile (secondary signal, refines rate estimates)
-  const statcastScores = [];
-  if(barrel_pct!=null) statcastScores.push(clamp(barrel_pct/6.5, 0.2, 3.0));
-  if(hard_hit_pct!=null) statcastScores.push(clamp(hard_hit_pct/38.0, 0.4, 2.0));
-  if(avg_ev!=null) statcastScores.push(clamp((avg_ev-82)/10, 0.3, 1.8));
-  if(iso!=null) statcastScores.push(clamp(iso/0.165, 0.2, 2.5));
+  // ── POWER PROFILE ────────────────────────────────────────────
 
-  const statcastMult = statcastScores.length
-    ? clamp(statcastScores.reduce((a,b)=>a+b)/statcastScores.length, 0.3, 2.5)
+  const barrelScore = (barrel_pct != null)
+    ? clamp(barrel_pct / 10.0, 0.35, 2.2)
     : 1.0;
 
+  const pullAirScore = (pull_air_pct != null)
+    ? clamp(pull_air_pct / 15.0, 0.35, 2.4)
+    : 1.0;
+
+  const isoScore = (iso != null)
+    ? clamp(iso / 0.185, 0.35, 2.3)
+    : 1.0;
+
+  const hardHitScore = (hard_hit_pct != null)
+    ? clamp(hard_hit_pct / 42.0, 0.40, 1.8)
+    : 1.0;
+
+  const powerProfile =
+    (barrelScore  * 0.45) +
+    (pullAirScore * 0.25) +
+    (isoScore     * 0.20) +
+    (hardHitScore * 0.10);
+
+  // ── FINAL BLEND ──────────────────────────────────────────────
+
   let base;
-  if(rateScore!=null){
-    // If we have Statcast too, blend rate (primary) with Statcast (secondary)
-    const statcastWeight = statcastScores.length >= 2 ? 0.25 : 0.10;
-    base = (rateScore * (1-statcastWeight)) + (MLB_AVG * statcastMult * statcastWeight);
-  } else {
-    // No rate data — fall back to Statcast-only
-    base = MLB_AVG * statcastMult;
+
+  if(rateScore != null){
+    // Real HR skill remains dominant
+    base =
+      (rateScore * 0.85) +
+      ((MLB_AVG * powerProfile) * 0.15);
+  }
+  else {
+    // Statcast fallback only
+    base = MLB_AVG * powerProfile;
   }
 
   return clamp(base, 0.005, 0.38);
