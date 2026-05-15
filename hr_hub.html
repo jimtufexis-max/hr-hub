@@ -414,7 +414,7 @@ const MLB    = 'https://statsapi.mlb.com/api/v1';
 const PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
 // The Odds API key — get free at https://the-odds-api.com (500 req/month free)
 // Enables FanDuel live HR prop odds + edge on every hitter card
-const ODDS_API_KEY = 'bf91db045e38231e73ae42c9be422163'; // <-- paste your key between these quotes
+const ODDS_API_KEY = ''; // <-- paste your key between these quotes
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
   ATL:1.04,CHC:1.03,TEX:1.03,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
   WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.97,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
@@ -1219,39 +1219,150 @@ function detectAngles(r){
   }
 
   // ── POWER PROFILE / xHR SIGNALS ─────────────────────────────────
-  // Expected HRs from barrel% — if actual HR << expected, regression is due
-  // Use szPA if available, fall back to estimating from l30pa (scaled to 162G)
-  const _szPA = r.szPA>30 ? r.szPA : (r.l30pa>15 ? r.l30pa*4.5 : 0);
+  // Enhanced xHR regression engine
+  // Uses:
+  //   - Barrel%
+  //   - Pull-Air%
+  //   - HR/FB skill
+  //   - Contact quality
+  //   - Regression stabilization
+
+  const _szPA = r.szPA>40 ? r.szPA : (r.l100pa>40 ? r.l100pa : (r.l30pa>15 ? r.l30pa*4.5 : 0));
   const _szHR = r.szHR>0 ? r.szHR : r.l30hr;
-  if(r.barrel_pct!=null && _szPA>30){
-    // xHR: barrel% × PA × 0.62 (fraction of barrels that become HRs league-wide)
-    const xHR = (r.barrel_pct/100) * _szPA * 0.62;
+
+  if(r.barrel_pct!=null && _szPA>40){
+
+    const barrelPct = r.barrel_pct || 0;
+    const pullAirPct = r.pull_air_pct || ((r.pull||0)*(r.fb||0)/100);
+    const hrfbPct = r.hr_fb_pct || 15;
+
+    const pullAirMult =
+      pullAirPct
+        ? clamp(pullAirPct / 15, 0.70, 1.55)
+        : 1.0;
+
+    const hrSkillMult =
+      hrfbPct
+        ? clamp(hrfbPct / 18, 0.75, 1.65)
+        : 1.0;
+
+    const barrelQualityMult =
+      barrelPct >= 15 ? 1.18 :
+      barrelPct >= 12 ? 1.10 :
+      barrelPct >= 10 ? 1.04 : 1.0;
+
+    const xHR =
+      (
+        (barrelPct / 100)
+        * pullAirMult
+        * hrSkillMult
+        * barrelQualityMult
+        * _szPA
+        * 0.52
+      );
+
     const actualHR = _szHR || 0;
     const gap = xHR - actualHR;
-    if(gap >= 4 && r.barrel_pct >= 10){
-      angles.push({icon:'💥', cat:'power', tier:1,
+
+    if(
+      gap >= 5 &&
+      barrelPct >= 10 &&
+      pullAirPct >= 14
+    ){
+      angles.push({
+        icon:'💥',
+        cat:'power',
+        tier:1,
         label:`${gap.toFixed(0)} xHR gap`,
         color:'var(--blue)',
-        tip:`xHR from barrel%: ~${xHR.toFixed(0)}, actual: ${actualHR} — ${gap.toFixed(0)} HR regression due`});
-    } else if(gap >= 2 && r.barrel_pct >= 8){
-      angles.push({icon:'📊', cat:'power', tier:2,
-        label:'xHR ahead of pace',
+        tip:`Elite HR regression candidate — xHR ${xHR.toFixed(1)} vs actual ${actualHR}`
+      });
+    }
+
+    else if(
+      gap >= 3 &&
+      barrelPct >= 8
+    ){
+      angles.push({
+        icon:'📈',
+        cat:'power',
+        tier:2,
+        label:`${gap.toFixed(0)} xHR gap`,
         color:'var(--blue)',
-        tip:`Barrel% projects ${xHR.toFixed(1)} HR, actual ${actualHR} — due for more`});
+        tip:`Underlying power quality exceeds actual HR results`
+      });
+    }
+
+    else if(
+      gap <= -4 &&
+      actualHR >= xHR + 4
+    ){
+      angles.push({
+        icon:'⚠️',
+        cat:'power',
+        tier:3,
+        label:'HR overperformance',
+        color:'var(--red)',
+        tip:`Current HR total may be running hot`
+      });
     }
   }
 
   // Elite barrel%
   if(r.barrel_pct!=null && r.barrel_pct >= 15){
-    angles.push({icon:'🛢️', cat:'power', tier:1,
+    angles.push({
+      icon:'🛢️',
+      cat:'power',
+      tier:1,
       label:`${r.barrel_pct}% Barrel`,
       color:'var(--green)',
-      tip:`Top-tier barrel rate — elite HR power profile`});
+      tip:`Elite barrel rate — top-tier HR profile`
+    });
   } else if(r.barrel_pct!=null && r.barrel_pct >= 11){
-    angles.push({icon:'💪', cat:'power', tier:2,
+    angles.push({
+      icon:'💪',
+      cat:'power',
+      tier:2,
       label:`${r.barrel_pct}% Barrel`,
       color:'var(--green)',
-      tip:'Above-average barrel rate — solid HR threat'});
+      tip:'Above-average barrel rate — strong HR upside'
+    });
+  }
+
+  // Pull-Air%
+  if(r.pull_air_pct!=null && r.pull_air_pct >= 18){
+    angles.push({
+      icon:'🚀',
+      cat:'power',
+      tier:1,
+      label:`${r.pull_air_pct}% Pull-Air`,
+      color:'var(--green)',
+      tip:'Elite pulled fly-ball profile'
+    });
+  }
+
+  // HR/FB%
+  if(r.hr_fb_pct!=null && r.hr_fb_pct >= 25){
+    angles.push({
+      icon:'🎯',
+      cat:'power',
+      tier:2,
+      label:`${r.hr_fb_pct}% HR/FB`,
+      color:'var(--green)',
+      tip:'Elite fly-ball conversion skill'
+    });
+  }
+
+  // ISO
+  if(r.iso!=null && r.iso >= .250){
+    angles.push({
+      icon:'💣',
+      cat:'power',
+      tier:2,
+      label:`.${String(r.iso).replace('0.','')}`,
+      color:'var(--green)',
+      tip:'Elite isolated power profile'
+    });
   }
 
   // Elite hard hit%
@@ -2532,9 +2643,4 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 
 // ==================================================================
 //  INIT
-// ==================================================================
-populateABSelect();
-loadSlate();
-</script>
-</body>
-</html>
+// ========================================
