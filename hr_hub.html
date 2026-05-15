@@ -1093,7 +1093,6 @@ let _fdOddsLoaded = false;
 let _fdOddsTimestamp = null;
 
 async function loadFanDuelOdds(force=false){
-  // Refresh if older than 10 minutes
   if(_fdOddsLoaded && !force && _fdOddsTimestamp && (Date.now()-_fdOddsTimestamp < 600000)) return;
   _fdOddsLoaded = true;
   _fdOddsTimestamp = Date.now();
@@ -1104,18 +1103,35 @@ async function loadFanDuelOdds(force=false){
     return;
   }
   try{
-    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`;
-    console.log('[Odds] Fetching FanDuel HR props...');
-    const r = await fetch(url);
-    if(!r.ok){
-      const body = await r.text().catch(()=>'');
-      throw new Error(`Odds API ${r.status}: ${body.slice(0,100)}`);
+    // Step 1: Get today's MLB event IDs
+    const eventsUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events?apiKey=${ODDS_API_KEY}&dateFormat=iso`;
+    console.log('[Odds] Fetching MLB events...');
+    const evResp = await fetch(eventsUrl);
+    if(!evResp.ok) throw new Error(`Events API ${evResp.status}: ${await evResp.text().catch(()=>'')}`);
+    const events = await evResp.json();
+    console.log(`[Odds] Found ${events.length} events`);
+    if(!events.length){ 
+      const statusEl=document.getElementById('odds-status');
+      if(statusEl) statusEl.textContent='FD odds: no games';
+      return;
     }
-    const data = await r.json();
+
+    // Step 2: Fetch batter_home_runs props for each event
     const map = {};
     let total = 0;
-    for(const game of data){
-      const fd = (game.bookmakers||[]).find(b=>b.key==='fanduel');
+    // Batch to avoid burning requests — do all events in parallel
+    const propResults = await Promise.allSettled(
+      events.map(ev =>
+        fetch(`https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${ev.id}/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`)
+          .then(r=>r.ok?r.json():null)
+          .catch(()=>null)
+      )
+    );
+
+    for(const result of propResults){
+      if(result.status!=='fulfilled'||!result.value) continue;
+      const data = result.value;
+      const fd = (data.bookmakers||[]).find(b=>b.key==='fanduel');
       if(!fd) continue;
       const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
       if(!mkt) continue;
@@ -1126,18 +1142,17 @@ async function loadFanDuelOdds(force=false){
         total++;
       }
     }
+
     _fdOdds = map;
     const statusEl = document.getElementById('odds-status');
     if(statusEl) statusEl.textContent = `FD: ${total} props ✓`;
     console.log(`[Odds] ✅ Loaded ${total} FanDuel HR props. Sample:`,
       Object.values(map).slice(0,5).map(v=>`${v.raw}: ${v.odds>0?'+':''}${v.odds}`).join(', '));
-
-    // Re-render slate now that odds are available
     if(S.allRows.length) renderSlate();
   }catch(e){
     console.warn('[Odds] FanDuel load failed:', e.message);
     const statusEl = document.getElementById('odds-status');
-    if(statusEl) statusEl.textContent = `FD odds: failed`;
+    if(statusEl) statusEl.textContent = `FD odds: ${e.message.slice(0,30)}`;
     _fdOdds = null;
   }
 }
@@ -1156,16 +1171,15 @@ function getFDOdds(name){
 
 // Debug tool — call showOddsDebug() in console to see all loaded odds
 function showOddsDebug(){
-  if(!_fdOdds){ console.log('No FD odds loaded'); return; }
+  if(!_fdOdds){ console.log('No FD odds loaded — check ODDS_API_KEY on line 416'); return; }
   const sorted = Object.values(_fdOdds).sort((a,b)=>a.odds-b.odds);
   console.table(sorted.map(v=>({name:v.raw, odds:v.odds>0?'+'+v.odds:v.odds})));
   console.log(`Total: ${sorted.length} players`);
-  // Check specific player
   const check = (name)=>{
     const o=getFDOdds(name);
     console.log(`${name}: ${o!=null?(o>0?'+':'')+o:'NOT FOUND'}`);
   };
-  ['Matt Olson','Aaron Judge','Yordan Alvarez','Pete Alonso'].forEach(check);
+  ['Matt Olson','Aaron Judge','Yordan Alvarez','Pete Alonso','Kyle Schwarber'].forEach(check);
 }
 
 // Refresh odds button
