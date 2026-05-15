@@ -414,7 +414,7 @@ const MLB    = 'https://statsapi.mlb.com/api/v1';
 const PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
 // The Odds API key — get free at https://the-odds-api.com (500 req/month free)
 // Enables FanDuel live HR prop odds + edge on every hitter card
-const ODDS_API_KEY = 'bf91db045e38231e73ae42c9be422163'; // <-- paste your key between these quotes
+const ODDS_API_KEY = ''; // <-- paste your key between these quotes
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
   ATL:1.04,CHC:1.03,TEX:1.03,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
   WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.97,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
@@ -1170,7 +1170,12 @@ async function loadFanDuelOdds(force=false){
 
     _fdOdds = map;
     const statusEl = document.getElementById('odds-status');
-    if(statusEl) statusEl.textContent = `FD: ${total} props ✓`;
+    if(total > 0){
+      if(statusEl) statusEl.textContent = `${total} props ✓`;
+    } else {
+      if(statusEl) statusEl.textContent = 'Props: upgrade plan';
+      console.warn('[Odds] 0 props loaded — player props require paid plan. See: the-odds-api.com/account');
+    }
     console.log(`[Odds] ✅ Loaded ${total} FanDuel HR props. Sample:`,
       Object.values(map).slice(0,5).map(v=>`${v.raw}: ${v.odds>0?'+':''}${v.odds}`).join(', '));
     if(S.allRows.length) renderSlate();
@@ -2040,8 +2045,129 @@ async function loadGame(g){
 
 
 // ==================================================================
-//  RENDER SLATE
+//  NEGATIVE SHARP ANGLES — only shown on player detail page
 // ==================================================================
+function detectNegativeAngles(r){
+  const neg = [];
+  const g   = r._recentGames || [];
+  const pit = r._pitcherStats || {};
+  const wx  = r.wx || {};
+
+  // ── PLATOON FADE ─────────────────────────────────────────────────
+  if(r.platoon <= 0.74){
+    neg.push({icon:'⚠️',
+      label:'Same-Hand Matchup',
+      tip:`${r.batHand}HB vs ${r.oppHand}HP — worst platoon matchup. Books heavily price this. L vs L is the hardest HR matchup in baseball.`});
+  }
+
+  // ── COLD STREAK ──────────────────────────────────────────────────
+  const l7hr  = g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
+  const l7ab  = g.slice(0,7).reduce((s,x)=>s+(x.ab||0),0);
+  const l15hr = g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
+  const l15ab = g.slice(0,15).reduce((s,x)=>s+(x.ab||0),0);
+  const sznRate = r.szPA>20 ? r.szHR/r.szPA : null;
+
+  if(l15hr===0 && l15ab>=40 && sznRate!=null && sznRate>=0.035){
+    neg.push({icon:'🧊',
+      label:'HR Drought (0 in 15G)',
+      tip:`Has not homered in ${l15ab} ABs despite ${(sznRate*100).toFixed(1)}% season HR rate. Cold streaks can persist for power hitters — book may not have adjusted.`});
+  } else if(l7hr===0 && l7ab>=25 && sznRate!=null && sznRate>=0.05){
+    neg.push({icon:'❄️',
+      label:'Ice Cold Last 7 Games',
+      tip:`0 HRs in last 7 games for a player with ${(sznRate*100).toFixed(1)}% HR rate. Short-term cold streaks matter for same-day props.`});
+  }
+
+  // ── HR OVERPERFORMANCE (regression due DOWN) ──────────────────────
+  if(r.barrel_pct!=null && r.szPA>30){
+    const xHR = (r.barrel_pct/100) * r.szPA * 0.62;
+    const actualHR = r.szHR||0;
+    if(actualHR >= xHR + 4 && xHR > 2){
+      neg.push({icon:'📉',
+        label:'Overperforming Expected HRs',
+        tip:`Has ${actualHR} HRs but barrel% only implies ~${xHR.toFixed(0)}. Running ${(actualHR-xHR).toFixed(0)} HRs hot — negative regression candidate.`});
+    }
+  }
+
+  // ── ELITE PITCHER ─────────────────────────────────────────────────
+  if(pit.hr9_recent!=null && pit.hr9_recent < 0.7){
+    neg.push({icon:'🧱',
+      label:'Shutdown Pitcher (Recent)',
+      tip:`SP allowing only ${pit.hr9_recent.toFixed(2)} HR/9 in recent starts — elite HR suppressor (lg avg 1.35). Fade this matchup.`});
+  } else if(pit.hr9_season!=null && pit.hr9_season < 0.80 && (pit.hr9_recent==null || pit.hr9_recent < 1.0)){
+    neg.push({icon:'🧱',
+      label:'HR-Suppressing Pitcher',
+      tip:`SP at ${pit.hr9_season.toFixed(2)} HR/9 season — well below league avg (1.35). Hard to homer against.`});
+  }
+
+  // ── K RATE RISING (pitcher getting sharper) ───────────────────────
+  if(pit.recentK9!=null && pit.seasonK9!=null && pit.recentK9 > pit.seasonK9 * 1.20){
+    neg.push({icon:'📈',
+      label:`SP Gaining Strikeouts`,
+      tip:`SP K/9 up from ${pit.seasonK9.toFixed(1)} (season) to ${pit.recentK9.toFixed(1)} (recent) — stuff is improving. More Ks = fewer balls in play = fewer HRs.`});
+  }
+
+  // ── SUPPRESSING PARK ─────────────────────────────────────────────
+  if(r.pf!=null && r.pf <= 0.93){
+    neg.push({icon:'🏟️',
+      label:`HR-Suppressing Park (${r.pf.toFixed(2)}×)`,
+      tip:`This park reduces HR rates by ${Math.round((1-r.pf)*100)}% vs average. Petco, Oracle, T-Mobile Park suppress HRs significantly.`});
+  }
+
+  // ── WIND BLOWING IN ───────────────────────────────────────────────
+  if(wx.wind>=10 && r.parkwx!=null && r.parkwx <= 0.93){
+    neg.push({icon:'🌀',
+      label:`Wind Blowing In (${Math.round(wx.wind)} mph)`,
+      tip:`${windLabel(wx.wind,wx.wdir)} — headwind suppresses fly balls. HR probability down ~${Math.round((1-r.parkwx)*100)}% vs neutral.`});
+  }
+
+  // ── RAIN ─────────────────────────────────────────────────────────
+  if(wx.rain>=50){
+    neg.push({icon:'🌧️',
+      label:`High Rain Probability (${Math.round(wx.rain)}%)`,
+      tip:`Wet ball + heavy air = fewer HRs. Rain also increases chance of postponement — prop would be voided.`});
+  }
+
+  // ── LOW PULL-AIR% ─────────────────────────────────────────────────
+  if(r.pull_air_pct!=null && r.pull_air_pct < 8){
+    neg.push({icon:'↙️',
+      label:`Low Pull-Air Rate (${r.pull_air_pct.toFixed(1)}%)`,
+      tip:`Only ${r.pull_air_pct.toFixed(1)}% of batted balls are pulled in the air (lg avg 12.5%). Poor HR shape — contact is mostly ground balls or oppo.`});
+  }
+
+  // ── LOW BARREL% ──────────────────────────────────────────────────
+  if(r.barrel_pct!=null && r.barrel_pct < 5 && r.prob > 0.05){
+    neg.push({icon:'🛢️',
+      label:`Below-Average Barrel Rate (${r.barrel_pct}%)`,
+      tip:`Barrel% of ${r.barrel_pct}% is below league avg (8%). Model may be over-weighting recent HR count vs underlying power.`});
+  }
+
+  // ── GROUND BALL HITTER ────────────────────────────────────────────
+  if(r.fb_pct!=null && r.fb_pct < 22 && r.pull_pct!=null){
+    neg.push({icon:'⬇️',
+      label:`Ground Ball Tendency (${r.fb_pct.toFixed(1)}% FB)`,
+      tip:`Only ${r.fb_pct.toFixed(1)}% fly ball rate — you can't HR a ground ball. Below-avg FB% significantly limits HR upside.`});
+  }
+
+  // ── PLATOON ADVANTAGE FOR SP ──────────────────────────────────────
+  // RHP vs LHB or LHP vs RHB — pitcher has platoon edge
+  if((r.oppHand==='R' && r.batHand==='L') || (r.oppHand==='L' && r.batHand==='R')){
+    // Already flagged above — skip (would be duplicate)
+  }
+
+  // ── RECENT CONTACT QUALITY DROP ───────────────────────────────────
+  // If L7 slg/obp trending down vs season (from game log)
+  if(g.length >= 7){
+    const l7slg = g.slice(0,7).reduce((s,x)=>s+(x.slg||0),0) / Math.max(1,g.slice(0,7).filter(x=>x.slg!=null).length);
+    const sznSlg = r.iso!=null && r.avg!=null ? r.iso + r.avg : null; // rough proxy
+    if(l7slg > 0 && sznSlg!=null && l7slg < sznSlg * 0.60){
+      neg.push({icon:'📊',
+        label:'Contact Quality Declining',
+        tip:`Recent slugging well below season average — may be in a funk. Quality of contact matters as much as raw HR count.`});
+    }
+  }
+
+  return neg;
+}
 function setSort(key,el){
   S.sortKey=key;
   document.querySelectorAll('.filter-pill').forEach(p=>p.classList.remove('active'));
@@ -2208,14 +2334,24 @@ function renderDetail(r){
     </div>
 
     ${detectAngles(r).length?`<div class="card" style="margin-bottom:10px">
-      <div class="slbl">Sharp Angles</div>
+      <div class="slbl">⚡ Sharp Angles For</div>
       ${detectAngles(r).map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--bg3)">
         <span style="font-size:1rem">${a.icon}</span>
         <div><div style="font-size:.8rem;font-weight:700;color:${a.color}">${a.label}</div>
         <div style="font-size:.68rem;color:var(--t4)">${a.tip}</div></div>
       </div>`).join('')}
     </div>`:''}
-    <div class="card" style="margin-bottom:10px">
+
+    ${detectNegativeAngles(r).length?`<div class="card" style="margin-bottom:10px;border-color:rgba(224,80,74,.25)">
+      <div class="slbl" style="color:var(--red)">🚨 Negative Angles Against</div>
+      ${detectNegativeAngles(r).map(a=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3)">
+        <span style="font-size:1.1rem;margin-top:1px">${a.icon}</span>
+        <div>
+          <div style="font-size:.82rem;font-weight:700;color:var(--red)">${a.label}</div>
+          <div style="font-size:.7rem;color:var(--t3);margin-top:2px;line-height:1.5">${a.tip}</div>
+        </div>
+      </div>`).join('')}
+    </div>`:'<div class="card" style="margin-bottom:10px;border-color:rgba(34,201,94,.2)"><div style="font-size:.78rem;color:var(--green);padding:4px 0">✅ No significant negative angles found for this player today</div></div>'}
       <div class="slbl">Probability Breakdown</div>
       ${fbar('Anchor (Blended HR Rate)',r.anchor/MLB_AVG,0.3,2.5)}
       ${fbar('Platoon Split',r.platoon,0.65,1.35)}
