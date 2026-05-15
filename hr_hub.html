@@ -519,7 +519,7 @@ async function getPitcherHand(pid){
 
 async function getSavantBatters(){
   try{
-    // Try current year first, fall back to prior year URL format
+    // Savant's statcast leaderboard — includes barrel%, EV, hard hit%
     const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
     const r = await fetch(PROXY + encodeURIComponent(url));
     console.log('[Savant batters] status:', r.status);
@@ -536,11 +536,40 @@ async function getSavantBatters(){
         avg_la:      parseF(row.avg_hit_angle ?? row.avg_launch_angle),
       };
     }
+
+    // Also fetch Savant's batted ball leaderboard for Pull% / FB% / HR/FB%
+    // These come from the batted_ball leaderboard type
+    try{
+      const url2=`https://baseballsavant.mlb.com/leaderboard/batted-ball?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
+      const r2 = await fetch(PROXY + encodeURIComponent(url2));
+      if(r2.ok){
+        const txt2 = await r2.text();
+        const rows2 = parseCSVText(txt2);
+        console.log(`[Savant batted-ball] ${rows2.length} rows, cols:`, rows2[0] ? Object.keys(rows2[0]).slice(0,10) : 'none');
+        for(const row of rows2){
+          const pid=(row.player_id||row.batter||'').replace(/\.0$/,'');
+          if(!pid||!out[pid]) continue;
+          // Column names vary — try multiple
+          const pull = parseF(row.pull_percent ?? row.pull_pct ?? row.pull);
+          const fb   = parseF(row.flyballs_percent ?? row.flyball_percent ?? row.fb_percent ?? row.fb_pct);
+          const hrfb = parseF(row.home_run_per_flyball ?? row.hr_per_fb ?? row.hr_over_flyball);
+          if(pull!=null) out[pid].pull_pct = pull;
+          if(fb!=null)   out[pid].fb_pct   = fb;
+          if(hrfb!=null) out[pid].hr_fb_pct = hrfb;
+          // Compute Pull-Air% = Pull% × FB% / 100
+          if(pull!=null && fb!=null)
+            out[pid].pull_air_pct = Math.round((pull * fb) / 1000 * 10) / 10;
+        }
+      }
+    }catch(e2){ console.warn('[Savant batted-ball] failed:', e2.message); }
+
     console.log(`Savant batters: ${Object.keys(out).length} players`);
+    // Sample pull/fb data
+    const sample = Object.values(out).filter(v=>v.pull_pct!=null).slice(0,3);
+    console.log('[Savant] pull/fb sample:', sample.map(v=>`pull:${v.pull_pct} fb:${v.fb_pct} hr/fb:${v.hr_fb_pct}`));
     return out;
   }catch(e){console.warn('getSavantBatters failed:',e.message);return{};}
 }
-
 async function getFGBatters(){
   try{
     const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=bat&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=2000&pagenum=1`;
@@ -1866,10 +1895,10 @@ async function loadGame(g){
         hard_hit_pct:    savH.hard_hit_pct ?? fgH.hard     ?? null,
         avg_ev:          savH.avg_ev       ?? fgH.avgEV    ?? null,
         iso:             fgH.iso           ?? null,
-        pull_air_pct:    fgH.pull_air_pct  ?? null,
-        hr_fb_pct:       fgH.hrFb          ?? null,
-        pull_pct:        fgH.pull          ?? null,
-        fb_pct:          fgH.fb            ?? null,
+        pull_air_pct:    savH.pull_air_pct  ?? fgH.pull_air_pct ?? null,
+        hr_fb_pct:       savH.hr_fb_pct     ?? fgH.hrFb         ?? null,
+        pull_pct:        savH.pull_pct      ?? fgH.pull         ?? null,
+        fb_pct:          savH.fb_pct        ?? fgH.fb           ?? null,
       };
 
       const res = calcHRProb(batterStats, pitcherStats, pf, wx, recent);
