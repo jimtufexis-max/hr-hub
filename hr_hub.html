@@ -1126,7 +1126,7 @@ async function loadFanDuelOdds(force=false){
     let total = 0;
     for(const ev of todayEvents){
       try{
-        const propUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${ev.id}/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`;
+        const propUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${ev.id}/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel,draftkings,betmgm,caesars,pointsbet&oddsFormat=american`;
         const propResp = await fetch(PROXY + encodeURIComponent(propUrl));
         console.log(`[Odds] ${ev.home_team} vs ${ev.away_team}: HTTP ${propResp.status}`);
         if(propResp.status===429){
@@ -1137,20 +1137,33 @@ async function loadFanDuelOdds(force=false){
         }
         if(!propResp.ok){ console.warn('[Odds] Non-OK response:', propResp.status); continue; }
         const data = await propResp.json();
-        console.log(`[Odds] ${ev.home_team}: bookmakers=${data.bookmakers?.length}, raw sample:`, JSON.stringify(data).slice(0,200));
-        const fd = (data.bookmakers||[]).find(b=>b.key==='fanduel');
-        if(!fd){ console.log('[Odds] No FanDuel book for this game'); continue; }
-        const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
-        if(!mkt){ console.log('[Odds] FanDuel markets available:', fd.markets?.map(m=>m.key)); continue; }
+        // Book priority: FanDuel > DraftKings > BetMGM > Caesars > any
+        const BOOK_PRIORITY = ['fanduel','draftkings','betmgm','caesars','pointsbet'];
+        const books = (data.bookmakers||[]);
+        console.log(`[Odds] ${ev.home_team}: books available: ${books.map(b=>b.key).join(',')}`);
+        
+        // Build per-player map preferring higher-priority books
+        const gameMap = {}; // playerKey → {odds, raw, book}
+        for(const book of [...books].sort((a,b)=>BOOK_PRIORITY.indexOf(b.key)-BOOK_PRIORITY.indexOf(a.key))){
+          const mkt = (book.markets||[]).find(m=>m.key==='batter_home_runs');
+          if(!mkt) continue;
+          for(const outcome of mkt.outcomes||[]){
+            if(outcome.name!=='Over') continue;
+            const playerName = outcome.description||outcome.name;
+            if(!playerName||playerName==='Over'||playerName==='Under') continue;
+            const key = normName(playerName);
+            // Only overwrite if this is a higher priority book
+            if(!gameMap[key] || BOOK_PRIORITY.indexOf(book.key) < BOOK_PRIORITY.indexOf(gameMap[key].book)){
+              gameMap[key] = { odds: outcome.price, raw: playerName, book: book.key };
+            }
+          }
+        }
         let gameTotal = 0;
-        for(const outcome of mkt.outcomes||[]){
-          if(outcome.name!=='Over') continue;
-          const playerName = outcome.description||outcome.name;
-          if(!playerName||playerName==='Over'||playerName==='Under') continue;
-          map[normName(playerName)] = { odds: outcome.price, raw: playerName };
+        for(const [key, val] of Object.entries(gameMap)){
+          map[key] = { odds: val.odds, raw: val.raw, book: val.book };
           total++; gameTotal++;
         }
-        console.log(`[Odds] ${ev.home_team}: loaded ${gameTotal} props`);
+        if(gameTotal > 0) console.log(`[Odds] ${ev.home_team}: loaded ${gameTotal} props (sample: ${Object.values(gameMap).slice(0,2).map(v=>`${v.raw} ${v.odds>0?'+':''}${v.odds} [${v.book}]`).join(', ')})`);
         await new Promise(res=>setTimeout(res,500));
       }catch(e){ console.warn('[Odds] Event fetch failed:', e.message); }
     }
@@ -1172,12 +1185,21 @@ async function loadFanDuelOdds(force=false){
 function getFDOdds(name){
   if(!_fdOdds) return null;
   const key = normName(name);
-  // Direct match
   if(_fdOdds[key]) return _fdOdds[key].odds;
-  // Try last-name only match as fallback
+  // Last-name fallback
   const lastName = key.split(' ').pop();
   const match = Object.keys(_fdOdds).find(k=>k.endsWith(' '+lastName)||k===lastName);
   if(match) return _fdOdds[match].odds;
+  return null;
+}
+
+function getOddsBook(name){
+  if(!_fdOdds) return null;
+  const key = normName(name);
+  if(_fdOdds[key]) return _fdOdds[key].book||'fd';
+  const lastName = key.split(' ').pop();
+  const match = Object.keys(_fdOdds).find(k=>k.endsWith(' '+lastName)||k===lastName);
+  if(match) return _fdOdds[match].book||'fd';
   return null;
 }
 
@@ -2059,11 +2081,13 @@ function renderHitterCard(r,showGame){
 
   // FanDuel odds + edge
   const fdOdds = getFDOdds(r.name);
+  const fdBook = getOddsBook(r.name);
+  const bookLabel = fdBook==='fanduel'||!fdBook ? 'FD' : fdBook==='draftkings' ? 'DK' : fdBook==='betmgm' ? 'MGM' : fdBook==='caesars' ? 'CZR' : fdBook?.toUpperCase()||'FD';
   const edgeData = fdOdds!=null ? calcEdge(r.prob, fdOdds) : null;
   const fdTag = fdOdds!=null
     ? `<span style="font-size:.68rem;font-family:'JetBrains Mono',monospace;margin-left:6px;
         color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'};
-        font-weight:700">${fdOdds>0?'+':''}${fdOdds}</span>`
+        font-weight:700">${bookLabel} ${fdOdds>0?'+':''}${fdOdds}</span>`
     : '';
 
   const edgeBadge = edgeData
