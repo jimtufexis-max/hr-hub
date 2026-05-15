@@ -1866,6 +1866,10 @@ async function loadGame(g){
         hard_hit_pct:    savH.hard_hit_pct ?? fgH.hard     ?? null,
         avg_ev:          savH.avg_ev       ?? fgH.avgEV    ?? null,
         iso:             fgH.iso           ?? null,
+        pull_air_pct:    fgH.pull_air_pct  ?? null,
+        hr_fb_pct:       fgH.hrFb          ?? null,
+        pull_pct:        fgH.pull          ?? null,
+        fb_pct:          fgH.fb            ?? null,
       };
 
       const res = calcHRProb(batterStats, pitcherStats, pf, wx, recent);
@@ -1891,6 +1895,10 @@ async function loadGame(g){
         hard_hit_pct: batterStats.hard_hit_pct,
         avg_ev:       batterStats.avg_ev,
         iso:          batterStats.iso,
+        pull_air_pct: batterStats.pull_air_pct,
+        hr_fb_pct:    batterStats.hr_fb_pct,
+        pull_pct:     batterStats.pull_pct,
+        fb_pct:       batterStats.fb_pct,
         l30hr, l30pa,
         szHR, szPA,
         l15hr,
