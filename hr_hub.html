@@ -1104,11 +1104,12 @@ function detectAngles(r){
   }
 
   // ── MOMENTUM / STREAK SIGNALS ────────────────────────────────────
-  const l3hr  = g.slice(0,3).reduce((s,x)=>s+(x.hr||0),0);
-  const l7hr  = g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
-  const l7pa  = g.slice(0,7).reduce((s,x)=>s+(x.pa||x.ab||0),0);
-  const l15hr = g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
-  const l15pa = g.slice(0,15).reduce((s,x)=>s+(x.pa||x.ab||0),0);
+  const l3hr  = g.length ? g.slice(0,3).reduce((s,x)=>s+(x.hr||0),0) : 0;
+  const l7hr  = g.length ? g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0) : 0;
+  const l7pa  = g.length ? g.slice(0,7).reduce((s,x)=>s+(x.pa||x.ab||0),0) : 0;
+  // Use row's l15hr if recentGames not loaded yet
+  const l15hr = g.length ? g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0) : (r.l15hr||0);
+  const l15pa = g.length ? g.slice(0,15).reduce((s,x)=>s+(x.pa||x.ab||0),0) : 0;
   const sznRate = r.szPA>20 ? r.szHR/r.szPA : null;
   const l7rate  = l7pa>0 ? l7hr/l7pa : null;
   const l15rate = l15pa>0 ? l15hr/l15pa : null;
@@ -1138,6 +1139,17 @@ function detectAngles(r){
       tip:`L7 HR/PA ${(l7rate*100).toFixed(1)}% vs season ${(sznRate*100).toFixed(1)}% — running hot`});
   }
 
+  // L15 HR count directly from row (always available)
+  if(r.l15hr >= 5 && !l3hr && !l7hr){
+    // High l15 but recent cooling — interesting split
+  }
+  if(r.l15hr >= 4 && l3hr===0 && l7hr<=1){
+    angles.push({icon:'📊', cat:'streak', tier:2,
+      label:`${r.l15hr} HR last 15G`,
+      color:'var(--amber)',
+      tip:`${r.l15hr} HR in last 15 games — strong recent production`});
+  }
+
   // Cold streak — worth flagging as fade
   if(l15hr===0 && l15pa>=30 && sznRate!=null && sznRate>=0.04){
     angles.push({icon:'🧊', cat:'streak', tier:3,
@@ -1148,21 +1160,24 @@ function detectAngles(r){
 
   // ── POWER PROFILE / xHR SIGNALS ─────────────────────────────────
   // Expected HRs from barrel% — if actual HR << expected, regression is due
-  if(r.barrel_pct!=null && r.szPA>30){
-    // xHR estimate: barrel_pct × PA × 0.62 (avg barrels that become HRs)
-    const xHR = (r.barrel_pct/100) * r.szPA * 0.62;
-    const actualHR = r.szHR || 0;
+  // Use szPA if available, fall back to estimating from l30pa (scaled to 162G)
+  const _szPA = r.szPA>30 ? r.szPA : (r.l30pa>15 ? r.l30pa*4.5 : 0);
+  const _szHR = r.szHR>0 ? r.szHR : r.l30hr;
+  if(r.barrel_pct!=null && _szPA>30){
+    // xHR: barrel% × PA × 0.62 (fraction of barrels that become HRs league-wide)
+    const xHR = (r.barrel_pct/100) * _szPA * 0.62;
+    const actualHR = _szHR || 0;
     const gap = xHR - actualHR;
     if(gap >= 4 && r.barrel_pct >= 10){
       angles.push({icon:'💥', cat:'power', tier:1,
         label:`${gap.toFixed(0)} xHR gap`,
         color:'var(--blue)',
-        tip:`Expected ~${xHR.toFixed(0)} HR from barrel%, has ${actualHR} — ${gap.toFixed(0)} HR regression due`});
+        tip:`xHR from barrel%: ~${xHR.toFixed(0)}, actual: ${actualHR} — ${gap.toFixed(0)} HR regression due`});
     } else if(gap >= 2 && r.barrel_pct >= 8){
       angles.push({icon:'📊', cat:'power', tier:2,
-        label:'xHR ahead',
+        label:'xHR ahead of pace',
         color:'var(--blue)',
-        tip:`Barrel% projects ${xHR.toFixed(1)} HR, actual ${actualHR} — underperforming power profile`});
+        tip:`Barrel% projects ${xHR.toFixed(1)} HR, actual ${actualHR} — due for more`});
     }
   }
 
@@ -1180,15 +1195,15 @@ function detectAngles(r){
   }
 
   // Elite hard hit%
-  if(r.hard_hit_pct!=null && r.hard_hit_pct >= 55){
+  if(r.hard_hit_pct!=null && r.hard_hit_pct >= 50){
     angles.push({icon:'🔨', cat:'power', tier:2,
       label:`${r.hard_hit_pct}% Hard Hit`,
       color:'var(--green)',
-      tip:'Consistently hitting the ball hard — elite contact quality'});
+      tip:'Top-tier hard hit rate — consistently driving ball with authority'});
   }
 
   // High EV
-  if(r.avg_ev!=null && r.avg_ev >= 93){
+  if(r.avg_ev!=null && r.avg_ev >= 92){
     angles.push({icon:'⚡', cat:'power', tier:2,
       label:`${r.avg_ev} mph EV`,
       color:'var(--green)',
@@ -1196,7 +1211,7 @@ function detectAngles(r){
   }
 
   // High ISO
-  if(r.iso!=null && r.iso >= 0.250){
+  if(r.iso!=null && r.iso >= 0.220){
     angles.push({icon:'💣', cat:'power', tier:2,
       label:`ISO .${Math.round(r.iso*1000)}`,
       color:'var(--green)',
@@ -1216,12 +1231,17 @@ function detectAngles(r){
       tip:`SP at ${pit.hr9_recent.toFixed(1)} HR/9 recent — above league avg (1.35)`});
   }
 
-  // Pitcher early in season / low start count (small sample = more variance)
-  if(pit.totalStarts!=null && pit.totalStarts <= 4){
-    angles.push({icon:'🆕', cat:'pitcher', tier:2,
-      label:`SP start ${pit.totalStarts}`,
+  // Pitcher early in season / low start count
+  if(pit.totalStarts!=null && pit.totalStarts <= 3){
+    angles.push({icon:'🆕', cat:'pitcher', tier:1,
+      label:`SP only ${pit.totalStarts} starts`,
       color:'var(--amber)',
-      tip:`Only ${pit.totalStarts} starts this season — book has thin sample, variance higher`});
+      tip:`Only ${pit.totalStarts} starts this season — small sample, book pricing uncertain. HR rates +40% in starts 1-3 back from IL`});
+  } else if(pit.totalStarts!=null && pit.totalStarts <= 6){
+    angles.push({icon:'📋', cat:'pitcher', tier:2,
+      label:`SP ${pit.totalStarts} starts`,
+      color:'var(--t4)',
+      tip:`${pit.totalStarts} starts this season — still limited sample`});
   }
 
   // K rate declining — mechanical issue signal
@@ -1615,13 +1635,15 @@ async function loadGame(g){
     const platoonMap = {};
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk   = hitters.slice(i, i+BATCH);
-      const [recResults, platResults] = await Promise.all([
+      const [recResults, platResults, statResults] = await Promise.all([
         Promise.allSettled(chunk.map(h=>getBatterRecentGames(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPlayerPlatoonSplits(String(h.id)))),
+        Promise.allSettled(chunk.map(h=>getPlayerStats(String(h.id), SEASON))),
       ]);
       chunk.forEach((h,j)=>{
-        if(recResults[j].status==='fulfilled') recentGamesMap[String(h.id)] = recResults[j].value;
-        if(platResults[j].status==='fulfilled') platoonMap[String(h.id)] = platResults[j].value;
+        if(recResults[j].status==='fulfilled')  recentGamesMap[String(h.id)] = recResults[j].value;
+        if(platResults[j].status==='fulfilled') platoonMap[String(h.id)]    = platResults[j].value;
+        // statResults populate _playerCache[pid_SEASON] automatically via getPlayerStats
       });
     }
 
