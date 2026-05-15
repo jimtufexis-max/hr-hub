@@ -561,8 +561,17 @@ async function getFGBatters(){
         avgEV: parseF(row['AvgEV']),
         iso:   parseF(row['ISO']),
         ops:   parseF(row['OPS']),
+        pull:  parsePct(row['Pull%'] || row.pull),
+        fb:    parsePct(row['FB%']),
+        hr_fb_pct: parsePct(row['HR/FB%'] || row.hrfb),
         hr_fb_pct: parsePct(row['HR/FB%'] || row.hrfb),
       };
+
+      // Pull-Air% = Pull% × FB%
+      fgRow.pull_air_pct =
+        (fgRow.pull != null && fgRow.fb != null)
+          ? Math.round((fgRow.pull * fgRow.fb) / 1000 * 10) / 10
+          : null;
 
       // Pull-Air% = Pull% × FB%
       fgRow.pull_air_pct =
@@ -2668,3 +2677,11 @@ loadSlate();
 </script>
 </body>
 </html>
+
+// ==================================================================
+//  PULL-AIR% PLAYER CARD DISPLAY PATCH
+// ==================================================================
+// Add this before Barrel% in the player card mini-stat section:
+//
+// ${row.pull_air_pct!=null ? `<span class="mini-stat">🚀 ${row.pull_air_pct}% Pull-Air</span>` : ''}
+//
