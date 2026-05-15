@@ -1116,35 +1116,36 @@ async function loadFanDuelOdds(force=false){
       return;
     }
 
-    // Step 2: Fetch batter_home_runs props for each event
+    // Step 2: Filter to only today's games (props only posted day-of)
+    const today = ds(); // YYYY-MM-DD
+    const todayEvents = events.filter(ev => (ev.commence_time||'').startsWith(today));
+    console.log(`[Odds] Today's games: ${todayEvents.length} of ${events.length} total`);
+
+    // Step 3: Fetch props sequentially with delay to avoid 429
     const map = {};
     let total = 0;
-    // Batch to avoid burning requests — do all events in parallel
-    const propResults = await Promise.allSettled(
-      events.map(ev =>
-        fetch(`https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${ev.id}/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`)
-          .then(r=>r.ok?r.json():null)
-          .catch(()=>null)
-      )
-    );
-
-    for(const result of propResults){
-      if(result.status!=='fulfilled'||!result.value) continue;
-      const data = result.value;
-      const fd = (data.bookmakers||[]).find(b=>b.key==='fanduel');
-      if(!fd) continue;
-      const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
-      if(!mkt) continue;
-      for(const outcome of mkt.outcomes||[]){
-        // batter_home_runs format: {name:'Over'/'Under', description:'Pete Alonso', price:525, point:0.5}
-        // We only want the Over (hitting a HR)
-        if(outcome.name!=='Over') continue;
-        const playerName = outcome.description || outcome.name;
-        if(!playerName || playerName==='Over' || playerName==='Under') continue;
-        const key = normName(playerName);
-        map[key] = { odds: outcome.price, raw: playerName };
-        total++;
-      }
+    for(const ev of todayEvents){
+      try{
+        const propResp = await fetch(
+          `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${ev.id}/odds?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`
+        );
+        if(propResp.status===429){ console.warn('[Odds] Rate limited — stopping early'); break; }
+        if(!propResp.ok) continue;
+        const data = await propResp.json();
+        const fd = (data.bookmakers||[]).find(b=>b.key==='fanduel');
+        if(!fd) continue;
+        const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
+        if(!mkt) continue;
+        for(const outcome of mkt.outcomes||[]){
+          if(outcome.name!=='Over') continue;
+          const playerName = outcome.description||outcome.name;
+          if(!playerName||playerName==='Over'||playerName==='Under') continue;
+          map[normName(playerName)] = { odds: outcome.price, raw: playerName };
+          total++;
+        }
+        // Small delay between requests to avoid rate limiting
+        await new Promise(res=>setTimeout(res,300));
+      }catch(e){ console.warn('[Odds] Event fetch failed:', e.message); }
     }
 
     _fdOdds = map;
