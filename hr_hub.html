@@ -13,7 +13,7 @@
 <!-- PWA icons (add actual icon files to your repo) -->
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" href="icon-192.png">
-<title>HR Hub</title>
+<title>HR Hub v5</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -298,9 +298,10 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <div id="filters-area">
       <div class="filter-row">
         <div class="filter-pill active" onclick="setSort('prob',this)">HR Prob</div>
-        <div class="filter-pill" onclick="setSort('base',this)">Base Rate</div>
-        <div class="filter-pill" onclick="setSort('matchup',this)">Matchup</div>
-        <div class="filter-pill" onclick="setSort('l14',this)">L14 Form</div>
+        <div class="filter-pill" onclick="setSort('anchor',this)">Anchor</div>
+        <div class="filter-pill" onclick="setSort('platoon',this)">Platoon</div>
+        <div class="filter-pill" onclick="setSort('momentum',this)">L15 Hot</div>
+        <div class="filter-pill" onclick="setSort('edge',this)">FD Edge</div>
       </div>
       <div id="search-wrap">
         <span id="search-icon">🔍</span>
@@ -410,6 +411,9 @@ const MLB    = 'https://statsapi.mlb.com/api/v1';
 // -- Cloudflare Worker proxy — set to your deployed worker URL --------------
 // Deploy hr_hub_worker.js to Cloudflare Workers, then update this:
 const PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
+// The Odds API key — get free at https://the-odds-api.com (500 req/month free)
+// Enables FanDuel live HR prop odds + edge on every hitter card
+const ODDS_API_KEY = 'bf91db045e38231e73ae42c9be422163'; // <-- paste your key between these quotes
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
   ATL:1.04,CHC:1.03,TEX:1.03,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
   WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.97,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
@@ -641,75 +645,229 @@ async function getPitcherL14(pid){
 }
 
 // ==================================================================
-//  PROBABILITY ENGINE (mirrors Python app)
+//  PROBABILITY ENGINE v2 — Book-aligned model
+//
+//  Formula: prob = anchor × platoon × pitcher × park_wx × momentum
+//
+//  anchor   = blended HR rate (last30 PA 50% + season 30% + career 20%)
+//  platoon  = batter vs LHP/RHP split (biggest single factor, ±35%)
+//  pitcher  = SP's HR/9 last 4 starts relative to league avg
+//  park_wx  = park factor × wind direction × temperature
+//  momentum = L15 HR count + EV trend from game log
 // ==================================================================
-const MLB_AVG = 0.035;
+
+const MLB_AVG    = 0.035;   // ~3.5% per game league average
+const LG_HR9     = 1.35;    // league avg HR/9 innings 2024-25
+const LG_HR_FB   = 0.132;   // league avg HR/FB rate
+const LG_FB_PCT  = 0.365;   // league avg FB rate
+
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
 
-function calcBaseProb(h){
-  if(!h)return MLB_AVG;
-  const brl=h.barrel_pct,hard=h.hard_hit_pct,pull=h.pull_pct,fb=h.fb_pct;
-  const iso=h.iso,ev=h.avg_ev,hrRate=h.hr_rate;
-  const scores=[];
+// ── ANCHOR: blended HR rate ────────────────────────────────────────
+// Uses MLB Stats API game log (L30) + season stats
+// Returns probability per game (0.0 - 0.40)
+function calcAnchor(stats){
+  const{l30hr, l30pa, szHR, szPA, careerHR, careerPA, barrel_pct, hard_hit_pct, avg_ev, iso} = stats;
 
-  // Statcast metrics (best signals — only when available)
-  if(brl!=null)scores.push([clamp(0.3+brl*0.115,0.3,2.8),0.35]);
-  if(hard!=null)scores.push([clamp(0.3+hard/37.0,0.5,1.8),0.20]);
-  if(pull!=null&&fb!=null)scores.push([clamp(0.4+(pull/38.0)*(fb/35.0)*0.60,0.4,2.0),0.20]);
-  else if(pull!=null)scores.push([clamp(pull/38.0,0.4,1.8),0.10]);
-  if(ev!=null)scores.push([clamp(0.2+ev/88.0*0.8,0.4,1.6),0.10]);
+  // Direct HR rates (most predictive)
+  const l30Rate  = (l30pa  >= 20) ? l30hr  / l30pa  : null;
+  const sznRate  = (szPA   >= 30) ? szHR   / szPA   : null;
+  const carRate  = (careerPA>=100) ? careerHR/ careerPA: null;
 
-  // Counting stat proxies (used when Statcast unavailable)
-  if(iso!=null)scores.push([clamp(iso/0.170,0.3,2.5),brl!=null?0.10:0.40]);
-  // HR rate is the most direct signal — league avg ~3.5% per game ~ 1 HR per 14 AB
-  if(hrRate!=null)scores.push([clamp(hrRate/0.035,0.2,3.0),brl!=null?0.05:0.45]);
+  let rateScore = null;
+  if(l30Rate!=null && sznRate!=null && carRate!=null){
+    rateScore = l30Rate*0.50 + sznRate*0.30 + carRate*0.20;
+  } else if(l30Rate!=null && sznRate!=null){
+    rateScore = l30Rate*0.60 + sznRate*0.40;
+  } else if(sznRate!=null && carRate!=null){
+    rateScore = sznRate*0.65 + carRate*0.35;
+  } else if(sznRate!=null){
+    rateScore = sznRate;
+  } else if(carRate!=null){
+    rateScore = carRate;
+  }
 
-  if(!scores.length)return MLB_AVG;
-  const tw=scores.reduce((s,[,w])=>s+w,0);
-  const wm=scores.reduce((s,[m,w])=>s+m*w,0)/tw;
-  return clamp(MLB_AVG*wm,0.005,0.40);
+  // Statcast power profile (secondary signal, refines rate estimates)
+  const statcastScores = [];
+  if(barrel_pct!=null) statcastScores.push(clamp(barrel_pct/6.5, 0.2, 3.0));
+  if(hard_hit_pct!=null) statcastScores.push(clamp(hard_hit_pct/38.0, 0.4, 2.0));
+  if(avg_ev!=null) statcastScores.push(clamp((avg_ev-82)/10, 0.3, 1.8));
+  if(iso!=null) statcastScores.push(clamp(iso/0.165, 0.2, 2.5));
+
+  const statcastMult = statcastScores.length
+    ? clamp(statcastScores.reduce((a,b)=>a+b)/statcastScores.length, 0.3, 2.5)
+    : 1.0;
+
+  let base;
+  if(rateScore!=null){
+    // If we have Statcast too, blend rate (primary) with Statcast (secondary)
+    const statcastWeight = statcastScores.length >= 2 ? 0.25 : 0.10;
+    base = (rateScore * (1-statcastWeight)) + (MLB_AVG * statcastMult * statcastWeight);
+  } else {
+    // No rate data — fall back to Statcast-only
+    base = MLB_AVG * statcastMult;
+  }
+
+  return clamp(base, 0.005, 0.38);
 }
 
-function calcMatchupMult(p,pmWoba,platWoba){
-  const mults=[];
-  if(p){
-    const ps=[];
-    if(p.brl!=null) ps.push(clamp(p.brl/6.5,0.4,2.2));
-    if(p.hrFb!=null)ps.push(clamp(p.hrFb/12.0,0.5,2.0));
-    if(p.hard!=null||p.hardPct!=null)ps.push(clamp((p.hard||p.hardPct||37)/37.0,0.6,1.7));
-    if(p.kPct!=null)ps.push(clamp(22.0/Math.max(p.kPct,8),0.5,1.6));
-    if(ps.length)mults.push([ps.reduce((a,b)=>a+b)/ps.length,0.35]);
+// ── PLATOON: batter handedness vs pitcher handedness ───────────────
+function calcPlatoonMult(batHand, pitHand, platRate, overallRate){
+  // If we have the player's actual platoon split rate with enough sample — use it
+  if(platRate!=null && overallRate!=null && overallRate>0){
+    // How does their split rate compare to their overall rate?
+    const ratio = platRate / overallRate;
+    // Blend 60% actual split, 40% population prior
+    const popPrior = getPlatoonPrior(batHand, pitHand);
+    return clamp(ratio*0.60 + popPrior*0.40, 0.40, 1.60);
   }
-  if(pmWoba!=null)mults.push([clamp((pmWoba-0.120)/0.200,0.4,1.8),0.35]);
-  if(platWoba!=null)mults.push([clamp((platWoba-0.120)/0.200,0.5,1.6),0.30]);
-  if(!mults.length)return 1.0;
-  const tw=mults.reduce((s,[,w])=>s+w,0);
-  return clamp(mults.reduce((s,[m,w])=>s+m*w,0)/tw,0.65,1.50);
+  // Fall back to population averages
+  return getPlatoonPrior(batHand, pitHand);
 }
 
-function calcContextMult(park,wx){
-  const pm=clamp(park,0.88,1.22);
-  const ws=wx?weatherScore(wx):50;
-  return pm*clamp(0.88+ws/50*0.12,0.90,1.12);
+function getPlatoonPrior(batHand, pitHand){
+  if(batHand==='S') return 1.05; // switch hitter — slight edge (always favorable side)
+  if(batHand==='L' && pitHand==='L') return 0.72;
+  if(batHand==='L' && pitHand==='R') return 1.18;
+  if(batHand==='R' && pitHand==='R') return 0.88;
+  if(batHand==='R' && pitHand==='L') return 1.22;
+  return 1.0;
 }
 
-function calcL14Mod(h,form){
-  if(!form)return 1.0;
-  const l14ev=form.avg_ev,sznEV=h?.avg_ev;
-  let evMod=1.0;
-  if(l14ev!=null&&sznEV!=null){
-    const d=l14ev-sznEV;
-    if(d>=3)evMod=1.12;else if(d>=1.5)evMod=1.06;else if(d>=0)evMod=1.01;
-    else if(d>=-1.5)evMod=0.97;else if(d>=-3)evMod=0.93;else evMod=0.88;
+// ── PITCHER: HR rate last 4 starts ────────────────────────────────
+// recentHR9: pitcher's HR/9 in last ~4 starts (from MLB API)
+// Higher than league avg = easier pitcher for HR
+function calcPitcherMult(pitcherStats){
+  if(!pitcherStats) return 1.0;
+  const{hr9_recent, hr9_season, hrFb, barrel_pct_allowed} = pitcherStats;
+
+  const scores = [];
+
+  // HR/9 relative to league average (1.35 is lg avg)
+  if(hr9_recent!=null && hr9_recent>0){
+    scores.push([clamp(hr9_recent / LG_HR9, 0.3, 2.8), 0.50]);
   }
-  const hr=form.hr||0,woba=form.woba,sznWoba=(h?.ops||0.720)*0.63;
-  let stk=1.0;
-  if(hr>=4)stk=1.22;else if(hr===3)stk=1.15;else if(hr===2)stk=1.08;else if(hr===1)stk=1.03;
-  else if(woba!=null){
-    if(woba>=sznWoba+0.040)stk=1.02;else if(woba>=sznWoba-0.020)stk=1.00;
-    else if(woba>=sznWoba-0.060)stk=0.95;else stk=0.88;
+  if(hr9_season!=null && hr9_season>0){
+    scores.push([clamp(hr9_season / LG_HR9, 0.3, 2.5), 0.30]);
   }
-  return clamp(evMod*stk,0.75,1.25);
+  // HR/FB rate (most direct signal)
+  if(hrFb!=null){
+    const hrFbPct = hrFb > 1 ? hrFb/100 : hrFb;
+    scores.push([clamp(hrFbPct / LG_HR_FB, 0.3, 2.5), 0.40]);
+  }
+  // Barrel% allowed from Savant
+  if(barrel_pct_allowed!=null){
+    scores.push([clamp(barrel_pct_allowed/6.5, 0.3, 2.2), 0.20]);
+  }
+
+  if(!scores.length) return 1.0;
+  const tw = scores.reduce((s,[,w])=>s+w, 0);
+  const wm = scores.reduce((s,[m,w])=>s+m*w, 0) / tw;
+  return clamp(wm, 0.50, 2.20);
+}
+
+// ── PARK + WEATHER ─────────────────────────────────────────────────
+// Wind direction relative to power alley matters most
+// RHB power alley = left-center (~220-240° from home plate)
+// LHB power alley = right-center (~120-140° from home plate)
+function calcParkWxMult(pf, wx, batHand){
+  const parkMult = clamp(pf, 0.82, 1.25);
+
+  if(!wx) return clamp(parkMult, 0.85, 1.30);
+
+  // Temperature: every 10°F below 72 = ~2% fewer HRs, above 72 = ~1.5% more
+  const tempEffect = (wx.temp - 72) * 0.002;
+
+  // Wind: direction relative to batter's power alley
+  // 0=N, 90=E, 180=S, 270=W — wind is the direction it's blowing FROM
+  // Most parks face roughly north — power alleys face L (~225°) and R (~135°)
+  const wdir = wx.wdir || 0;
+  const wspd = wx.wind || 0;
+  let windEffect = 0;
+  if(wspd > 3){
+    // Convert wind FROM direction to wind TO direction
+    const windTo = (wdir + 180) % 360;
+    // Power alley angle based on batter hand
+    const alleyAngle = (batHand==='L') ? 135 : 225;
+    const angleDiff = Math.abs(((windTo - alleyAngle + 180) % 360) - 180);
+    // angleDiff=0 means blowing straight out to power alley (+max)
+    // angleDiff=180 means blowing straight in (-max)
+    const alignment = Math.cos(angleDiff * Math.PI / 180);
+    windEffect = alignment * Math.min(wspd, 25) * 0.004;
+  }
+
+  // Rain: reduces HR probability
+  const rainEffect = -(wx.rain || 0) * 0.003;
+
+  const wxMult = clamp(1.0 + tempEffect + windEffect + rainEffect, 0.82, 1.25);
+
+  return clamp(parkMult * wxMult, 0.75, 1.45);
+}
+
+// ── MOMENTUM: L15 game performance ────────────────────────────────
+// Uses MLB game log (available without proxy)
+// Most reliable short-term signal for HR props
+function calcMomentumMult(recentGames){
+  if(!recentGames || !recentGames.length) return 1.0;
+
+  const n = Math.min(recentGames.length, 15);
+  const games = recentGames.slice(0, n);
+
+  const totalHR = games.reduce((s,g)=>s+(g.hr||0), 0);
+  const totalPA = games.reduce((s,g)=>s+(g.pa||g.ab||0), 0);
+  const recentRate = totalPA > 0 ? totalHR / totalPA : null;
+
+  // Hot/cold streak signal
+  // Last 3 games — immediate form
+  const last3HR = games.slice(0,3).reduce((s,g)=>s+(g.hr||0),0);
+  const last3AB = games.slice(0,3).reduce((s,g)=>s+(g.ab||0),0);
+
+  let streakMult = 1.0;
+  if(last3HR >= 2) streakMult = 1.20;       // scorching — 2+ HR last 3 games
+  else if(last3HR === 1) streakMult = 1.10;  // hot — 1 HR last 3 games
+  else if(totalHR === 0 && n >= 10) streakMult = 0.88; // cold — 0 HR last 10+ games
+
+  // L15 HR rate vs expected
+  let rateMult = 1.0;
+  if(recentRate!=null && totalPA >= 15){
+    rateMult = clamp(recentRate / MLB_AVG, 0.5, 2.5);
+    // Regress toward mean — recent form is noisy
+    rateMult = 0.60 + 0.40 * rateMult;
+  }
+
+  return clamp(streakMult * rateMult, 0.65, 1.50);
+}
+
+// ── FINAL PROBABILITY ─────────────────────────────────────────────
+function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
+  const anchor   = calcAnchor(batterStats);
+  const overallRate = (batterStats.szPA>30) ? batterStats.szHR/batterStats.szPA : null;
+  const platoon  = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
+                     batterStats.platRate, overallRate);
+  const pitcher  = calcPitcherMult(pitcherStats);
+  const parkwx   = calcParkWxMult(pf, wx, batterStats.batHand);
+  const momentum = calcMomentumMult(recentGames);
+
+  const prob = clamp(anchor * platoon * pitcher * parkwx * momentum, 0.005, 0.45);
+
+  return { prob, anchor, platoon, pitcher, parkwx, momentum };
+}
+
+// ── GRADES ────────────────────────────────────────────────────────
+function probGrade(p){
+  if(p>=0.150)return['A+','#22c95e','a'];
+  if(p>=0.115)return['A', '#22c95e','a'];
+  if(p>=0.088)return['B+','#5fffb0','b'];
+  if(p>=0.068)return['B', '#f0a500','b'];
+  if(p>=0.050)return['C+','#f0a500','c'];
+  if(p>=0.035)return['C', '#e0504a','c'];
+  return['D','#607080','c'];
+}
+
+function probToAmerican(p){
+  if(p<=0||p>=1)return'N/A';
+  if(p<0.5)return`+${Math.round((1-p)/p*100)}`;
+  return String(Math.round(-p/(1-p)*100));
 }
 
 function weatherScore(w){
@@ -722,21 +880,6 @@ function windLabel(spd,deg){
   return`${Math.round(spd)} mph ${dirs[Math.round(deg/45)%8]}`;
 }
 
-function probGrade(p){
-  if(p>=0.140)return['A+','#22c95e','a'];
-  if(p>=0.110)return['A','#22c95e','a'];
-  if(p>=0.085)return['B+','#5fffb0','b'];
-  if(p>=0.065)return['B','#f0a500','b'];
-  if(p>=0.050)return['C+','#f0a500','c'];
-  if(p>=0.038)return['C','#e0504a','c'];
-  return['D','#e0504a','c'];
-}
-
-function probToAmerican(p){
-  if(p<=0||p>=1)return'N/A';
-  if(p<0.5)return`+${Math.round((1-p)/p*100)}`;
-  return String(Math.round(-p/(1-p)*100));
-}
 
 // ==================================================================
 //  CSV HELPERS
@@ -804,6 +947,144 @@ function parseCSV(txt,idCol1,idCol2,prefix=''){
 function parseF(v){if(v==null||v==='')return null;const f=parseFloat(v);return isNaN(f)?null:Math.round(f*100)/100}
 function parsePct(v){if(v==null||v==='')return null;const f=parseFloat(v);if(isNaN(f))return null;return Math.abs(f)<=1?Math.round(f*1000)/10:Math.round(f*10)/10}
 
+
+// ==================================================================
+//  PLAYER-SPECIFIC PLATOON SPLITS (MLB Stats API)
+// ==================================================================
+async function getPlayerPlatoonSplits(pid){
+  const key = `plat_${pid}`;
+  if(_playerCache[key]) return _playerCache[key];
+  try{
+    const d = await fetchJSON(
+      `${MLB}/people/${pid}/stats?stats=statSplits&group=hitting&season=${SEASON}&sitCodes=vl,vr&gameType=R`
+    );
+    const splits = d.stats?.[0]?.splits || [];
+    const vsL = splits.find(s=>s.split?.code==='vl')?.stat;
+    const vsR = splits.find(s=>s.split?.code==='vr')?.stat;
+    const toRate = (st) => {
+      if(!st) return null;
+      const hr=parseInt(st.homeRuns)||0, pa=parseInt(st.plateAppearances)||0;
+      return pa>=10 ? hr/pa : null;
+    };
+    const result = { vsLHP: toRate(vsL), vsRHP: toRate(vsR),
+                     vsLSample: parseInt(vsL?.plateAppearances)||0,
+                     vsRSample: parseInt(vsR?.plateAppearances)||0 };
+    _playerCache[key] = result;
+    return result;
+  }catch{ _playerCache[key]=null; return null; }
+}
+
+// ==================================================================
+//  FANDUEL ODDS (via The Odds API)
+// ==================================================================
+let _fdOdds = null;  // { 'Player Name': american_odds }
+let _fdOddsLoaded = false;
+
+async function loadFanDuelOdds(){
+  if(_fdOddsLoaded) return;
+  _fdOddsLoaded = true;
+  if(!ODDS_API_KEY){ console.log('[Odds] No API key set'); return; }
+  try{
+    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`;
+    const r = await fetch(url);
+    if(!r.ok) throw new Error(`Odds API ${r.status}`);
+    const data = await r.json();
+    const map = {};
+    for(const game of data){
+      const fd = (game.bookmakers||[]).find(b=>b.key==='fanduel');
+      if(!fd) continue;
+      const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
+      if(!mkt) continue;
+      for(const outcome of mkt.outcomes||[]){
+        if(outcome.name) map[normName(outcome.name)] = outcome.price;
+      }
+    }
+    _fdOdds = map;
+    console.log(`[Odds] FanDuel HR props loaded: ${Object.keys(map).length} players`);
+    // Re-render slate with odds
+    if(S.allRows.length) renderSlate();
+  }catch(e){ console.warn('[Odds] FanDuel load failed:', e.message); }
+}
+
+function getFDOdds(name){
+  if(!_fdOdds) return null;
+  return _fdOdds[normName(name)] ?? null;
+}
+
+function calcEdge(ourProb, bookOdds){
+  if(ourProb==null || bookOdds==null) return null;
+  const bookImp = bookOdds>0 ? 100/(bookOdds+100) : Math.abs(bookOdds)/(Math.abs(bookOdds)+100);
+  const noVig   = bookImp * 0.91; // ~9% vig removal
+  const edge    = ourProb - noVig;
+  const evPer100 = bookOdds>0
+    ? (ourProb*bookOdds) - ((1-ourProb)*100)
+    : (ourProb*100/Math.abs(bookOdds)*100) - ((1-ourProb)*100);
+  return { edge: Math.round(edge*1000)/10, ev: Math.round(evPer100*100)/100,
+           bookImp: Math.round(noVig*1000)/10 };
+}
+
+// ==================================================================
+//  SHARP ANGLES DETECTOR
+// ==================================================================
+function detectAngles(r){
+  const angles = [];
+
+  // Extreme platoon mismatch
+  if(r.platoon <= 0.74 && r.platoon >= 0){
+    angles.push({icon:'⚠️', label:'Same-hand fade', color:'var(--red)',
+      tip:`${r.batHand}HB vs ${r.oppHand}HP — worst platoon matchup`});
+  }
+  if(r.platoon >= 1.18){
+    angles.push({icon:'🎯', label:'Platoon edge', color:'var(--green)',
+      tip:`${r.batHand}HB vs ${r.oppHand}HP — cross-hand advantage`});
+  }
+
+  // Hot streak
+  const l3hr = r._recentGames?.slice(0,3).reduce((s,g)=>s+(g.hr||0),0)||0;
+  if(l3hr >= 2){
+    angles.push({icon:'🔥', label:`${l3hr} HR last 3`, color:'var(--amber)',
+      tip:'Scorching — book may not have adjusted yet'});
+  }
+
+  // Barrel% outlier — good power, unlucky HR count
+  if(r.barrel_pct!=null && r.barrel_pct >= 12){
+    const szHRRate = r.szPA>0 ? r.szHR/r.szPA : null;
+    if(szHRRate!=null && szHRRate < 0.040){
+      angles.push({icon:'💥', label:'Power/HR gap', color:'var(--blue)',
+        tip:`Elite barrel% (${r.barrel_pct}%) with low HR rate — regression candidate`});
+    }
+  }
+
+  // Hitter-friendly park
+  if(r.pf >= 1.08){
+    angles.push({icon:'🏟️', label:'HR park', color:'var(--amber)',
+      tip:`Park factor ${r.pf.toFixed(2)}× — ball carries here`});
+  }
+
+  // Pitcher vulnerable recent
+  if(r._pitcherStats?.hr9_recent!=null && r._pitcherStats.hr9_recent >= 2.0){
+    angles.push({icon:'🚀', label:'SP leaking HRs', color:'var(--green)',
+      tip:`SP allowing ${r._pitcherStats.hr9_recent.toFixed(1)} HR/9 recent starts`});
+  }
+
+  // Wind blowing out
+  if(r.wx?.wind >= 10 && r.parkwx >= 1.08){
+    angles.push({icon:'💨', label:'Wind blowing out', color:'var(--green)',
+      tip:`${windLabel(r.wx.wind,r.wx.wdir)} — favorable for ${r.batHand}HB`});
+  }
+
+  // FD value edge
+  const fdOdds = getFDOdds(r.name);
+  if(fdOdds!=null){
+    const edgeData = calcEdge(r.prob, fdOdds);
+    if(edgeData && edgeData.edge >= 3){
+      angles.push({icon:'💰', label:`+${edgeData.edge}% edge vs FD`, color:'var(--green)',
+        tip:`FD: ${fdOdds>0?'+':''}${fdOdds} | Our fair: ${probToAmerican(r.prob)}`});
+    }
+  }
+
+  return angles;
+}
 
 function normName(v){
   return String(v||'')
@@ -935,6 +1216,7 @@ async function loadSelectedGames(){
   const el=document.getElementById('hitter-list');
   el.innerHTML='<div class="spinner"><div class="spin"></div>Loading leaderboard data…</div>';
   await ensureLeaderboards();
+  loadFanDuelOdds(); // fire and forget
 
   const toLoad=[];
   for(const pk of S.selPks){
@@ -971,97 +1253,195 @@ async function loadSelectedGames(){
   populateABSelect();
 }
 
-async function loadGame(g){
-  const pk=g.pk;
-  const[awHand,hmHand,awPL14,hmPL14]=await Promise.all([
-    getPitcherHand(g.awaySpId),getPitcherHand(g.homeSpId),
-    getPitcherL14(g.homeSpId),getPitcherL14(g.awaySpId),
-  ]);
-  const wx=await getWeather(g.venue);
-  const pf=PARK[g.home]||1.00;
+async function getPitcherGameLog(pid){
+  // Fetch pitcher's recent starts for HR/9 calculation
+  if(!pid) return null;
+  try{
+    const d = await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=pitching&season=${SEASON}&gameType=R`);
+    const splits = (d.stats||[]).find(s=>s.type?.displayName==='gameLog')?.splits || d.stats?.[0]?.splits || [];
+    if(!splits.length) return null;
 
-  const sides=[
-    {key:`${pk}_away`,team:g.away,oppHand:hmHand,pL14:awPL14,spNm:g.homeSpName},
-    {key:`${pk}_home`,team:g.home,oppHand:awHand,pL14:hmPL14,spNm:g.awaySpName},
+    // Last 4 starts
+    const starts = [...splits]
+      .reverse()
+      .filter(s=>parseInt(s.stat?.gamesStarted)||0 > 0 || parseInt(s.stat?.inningsPitched||0) >= 3)
+      .slice(0,4);
+    const allGames = [...splits].reverse().slice(0,15);
+
+    const calcHR9 = (games) => {
+      const totalHR = games.reduce((s,g)=>s+(parseInt(g.stat?.homeRunsAllowed)||parseInt(g.stat?.homeRuns)||0),0);
+      const totalIP = games.reduce((s,g)=>s+parseFloat(g.stat?.inningsPitched||0),0);
+      return totalIP > 0 ? (totalHR / totalIP) * 9 : null;
+    };
+
+    const hr9_recent = calcHR9(starts.length>=2 ? starts : allGames.slice(0,5));
+    const hr9_season = calcHR9(allGames);
+
+    return { hr9_recent, hr9_season };
+  }catch{ return null; }
+}
+
+async function getBatterRecentGames(pid){
+  // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
+  if(!pid) return [];
+  const key = `recent_${pid}`;
+  if(_playerCache[key]) return _playerCache[key];
+  try{
+    const d = await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${SEASON}&gameType=R`);
+    const splits = (d.stats||[]).find(s=>s.type?.displayName==='gameLog')?.splits || d.stats?.[0]?.splits || [];
+    const recent = [...splits].reverse().slice(0,20).map(sp=>{
+      const st = sp.stat||{};
+      return{
+        hr:  parseInt(st.homeRuns)||0,
+        ab:  parseInt(st.atBats)||0,
+        pa:  parseInt(st.plateAppearances)||0,
+        h:   parseInt(st.hits)||0,
+        bb:  parseInt(st.baseOnBalls)||0,
+      };
+    }).filter(g=>g.ab>0||g.bb>0);
+    _playerCache[key] = recent;
+    return recent;
+  }catch{ _playerCache[key]=[]; return []; }
+}
+
+async function loadGame(g){
+  const pk = g.pk;
+
+  // Fetch pitcher hands + season stats
+  const [awHand, hmHand] = await Promise.all([
+    getPitcherHand(g.awaySpId),
+    getPitcherHand(g.homeSpId),
+  ]);
+
+  // Fetch pitcher game logs for HR/9 (last 4 starts)
+  const [awPitLog, hmPitLog] = await Promise.all([
+    getPitcherGameLog(g.awaySpId),
+    getPitcherGameLog(g.homeSpId),
+  ]);
+
+  const wx  = await getWeather(g.venue);
+  const pf  = PARK[g.home] || 1.00;
+
+  const sides = [
+    {key:`${pk}_away`, team:g.away, oppHand:hmHand, pitLog:hmPitLog, spId:g.homeSpId, spNm:g.homeSpName},
+    {key:`${pk}_home`, team:g.home, oppHand:awHand, pitLog:awPitLog, spId:g.awaySpId, spNm:g.awaySpName},
   ];
 
-  for(const{key,team,oppHand,pL14,spNm} of sides){
-    if(S.cache[key])continue;
-    const roster=await getRoster(team);
-    const hitters=roster.filter(h=>h.pos!=='P'&&h.pos!=='');
-    const rows=[];
+  for(const{key, team, oppHand, pitLog, spId, spNm} of sides){
+    if(S.cache[key]) continue;
+    const roster  = await getRoster(team);
+    const hitters = roster.filter(h=>h.pos!=='P'&&h.pos!=='');
 
-    // If Savant/FG data is missing, fall back to MLB API per-player stats
-    const needsMLBFallback=Object.keys(_savB||{}).length===0 && Object.keys(_fgB||{}).length===0;
-    let mlbStats={};
-    if(needsMLBFallback){
-      console.log(`No leaderboard data — fetching MLB API stats for ${team}`);
-      const BATCH=8;
-      for(let i=0;i<hitters.length;i+=BATCH){
-        const chunk=hitters.slice(i,i+BATCH);
-        const results=await Promise.allSettled(chunk.map(h=>getPlayerStats(String(h.id))));
-        chunk.forEach((h,j)=>{
-          if(results[j].status==='fulfilled') mlbStats[String(h.id)]=results[j].value;
-        });
-      }
+    // Build pitcher stats object
+    const savP   = (_savP||{})[String(spId)]||{};
+    const fgP    = (_fgP||{})[String(spId)]||{};
+    const pitcherStats = {
+      pitHand:          oppHand,
+      hr9_recent:       pitLog?.hr9_recent ?? null,
+      hr9_season:       pitLog?.hr9_season ?? null,
+      hrFb:             fgP.hrFb           ?? null,
+      barrel_pct_allowed: savP.barrel_pct  ?? null,
+    };
+
+    // Batch-fetch batter recent games + platoon splits in parallel
+    const BATCH = 8;
+    const recentGamesMap = {};
+    const platoonMap = {};
+    for(let i=0; i<hitters.length; i+=BATCH){
+      const chunk   = hitters.slice(i, i+BATCH);
+      const [recResults, platResults] = await Promise.all([
+        Promise.allSettled(chunk.map(h=>getBatterRecentGames(String(h.id)))),
+        Promise.allSettled(chunk.map(h=>getPlayerPlatoonSplits(String(h.id)))),
+      ]);
+      chunk.forEach((h,j)=>{
+        if(recResults[j].status==='fulfilled') recentGamesMap[String(h.id)] = recResults[j].value;
+        if(platResults[j].status==='fulfilled') platoonMap[String(h.id)] = platResults[j].value;
+      });
     }
 
+    const rows = [];
     for(const h of hitters){
-      const pid=String(h.id);
-      let hData;
-      if(needsMLBFallback){
-        const ps=mlbStats[pid];
-        hData=ps?.stat?statToHData(ps.stat,ps.hand):{};
-      } else {
-        const savH=(_savB||{})[pid]||{};
-        const fgH=(_fgB||{})[pid]||{};
-        hData={
-          barrel_pct:  savH.barrel_pct  ?? fgH.barrel,
-          hard_hit_pct:savH.hard_hit_pct ?? fgH.hard,
-          avg_ev:      savH.avg_ev      ?? fgH.avgEV,
-          avg_la:      savH.avg_la,
-          pull_pct:    fgH.pull,
-          fb_pct:      fgH.fb,
-          iso:         fgH.iso,
-          ops:         fgH.ops,
-          swstr_pct:   fgH.swstr,
-        };
-      }
+      const pid    = String(h.id);
+      const savH   = (_savB||{})[pid] || {};
+      const fgH    = (_fgB||{})[pid]  || {};
+      const recent = recentGamesMap[pid] || [];
 
-      // Pitcher data from leaderboards
-      const spId=key.endsWith('_away')?g.homeSpId:g.awaySpId;
-      const savP=(_savP||{})[String(spId)]||{};
-      const fgP=(_fgP||{})[String(spId)]||{};
-      const pData={
-        brl:  savP.barrel_pct,
-        hard: savP.hard_hit_pct,
-        kPct: fgP.kPct,
-        hrFb: fgP.hrFb,
-        fbPct:fgP.fbPct,
+      // Compute L30 stats from game log
+      const l30games = recent.slice(0, 30);
+      const l30hr    = l30games.reduce((s,g)=>s+(g.hr||0), 0);
+      const l30pa    = l30games.reduce((s,g)=>s+(g.pa||g.ab||0), 0);
+
+      // Season stats from MLB API cache (set during getPlayerStats)
+      const mlbPs   = _playerCache[`${pid}_${SEASON}`];
+      const mlbSt   = mlbPs?.stat;
+      const szHR    = mlbSt ? (parseInt(mlbSt.homeRuns)||0) : 0;
+      const szPA    = mlbSt ? (parseInt(mlbSt.plateAppearances)||0) : 0;
+
+      // Career from prior year if available
+      const carPs   = _playerCache[`${pid}_${SEASON-1}`];
+      const carSt   = carPs?.stat;
+      const carHR   = carSt ? (parseInt(carSt.homeRuns)||0) : 0;
+      const carPA   = carSt ? (parseInt(carSt.plateAppearances)||0) : 0;
+
+      // Real platoon split rates (if sample is big enough)
+      const plat = platoonMap[pid];
+      const pitHand = pitcherStats.pitHand || 'R';
+      const relevantPlatRate = plat
+        ? (pitHand==='L' ? plat.vsLHP : plat.vsRHP)
+        : null;
+      const platSample = plat
+        ? (pitHand==='L' ? plat.vsLSample : plat.vsRSample)
+        : 0;
+
+      const batterStats = {
+        batHand:         h.batHand || mlbPs?.hand || 'R',
+        l30hr, l30pa,
+        szHR, szPA,
+        careerHR:        carHR,
+        careerPA:        carPA,
+        platRate:        platSample >= 20 ? relevantPlatRate : null,
+        platSample,
+        barrel_pct:      savH.barrel_pct   ?? fgH.barrel   ?? null,
+        hard_hit_pct:    savH.hard_hit_pct ?? fgH.hard     ?? null,
+        avg_ev:          savH.avg_ev       ?? fgH.avgEV    ?? null,
+        iso:             fgH.iso           ?? null,
       };
-      const pL14Mult=pL14?.brl!=null?clamp(pL14.brl/6.5,0.4,2.2):1.0;
 
-      const base    = calcBaseProb(hData);
-      const matchup = calcMatchupMult(pData,null,null);
-      const context = calcContextMult(pf,wx);
-      const l14mod  = 1.0; // per-batter L14 needs Savant per-player fetch (too slow for full roster)
-      const prob    = clamp(base*matchup*context*l14mod*(pL14Mult**0.3),0.01,0.40);
-      const[grd,gc,gCls]=probGrade(prob);
+      const res = calcHRProb(batterStats, pitcherStats, pf, wx, recent);
+      const [grd, gc, gCls] = probGrade(res.prob);
+
+      // L15 HR count for display badge
+      const l15hr = recent.slice(0,15).reduce((s,g)=>s+(g.hr||0),0);
 
       rows.push({
-        id:pid, name:h.name, team, pos:h.pos, batHand:h.batHand,
+        id:pid, name:h.name, team, pos:h.pos,
+        batHand:batterStats.batHand,
         game:`${g.away}@${g.home}`, spNm, oppHand, pf, wx,
-        prob, base, matchup, context, l14mod,
+        // Scores
+        prob:     res.prob,
+        anchor:   res.anchor,
+        platoon:  res.platoon,
+        pitcher:  res.pitcher,
+        parkwx:   res.parkwx,
+        momentum: res.momentum,
         grade:grd, gradeColor:gc, gradeCls:gCls,
-        ...hData,
-        l14hr:null, l14woba:null, l14brl:null, l14hard:null, l14ev:null,
-        _pData:pData, _pL14:pL14,
+        // Display stats
+        barrel_pct:   batterStats.barrel_pct,
+        hard_hit_pct: batterStats.hard_hit_pct,
+        avg_ev:       batterStats.avg_ev,
+        iso:          batterStats.iso,
+        l30hr, l30pa,
+        szHR, szPA,
+        l15hr,
+        _pitcherStats: pitcherStats,
+        _recentGames: recent,
       });
     }
     rows.sort((a,b)=>b.prob-a.prob);
-    S.cache[key]=rows;
+    S.cache[key] = rows;
   }
 }
+
 
 // ==================================================================
 //  RENDER SLATE
@@ -1081,9 +1461,10 @@ function renderSlate(){
   const q=(document.getElementById('search-input').value||'').toLowerCase();
   const sortFn={
     prob:(a,b)=>b.prob-a.prob,
-    base:(a,b)=>b.base-a.base,
-    matchup:(a,b)=>b.matchup-a.matchup,
-    l14:(a,b)=>b.l14mod-a.l14mod,
+    anchor:(a,b)=>b.anchor-a.anchor,
+    platoon:(a,b)=>b.platoon-a.platoon,
+    momentum:(a,b)=>b.momentum-a.momentum,
+    edge:(a,b)=>(calcEdge(b.prob,getFDOdds(b.name))?.edge??-99)-(calcEdge(a.prob,getFDOdds(a.name))?.edge??-99),
   }[S.sortKey]||((a,b)=>b.prob-a.prob);
 
   let rows=[...S.allRows];
@@ -1097,17 +1478,41 @@ function renderSlate(){
 function renderHitterCard(r,showGame){
   const pct=(r.prob*100).toFixed(1);
   const [grd,gc,gCls]=probGrade(r.prob);
-  const mColor=m=>m>=1.10?'var(--green)':m>=0.95?'var(--amber)':'var(--red)';
   const mCls=m=>m>=1.10?'up':m>=0.95?'flat':'dn';
 
   const gameTag=showGame?`<span style="font-size:.62rem;color:var(--t4);margin-left:4px">${r.game}</span>`:'';
-  const l14tag=r.l14hr?`<span style="color:var(--amber);margin-left:4px">🔥${r.l14hr}HR</span>`:'';
+  const l15tag=r.l15hr?`<span style="color:var(--amber);margin-left:4px">🔥${r.l15hr}HR</span>`:'';
+
+  // FanDuel odds + edge
+  const fdOdds = getFDOdds(r.name);
+  const edgeData = fdOdds!=null ? calcEdge(r.prob, fdOdds) : null;
+  const fdTag = fdOdds!=null
+    ? `<span style="font-size:.68rem;font-family:'JetBrains Mono',monospace;margin-left:6px;
+        color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'};
+        font-weight:700">${fdOdds>0?'+':''}${fdOdds}</span>`
+    : '';
+
+  const edgeBadge = edgeData
+    ? `<span style="font-size:.62rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:4px;
+        background:${edgeData.edge>=3?'rgba(34,201,94,.15)':edgeData.edge<=-3?'rgba(224,80,74,.15)':'rgba(96,112,128,.15)'};
+        color:${edgeData.edge>=3?'var(--green)':edgeData.edge<=-3?'var(--red)':'var(--t4)'}"
+      >${edgeData.edge>=0?'+':''}${edgeData.edge}% edge</span>`
+    : '';
+
+  // Angles
+  const angles = detectAngles(r);
+  const angleRow = angles.length
+    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:5px">
+        ${angles.map(a=>`<span style="font-size:.62rem;padding:2px 7px;border-radius:99px;
+          background:rgba(255,255,255,.04);border:1px solid ${a.color}33;color:${a.color};
+          white-space:nowrap" title="${a.tip}">${a.icon} ${a.label}</span>`).join('')}
+       </div>` : '';
 
   return`<div class="hitter-card grade-${gCls}" onclick="showDetail('${r.id}')">
     <div class="hc-row1">
-      <div>
-        <div class="hc-name">${r.name}${l14tag}</div>
-        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB${gameTag}</div>
+      <div style="flex:1;min-width:0">
+        <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}</div>
+        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${gameTag}</div>
       </div>
       <div class="prob-circle" style="border-color:${gc};color:${gc}">
         <span class="pct">${pct}%</span>
@@ -1115,11 +1520,13 @@ function renderHitterCard(r,showGame){
       </div>
     </div>
     <div class="mult-row">
-      <div class="mult-item"><span class="mult-label">Base</span><span class="mult-val ${mCls(r.base/0.035)}">${(r.base*100).toFixed(1)}%</span></div>
-      <div class="mult-item"><span class="mult-label">Matchup</span><span class="mult-val ${mCls(r.matchup)}">${r.matchup.toFixed(2)}×</span></div>
-      <div class="mult-item"><span class="mult-label">Context</span><span class="mult-val ${mCls(r.context)}">${r.context.toFixed(2)}×</span></div>
-      <div class="mult-item"><span class="mult-label">L14</span><span class="mult-val ${mCls(r.l14mod)}">${r.l14mod.toFixed(2)}×</span></div>
+      <div class="mult-item"><span class="mult-label">Anchor</span><span class="mult-val ${mCls(r.anchor/MLB_AVG)}">${(r.anchor*100).toFixed(1)}%</span></div>
+      <div class="mult-item"><span class="mult-label">Platoon</span><span class="mult-val ${mCls(r.platoon)}">${r.platoon.toFixed(2)}x</span></div>
+      <div class="mult-item"><span class="mult-label">SP</span><span class="mult-val ${mCls(r.pitcher)}">${r.pitcher.toFixed(2)}x</span></div>
+      <div class="mult-item"><span class="mult-label">Park/Wx</span><span class="mult-val ${mCls(r.parkwx)}">${r.parkwx.toFixed(2)}x</span></div>
+      <div class="mult-item"><span class="mult-label">L15</span><span class="mult-val ${mCls(r.momentum)}">${r.momentum.toFixed(2)}x</span></div>
     </div>
+    ${angleRow}
     <div class="hc-row2" style="margin-top:6px">
       ${statChip('Barrel',r.barrel_pct,3,15,'%')}
       ${statChip('Hard',r.hard_hit_pct,30,52,'%')}
@@ -1164,6 +1571,8 @@ function renderDetail(r){
   const pct=(r.prob*100).toFixed(2);
   const[grd,gc]=probGrade(r.prob);
   const fair=probToAmerican(r.prob);
+  const fdOdds2=getFDOdds(r.name);
+  const edgeData2=fdOdds2!=null?calcEdge(r.prob,fdOdds2):null;
 
   function fbar(label,mult,lo,hi){
     if(mult==null)return`<div class="factor-item"><div class="fi-header"><span class="fi-name">${label}</span><span class="fi-val" style="color:var(--t4)">--</span></div></div>`;
@@ -1190,16 +1599,25 @@ function renderDetail(r){
         </div>
       </div>
       <div style="font-size:.72rem;color:var(--t4);font-family:'JetBrains Mono',monospace;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-top:4px">
-        ${(r.base*100).toFixed(2)}% × ${r.matchup.toFixed(3)} × ${r.context.toFixed(3)} × ${r.l14mod.toFixed(3)} = <b style="color:${gc}">${pct}%</b>
+        ${(r.anchor*100).toFixed(2)}% × ${r.platoon.toFixed(2)} × ${r.pitcher.toFixed(2)} × ${r.parkwx.toFixed(2)} × ${r.momentum.toFixed(2)} = <b style="color:${gc}">${pct}%</b>
       </div>
     </div>
 
+    ${detectAngles(r).length?`<div class="card" style="margin-bottom:10px">
+      <div class="slbl">Sharp Angles</div>
+      ${detectAngles(r).map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--bg3)">
+        <span style="font-size:1rem">${a.icon}</span>
+        <div><div style="font-size:.8rem;font-weight:700;color:${a.color}">${a.label}</div>
+        <div style="font-size:.68rem;color:var(--t4)">${a.tip}</div></div>
+      </div>`).join('')}
+    </div>`:''}
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">Probability Breakdown</div>
-      ${fbar('Base Rate (Talent)',r.base/0.035,0.3,2.5)}
-      ${fbar('Matchup',r.matchup,0.65,1.5)}
-      ${fbar('Context (Park × Weather)',r.context,0.88,1.25)}
-      ${fbar('L14 Form Modifier',r.l14mod,0.75,1.25)}
+      ${fbar('Anchor (Blended HR Rate)',r.anchor/MLB_AVG,0.3,2.5)}
+      ${fbar('Platoon Split',r.platoon,0.65,1.35)}
+      ${fbar('Pitcher Matchup',r.pitcher,0.50,2.20)}
+      ${fbar('Park × Weather',r.parkwx,0.75,1.45)}
+      ${fbar('L15 Momentum',r.momentum,0.65,1.50)}
     </div>
 
     <div class="card" style="margin-bottom:10px">
@@ -1219,9 +1637,16 @@ function renderDetail(r){
 
     <div class="card">
       <div class="slbl">💰 Bet Analysis</div>
+      ${fdOdds2!=null?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px;background:var(--bg3);border-radius:8px">
+        <div style="font-size:.72rem;color:var(--t4)">FanDuel</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-weight:800;font-size:1.1rem;color:var(--t1)">${fdOdds2>0?'+':''}${fdOdds2}</div>
+        ${edgeData2?`<div style="font-size:.72rem;padding:3px 8px;border-radius:6px;font-weight:700;margin-left:auto;
+          background:${edgeData2.edge>=2?'rgba(34,201,94,.15)':'rgba(224,80,74,.15)'};
+          color:${edgeData2.edge>=2?'var(--green)':'var(--red)'}">${edgeData2.edge>=0?'+':''}${edgeData2.edge}% edge · EV ${edgeData2.ev>=0?'+':''}$${Math.abs(edgeData2.ev).toFixed(2)}</div>`:''}
+      </div>`:''}
       <div class="form-group">
-        <label>Sportsbook HR line (e.g. +500)</label>
-        <input type="text" id="det-odds" placeholder="+500" oninput="calcBetEV('${r.id}','${pct}')">
+        <label>Enter sportsbook line manually (e.g. +500)</label>
+        <input type="text" id="det-odds" placeholder="${fdOdds2!=null?fdOdds2:'+500'}" oninput="calcBetEV('${r.id}','${pct}')">
       </div>
       <div id="det-ev-result"></div>
     </div>`;
@@ -1264,7 +1689,7 @@ function renderParlay(){
     const sel=S.parlaySelected.has(r.id);
     const pct=(r.prob*100).toFixed(1);
     const[,gc]=probGrade(r.prob);
-    const l14=r.l14hr?` 🔥${r.l14hr}HR`:'';
+    const l14=r.l15hr?` 🔥${r.l15hr}HR`:'';
     return`<div class="parlay-leg${sel?' selected':''}" onclick="toggleParlayLeg('${r.id}')">
       <div>
         <div class="pl-name">${r.name}${l14}</div>
@@ -1437,102 +1862,94 @@ async function populatePitchTypeFilter(pid,arm,selected){
   }
 }
 
-async function fetchABLog(pid,n,arm,pitchType=''){
+async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
   if(!pid) return [];
 
-  const years=[SEASON,SEASON-1,SEASON-2];
-  const out=[];
-
-  for(const s of years){
+  // Savant's own game feed endpoint — used by their player pages, no session needed
+  for(const s of[SEASON, SEASON-1]){
     try{
-
-      const csvUrl =
-  `https://baseballsavant.mlb.com/statcast_search/csv?` +
-  `all=true&` +
-  `hfPT=&` +
-  `hfAB=&` +
-  `hfGT=R%7C&` +
-  `hfPR=&` +
-  `hfZ=&` +
-  `stadium=&` +
-  `hfBBT=&` +
-  `hfPull=&` +
-  `hfC=&` +
-  `hfSea=${s}%7C&` +
-  `hfSit=&` +
-  `player_type=batter&` +
-  `hfOuts=&` +
-  `opponent=&` +
-  `pitcher_throws=&` +
-  `batter_stands=&` +
-  `hfSA=&` +
-  `game_date_gt=${s}-01-01&` +
-  `game_date_lt=${s}-12-31&` +
-  `batters_lookup%5B%5D=${pid}&` +
-  `hfFlag=&` +
-  `metric_1=&` +
-  `group_by=name&` +
-  `sort_col=launch_speed&` +
-  `player_event_sort=api_p_release_speed&` +
-  `sort_order=desc&` +
-  `min_pas=0&` +
-  `type=details&`;
-
-      console.log('[AB] CSV URL:', csvUrl);
-
-      const r = await fetch(PROXY + encodeURIComponent(csvUrl));
-
-      if(!r.ok){
-        console.warn('[AB] CSV failed', r.status);
-        continue;
+      // This is the API Savant's own JS calls to render the player game feed table
+      const url=`https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfPT=&hfAB=&hfGT=R%7C&hfPR=&hfZ=&hfStadium=&hfBBL=&hfNewZones=&hfPull=&hfC=&hfSea=${s}%7C&hfSit=&player_type=batter&hfOuts=&hfOpponent=&pitcher_throws=&batter_stands=&hfSA=&game_date_gt=&game_date_lt=&hfMo=&hfTeam=&home_road=&hfRO=&position=&hfInfield=&hfOutfield=&hfInn=&hfBBT=&hfFlag=&metric_1=&group_by=name-date&min_pitches=0&min_results=0&min_pas=0&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&min_abs=0&type=details&batters_lookup%5B%5D=${pid}&`;
+      const r = await fetch(PROXY+encodeURIComponent(url));
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const txt2 = await r.text();
+      const lines = txt2.split('\n').filter(l=>l.trim());
+      console.log(`[AB] CSV season ${s}: ${lines.length} lines, size ${txt2.length}, x-had-cookie: ${r.headers.get('x-had-cookie')}`);
+      if(lines.length >= 2){
+        const rows = parseCSVText(txt2);
+        const AB_EVENTS = new Set(['single','double','triple','home_run','field_out',
+          'grounded_into_double_play','strikeout','strikeout_double_play','force_out',
+          'field_error','fielders_choice','fielders_choice_out','double_play','sac_fly',
+          'sac_bunt','walk','hit_by_pitch','intent_walk']);
+        let filtered = rows.filter(r => AB_EVENTS.has((r.events||'').toLowerCase().trim()));
+        if(arm) filtered = filtered.filter(r => r.p_throws===arm);
+        if(pitchType) filtered = filtered.filter(r => String(r.pitch_type||'').toUpperCase()===pitchType);
+        filtered.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
+        const out = filtered.slice(0, forOptions?200:n).map(r=>mapStatcastABRow(r));
+        if(out.length>0){
+          console.log(`[AB] Got ${out.length} PA rows`);
+          return out;
+        }
       }
-
-      const txt = await r.text();
-
-      console.log('[AB] CSV chars:', txt.length);
-
-      const rows = parseCSVText(txt);
-
-      for(const row of rows){
-
-        const ev = parseFloat(row.launch_speed);
-        const la = parseFloat(row.launch_angle);
-
-        if(isNaN(ev) || isNaN(la)) continue;
-
-        if(arm && row.p_throws !== arm) continue;
-
-        const pt = String(row.pitch_type || '').toUpperCase();
-
-        if(pitchType && pt !== pitchType) continue;
-
-        out.push({
-          rawDate: row.game_date || '',
-          date: row.game_date || '--',
-          pitcher: row.player_name || '--',
-          arm: row.p_throws || '',
-          pt: pt,
-          ptNm: PITCH_NAMES[pt] || pt || '--',
-          ev: Math.round(ev * 10) / 10,
-          la: Math.round(la * 10) / 10,
-          dist: row.hit_distance_sc
-            ? Math.round(parseFloat(row.hit_distance_sc))
-            : null,
-          result: row.events || '--',
-          traj: row.bb_type || '--',
-          isHR: row.events === 'home_run',
-          isBrl: ev >= 98 && la >= 8 && la <= 32
-        });
-      }
-
-    }catch(e){
-      console.warn('[AB] Statcast CSV failed:', e.message);
-    }
+    }catch(e){ console.warn(`[AB] CSV failed s=${s}:`, e.message); }
   }
 
-  out.sort((a,b)=>new Date(b.rawDate)-new Date(a.rawDate));
+  // MLB Stats API game log fallback (no EV/LA but shows results)
+  console.log('[AB] Falling back to MLB game log');
+  for(const s of[SEASON, SEASON-1]){
+    try{
+      const d = await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
+      const splits = (d.stats||[]).find(x=>x.type?.displayName==='gameLog')?.splits || d.stats?.[0]?.splits || [];
+      if(!splits.length) continue;
 
-  return out.slice(0,n);
+      // Batch fetch pitcher names from schedule
+      const dates = [...new Set(splits.map(sp=>sp.date||'').filter(Boolean))].sort();
+      let spMap = {};
+      if(dates.length){
+        try{
+          const sched = await fetchJSON(`${MLB}/schedule?sportId=1&startDate=${dates[0]}&endDate=${dates[dates.length-1]}&hydrate=probablePitcher&gameType=R`);
+          for(const dt of sched.dates||[])
+            for(const g of dt.games||[]){
+              const gpk = String(g.gamePk);
+              spMap[gpk] = {
+                away:{name:g.teams?.away?.probablePitcher?.fullName||null, abbr:g.teams?.away?.team?.abbreviation||''},
+                home:{name:g.teams?.home?.probablePitcher?.fullName||null, abbr:g.teams?.home?.team?.abbreviation||''},
+              };
+            }
+        }catch{}
+      }
+
+      const playerTeam = splits[0]?.team?.abbreviation||'';
+      const rows = [...splits].reverse().map(sp=>{
+        const st = sp.stat||{};
+        const hr=parseInt(st.homeRuns)||0, h=parseInt(st.hits)||0, ab=parseInt(st.atBats)||0;
+        const bb=parseInt(st.baseOnBalls)||0, k=parseInt(st.strikeOuts)||0;
+        const doubles=parseInt(st.doubles)||0, triples=parseInt(st.triples)||0, rbi=parseInt(st.rbi)||0;
+        if(ab===0&&hr===0&&bb===0) return null;
+        let result='No Hit', isHR=false;
+        if(hr>0){result=hr>1?`${hr} HRs`:'Home Run';isHR=true;}
+        else if(triples>0)result='Triple'; else if(doubles>0)result='Double';
+        else if(h>=3)result=`${h}-Hit Game`; else if(h===2)result='2 Hits';
+        else if(h===1)result='Single'; else if(bb>0)result='Walk';
+        else if(k>=2)result='Multi-K'; else if(k===1)result='Strikeout';
+        // Pitcher name
+        const gpk = String(sp.game?.gamePk||'');
+        const gm = spMap[gpk];
+        let spName = sp.opponent?.abbreviation||'?';
+        if(gm){
+          const myTeam = sp.team?.abbreviation||playerTeam;
+          spName = (gm.away.abbr===myTeam ? gm.home.name : gm.away.name) || spName;
+        }
+        return{rawDate:sp.date||'', date:(sp.date||'').slice(5,10),
+          pitcher:spName, arm:'?', pt:'', ptNm:'--',
+          ev:null, la:null, dist:null, isBrl:false, result, isHR, traj:'', source:'gamelog',
+          gameNote:`${ab} AB \xb7 ${h} H \xb7 ${hr} HR \xb7 ${bb} BB \xb7 ${k} K`+(rbi>0?` \xb7 ${rbi} RBI`:''),
+        };
+      }).filter(Boolean);
+      if(rows.length) return rows.slice(0,n);
+    }catch(e){ console.warn('[AB] game log failed:',e.message); }
+  }
+  return [];
 }
 
 
