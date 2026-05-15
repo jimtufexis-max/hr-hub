@@ -2054,872 +2054,120 @@ function detectNegativeAngles(r){
   const wx  = r.wx || {};
 
   // ── PLATOON FADE ─────────────────────────────────────────────────
-  if(r.platoon <= 0.74){
+  // This ALWAYS has data — platoon multiplier always computed
+  if(r.platoon <= 0.76){
     neg.push({icon:'⚠️',
-      label:'Same-Hand Matchup',
-      tip:`${r.batHand}HB vs ${r.oppHand}HP — worst platoon matchup. Books heavily price this. L vs L is the hardest HR matchup in baseball.`});
+      label:'Same-Hand Fade',
+      tip:`${r.batHand}HB vs ${r.oppHand}HP — worst platoon matchup. L vs L and R vs R suppress HRs by 25-30%. Books price this hard.`});
   }
 
-  // ── COLD STREAK ──────────────────────────────────────────────────
+  // ── COLD STREAK — use l15hr from row (always populated) ──────────
+  const l15hr = r.l15hr || g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
   const l7hr  = g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
   const l7ab  = g.slice(0,7).reduce((s,x)=>s+(x.ab||0),0);
-  const l15hr = g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
   const l15ab = g.slice(0,15).reduce((s,x)=>s+(x.ab||0),0);
-  const sznRate = r.szPA>20 ? r.szHR/r.szPA : null;
+  const sznRate = r.szPA>15 ? r.szHR/r.szPA : (r.anchor || MLB_AVG); // anchor is blended HR rate
 
-  if(l15hr===0 && l15ab>=40 && sznRate!=null && sznRate>=0.035){
+  // Cold using anchor as proxy for expected HR rate
+  if(l15hr === 0 && r.momentum < 0.92){
     neg.push({icon:'🧊',
-      label:'HR Drought (0 in 15G)',
-      tip:`Has not homered in ${l15ab} ABs despite ${(sznRate*100).toFixed(1)}% season HR rate. Cold streaks can persist for power hitters — book may not have adjusted.`});
-  } else if(l7hr===0 && l7ab>=25 && sznRate!=null && sznRate>=0.05){
+      label:'HR Drought',
+      tip:`No HRs in recent 15 games. L15 momentum multiplier at ${r.momentum.toFixed(2)}× — model reflects this but book line may not have caught up.`});
+  } else if(l7hr === 0 && l7ab >= 20 && r.momentum <= 0.88){
     neg.push({icon:'❄️',
-      label:'Ice Cold Last 7 Games',
-      tip:`0 HRs in last 7 games for a player with ${(sznRate*100).toFixed(1)}% HR rate. Short-term cold streaks matter for same-day props.`});
+      label:'Cold Last 7 Games',
+      tip:`0 HRs in last 7 games with low momentum. Streaks matter for same-day props.`});
   }
 
-  // ── HR OVERPERFORMANCE (regression due DOWN) ──────────────────────
-  if(r.barrel_pct!=null && r.szPA>30){
-    const xHR = (r.barrel_pct/100) * r.szPA * 0.62;
-    const actualHR = r.szHR||0;
-    if(actualHR >= xHR + 4 && xHR > 2){
+  // ── HR OVERPERFORMANCE — use anchor vs l15hr ──────────────────────
+  // If l15 rate is way above anchor, may be running hot
+  if(g.length >= 10 && l15ab > 30){
+    const l15Rate = l15hr / l15ab;
+    if(l15Rate > (r.anchor||MLB_AVG) * 2.5 && l15hr >= 4){
       neg.push({icon:'📉',
-        label:'Overperforming Expected HRs',
-        tip:`Has ${actualHR} HRs but barrel% only implies ~${xHR.toFixed(0)}. Running ${(actualHR-xHR).toFixed(0)} HRs hot — negative regression candidate.`});
+        label:'Hot Streak May Cool',
+        tip:`${l15hr} HRs in last 15G is running well above expected rate. Hot streaks mean-revert. Book has likely already adjusted upward.`});
     }
   }
 
-  // ── ELITE PITCHER ─────────────────────────────────────────────────
-  if(pit.hr9_recent!=null && pit.hr9_recent < 0.7){
-    neg.push({icon:'🧱',
-      label:'Shutdown Pitcher (Recent)',
-      tip:`SP allowing only ${pit.hr9_recent.toFixed(2)} HR/9 in recent starts — elite HR suppressor (lg avg 1.35). Fade this matchup.`});
-  } else if(pit.hr9_season!=null && pit.hr9_season < 0.80 && (pit.hr9_recent==null || pit.hr9_recent < 1.0)){
-    neg.push({icon:'🧱',
-      label:'HR-Suppressing Pitcher',
-      tip:`SP at ${pit.hr9_season.toFixed(2)} HR/9 season — well below league avg (1.35). Hard to homer against.`});
+  // ── BARREL-BASED xHR — if we have barrel data ─────────────────────
+  if(r.barrel_pct!=null && r.szPA>20 && r.szHR>0){
+    const xHR = (r.barrel_pct/100) * r.szPA * 0.62;
+    if(r.szHR >= xHR + 3 && xHR > 1){
+      neg.push({icon:'📉',
+        label:'Outrunning Power Profile',
+        tip:`${r.szHR} HRs vs ~${xHR.toFixed(0)} expected from barrel%. Running hot — negative regression candidate.`});
+    }
   }
 
-  // ── K RATE RISING (pitcher getting sharper) ───────────────────────
-  if(pit.recentK9!=null && pit.seasonK9!=null && pit.recentK9 > pit.seasonK9 * 1.20){
+  // ── LOW BARREL% — always have this from Savant (441 players) ─────
+  if(r.barrel_pct!=null && r.barrel_pct < 5){
+    neg.push({icon:'🛢️',
+      label:`Weak Barrel Rate (${r.barrel_pct}%)`,
+      tip:`${r.barrel_pct}% barrel rate is well below league avg (8%). Soft contact profile limits HR upside regardless of recent results.`});
+  }
+
+  // ── PITCHER SUPPRESSION — pitcher multiplier is always computed ───
+  if(r.pitcher < 0.80){
+    neg.push({icon:'🧱',
+      label:'Pitcher Suppressing HRs',
+      tip:`Pitcher matchup multiplier at ${r.pitcher.toFixed(2)}× — well below average. SP has recent HR/9 below league avg. Hard to homer tonight.`});
+  }
+
+  // ── K RATE IMPROVING ─────────────────────────────────────────────
+  if(pit.recentK9!=null && pit.seasonK9!=null && pit.recentK9 > pit.seasonK9 * 1.18 && pit.seasonK9 >= 6){
     neg.push({icon:'📈',
-      label:`SP Gaining Strikeouts`,
-      tip:`SP K/9 up from ${pit.seasonK9.toFixed(1)} (season) to ${pit.recentK9.toFixed(1)} (recent) — stuff is improving. More Ks = fewer balls in play = fewer HRs.`});
+      label:'SP Strikeouts Trending Up',
+      tip:`SP K/9 up from ${pit.seasonK9.toFixed(1)} → ${pit.recentK9.toFixed(1)} recently. Improving command = fewer balls in play = fewer HRs.`});
   }
 
-  // ── SUPPRESSING PARK ─────────────────────────────────────────────
-  if(r.pf!=null && r.pf <= 0.93){
+  // ── PARK SUPPRESSION — park/wx always computed ───────────────────
+  if(r.parkwx < 0.90){
     neg.push({icon:'🏟️',
-      label:`HR-Suppressing Park (${r.pf.toFixed(2)}×)`,
-      tip:`This park reduces HR rates by ${Math.round((1-r.pf)*100)}% vs average. Petco, Oracle, T-Mobile Park suppress HRs significantly.`});
+      label:`HR-Suppressing Conditions (${r.parkwx.toFixed(2)}×)`,
+      tip:`Park × weather multiplier at ${r.parkwx.toFixed(2)}× — ${r.pf<=0.95?'pitcher-friendly park':'unfavorable wind or cold weather'} reducing HR probability by ${Math.round((1-r.parkwx)*100)}%.`});
   }
 
-  // ── WIND BLOWING IN ───────────────────────────────────────────────
-  if(wx.wind>=10 && r.parkwx!=null && r.parkwx <= 0.93){
+  // ── WIND IN ──────────────────────────────────────────────────────
+  if(wx.wind>=10 && r.parkwx < 0.94){
     neg.push({icon:'🌀',
       label:`Wind Blowing In (${Math.round(wx.wind)} mph)`,
-      tip:`${windLabel(wx.wind,wx.wdir)} — headwind suppresses fly balls. HR probability down ~${Math.round((1-r.parkwx)*100)}% vs neutral.`});
+      tip:`${windLabel(wx.wind,wx.wdir)} — headwind killing fly balls. One of the strongest situational HR suppressors.`});
   }
 
   // ── RAIN ─────────────────────────────────────────────────────────
-  if(wx.rain>=50){
+  if(wx.rain >= 50){
     neg.push({icon:'🌧️',
-      label:`High Rain Probability (${Math.round(wx.rain)}%)`,
-      tip:`Wet ball + heavy air = fewer HRs. Rain also increases chance of postponement — prop would be voided.`});
+      label:`Rain Risk (${Math.round(wx.rain)}%)`,
+      tip:`High rain probability. Wet ball + heavy air suppress HRs. Also risk of game postponement voiding the prop.`});
   }
 
-  // ── LOW PULL-AIR% ─────────────────────────────────────────────────
-  if(r.pull_air_pct!=null && r.pull_air_pct < 8){
+  // ── LOW PULL-AIR% (if we have it) ────────────────────────────────
+  if(r.pull_air_pct!=null && r.pull_air_pct < 9){
     neg.push({icon:'↙️',
-      label:`Low Pull-Air Rate (${r.pull_air_pct.toFixed(1)}%)`,
-      tip:`Only ${r.pull_air_pct.toFixed(1)}% of batted balls are pulled in the air (lg avg 12.5%). Poor HR shape — contact is mostly ground balls or oppo.`});
+      label:`Poor HR Shape (${r.pull_air_pct.toFixed(1)}% Pull-Air)`,
+      tip:`Only ${r.pull_air_pct.toFixed(1)}% pulled airballs (lg avg 12.5%). Ground ball/oppo hitter profile — limited HR ceiling.`});
   }
 
-  // ── LOW BARREL% ──────────────────────────────────────────────────
-  if(r.barrel_pct!=null && r.barrel_pct < 5 && r.prob > 0.05){
-    neg.push({icon:'🛢️',
-      label:`Below-Average Barrel Rate (${r.barrel_pct}%)`,
-      tip:`Barrel% of ${r.barrel_pct}% is below league avg (8%). Model may be over-weighting recent HR count vs underlying power.`});
-  }
-
-  // ── GROUND BALL HITTER ────────────────────────────────────────────
-  if(r.fb_pct!=null && r.fb_pct < 22 && r.pull_pct!=null){
+  // ── LOW FB% (if we have it) ───────────────────────────────────────
+  if(r.fb_pct!=null && r.fb_pct < 24){
     neg.push({icon:'⬇️',
-      label:`Ground Ball Tendency (${r.fb_pct.toFixed(1)}% FB)`,
-      tip:`Only ${r.fb_pct.toFixed(1)}% fly ball rate — you can't HR a ground ball. Below-avg FB% significantly limits HR upside.`});
+      label:`Ground Ball Hitter (${r.fb_pct.toFixed(1)}% FB)`,
+      tip:`Only ${r.fb_pct.toFixed(1)}% fly ball rate — below average (lg avg 34%). Can't hit HRs you don't get in the air.`});
   }
 
-  // ── PLATOON ADVANTAGE FOR SP ──────────────────────────────────────
-  // RHP vs LHB or LHP vs RHB — pitcher has platoon edge
-  if((r.oppHand==='R' && r.batHand==='L') || (r.oppHand==='L' && r.batHand==='R')){
-    // Already flagged above — skip (would be duplicate)
+  // ── MOMENTUM SUPPRESSION — always available ───────────────────────
+  if(r.momentum < 0.85 && l15hr === 0){
+    // Already caught above — skip duplicate
+  } else if(r.momentum < 0.80){
+    neg.push({icon:'📉',
+      label:`Form Multiplier Low (${r.momentum.toFixed(2)}×)`,
+      tip:`L15 momentum at ${r.momentum.toFixed(2)}× — significantly below average. Recent game log shows cold stretch.`});
   }
 
-  // ── RECENT CONTACT QUALITY DROP ───────────────────────────────────
-  // If L7 slg/obp trending down vs season (from game log)
-  if(g.length >= 7){
-    const l7slg = g.slice(0,7).reduce((s,x)=>s+(x.slg||0),0) / Math.max(1,g.slice(0,7).filter(x=>x.slg!=null).length);
-    const sznSlg = r.iso!=null && r.avg!=null ? r.iso + r.avg : null; // rough proxy
-    if(l7slg > 0 && sznSlg!=null && l7slg < sznSlg * 0.60){
-      neg.push({icon:'📊',
-        label:'Contact Quality Declining',
-        tip:`Recent slugging well below season average — may be in a funk. Quality of contact matters as much as raw HR count.`});
-    }
-  }
-
-  return neg;
-}
-function setSort(key,el){
-  S.sortKey=key;
-  document.querySelectorAll('.filter-pill').forEach(p=>p.classList.remove('active'));
-  el.classList.add('active');
-  renderSlate();
+  // Deduplicate by label
+  const seen = new Set();
+  return neg.filter(n=>{ if(seen.has(n.label)) return false; seen.add(n.label); return true; });
 }
 
-function renderSlate(){
-  if(!S.allRows.length){
-    document.getElementById('hitter-list').innerHTML='<div class="empty">No players loaded</div>';
-    return;
-  }
-  const q=(document.getElementById('search-input').value||'').toLowerCase();
-  const sortFn={
-    prob:(a,b)=>b.prob-a.prob,
-    anchor:(a,b)=>b.anchor-a.anchor,
-    platoon:(a,b)=>b.platoon-a.platoon,
-    momentum:(a,b)=>b.momentum-a.momentum,
-    edge:(a,b)=>(calcEdge(b.prob,getFDOdds(b.name))?.edge??-99)-(calcEdge(a.prob,getFDOdds(a.name))?.edge??-99),
-  }[S.sortKey]||((a,b)=>b.prob-a.prob);
-
-  let rows=[...S.allRows];
-  if(q)rows=rows.filter(r=>r.name.toLowerCase().includes(q)||r.team.toLowerCase().includes(q));
-  rows.sort(sortFn);
-
-  const multiGame=S.selPks.size>1;
-  document.getElementById('hitter-list').innerHTML=rows.map(r=>renderHitterCard(r,multiGame)).join('');
-}
-
-function renderHitterCard(r,showGame){
-  const pct=(r.prob*100).toFixed(1);
-  const [grd,gc,gCls]=probGrade(r.prob);
-  const mCls=m=>m>=1.10?'up':m>=0.95?'flat':'dn';
-
-  const gameTag=showGame?`<span style="font-size:.62rem;color:var(--t4);margin-left:4px">${r.game}</span>`:'';
-  const l15tag=r.l15hr?`<span style="color:var(--amber);margin-left:4px">🔥${r.l15hr}HR</span>`:'';
-
-  // FanDuel odds + edge
-  const fdOdds = getFDOdds(r.name);
-  const fdBook = getOddsBook(r.name);
-  const bookLabel = fdBook==='fanduel'||!fdBook ? 'FD' : fdBook==='draftkings' ? 'DK' : fdBook==='betmgm' ? 'MGM' : fdBook==='caesars' ? 'CZR' : fdBook?.toUpperCase()||'FD';
-  const edgeData = fdOdds!=null ? calcEdge(r.prob, fdOdds) : null;
-  const fdTag = fdOdds!=null
-    ? `<span style="font-size:.68rem;font-family:'JetBrains Mono',monospace;margin-left:6px;
-        color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'};
-        font-weight:700">${bookLabel} ${fdOdds>0?'+':''}${fdOdds}</span>`
-    : '';
-
-  const edgeBadge = edgeData
-    ? `<span style="font-size:.62rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:4px;
-        background:${edgeData.edge>=3?'rgba(34,201,94,.15)':edgeData.edge<=-3?'rgba(224,80,74,.15)':'rgba(96,112,128,.15)'};
-        color:${edgeData.edge>=3?'var(--green)':edgeData.edge<=-3?'var(--red)':'var(--t4)'}"
-      >${edgeData.edge>=0?'+':''}${edgeData.edge}% edge</span>`
-    : '';
-
-  // Angles
-  const angles = detectAngles(r);
-  const angleRow = angles.length
-    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
-        ${angles.map(a=>{
-          const opacity = a.tier===1?'22':a.tier===2?'18':'12';
-          const sz = a.tier===1?'.68rem':a.tier===2?'.64rem':'.60rem';
-          const fw = a.tier===1?'700':'600';
-          return `<span style="font-size:${sz};font-weight:${fw};padding:2px 7px;border-radius:99px;
-            background:${a.color}${opacity};border:1px solid ${a.color}${a.tier===1?'66':'33'};
-            color:${a.color};white-space:nowrap;opacity:${a.tier===3?'0.7':'1'}"
-            title="${a.tip}">${a.icon} ${a.label}</span>`;
-        }).join('')}
-       </div>` : '';
-
-  return`<div class="hitter-card grade-${gCls}" onclick="showDetail('${r.id}')">
-    <div class="hc-row1">
-      <div style="flex:1;min-width:0">
-        <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}</div>
-        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${gameTag}</div>
-      </div>
-      <div class="prob-circle" style="border-color:${gc};color:${gc}">
-        <span class="pct">${pct}%</span>
-        <span class="lbl">${grd}</span>
-      </div>
-    </div>
-    <div class="mult-row">
-      <div class="mult-item"><span class="mult-label">Anchor</span><span class="mult-val ${mCls(r.anchor/MLB_AVG)}">${(r.anchor*100).toFixed(1)}%</span></div>
-      <div class="mult-item"><span class="mult-label">Platoon</span><span class="mult-val ${mCls(r.platoon)}">${r.platoon.toFixed(2)}x</span></div>
-      <div class="mult-item"><span class="mult-label">SP</span><span class="mult-val ${mCls(r.pitcher)}">${r.pitcher.toFixed(2)}x</span></div>
-      <div class="mult-item"><span class="mult-label">Park/Wx</span><span class="mult-val ${mCls(r.parkwx)}">${r.parkwx.toFixed(2)}x</span></div>
-      <div class="mult-item"><span class="mult-label">L15</span><span class="mult-val ${mCls(r.momentum)}">${r.momentum.toFixed(2)}x</span></div>
-    </div>
-    ${angleRow}
-    <div class="hc-row2" style="margin-top:6px">
-      ${statChip('Barrel%',r.barrel_pct,4,16,'%')}
-      ${statChip('Hard%',r.hard_hit_pct,32,55,'%')}
-      ${statChip('EV',r.avg_ev,87,95,' mph')}
-      ${statChip('Pull-Air%',r.pull_air_pct,8,22,'%')}
-      ${statChip('HR/FB%',r.hr_fb_pct,8,28,'%')}
-    </div>
-  </div>`;
-}
-
-function statChip(lbl,v,lo,hi,suf,dec=1){
-  if(v==null)return'';
-  const p=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
-  const cls=p>=0.65?'good':p>=0.45?'warn':'bad';
-  return`<div class="stat-chip ${cls}"><span>${lbl}</span><span class="val">${v.toFixed(dec)}${suf}</span></div>`;
-}
-
-function renderWeather(wx,homeTeam){
-  const pf=PARK[homeTeam]||1.00;
-  const ws=weatherScore(wx);
-  document.getElementById('wx-area').innerHTML=`
-    <div class="wx-strip">
-      <div class="wx-item"><span class="wx-val">${Math.round(wx.temp)}°F</span><span class="wx-lbl">Temp</span></div>
-      <div class="wx-item"><span class="wx-val">${windLabel(wx.wind,wx.wdir)}</span><span class="wx-lbl">Wind</span></div>
-      <div class="wx-item"><span class="wx-val">${Math.round(wx.rain)}%</span><span class="wx-lbl">Rain</span></div>
-      <div class="wx-item"><span class="wx-val">${pf.toFixed(2)}×</span><span class="wx-lbl">Park</span></div>
-      <div class="wx-item"><span class="wx-val">${Math.round(ws)}</span><span class="wx-lbl">Wx Score</span></div>
-    </div>`;
-}
-
-// ==================================================================
-//  PLAYER DETAIL
-// ==================================================================
-function showDetail(id){
-  const r=S.allRows.find(x=>x.id===id);
-  if(!r)return;
-  showPage('detail');
-  renderDetail(r);
-}
-
-function renderDetail(r){
-  const pct=(r.prob*100).toFixed(2);
-  const[grd,gc]=probGrade(r.prob);
-  const fair=probToAmerican(r.prob);
-  const fdOdds2=getFDOdds(r.name);
-  const edgeData2=fdOdds2!=null?calcEdge(r.prob,fdOdds2):null;
-
-  function fbar(label,mult,lo,hi){
-    if(mult==null)return`<div class="factor-item"><div class="fi-header"><span class="fi-name">${label}</span><span class="fi-val" style="color:var(--t4)">--</span></div></div>`;
-    const pct2=Math.max(0,Math.min(1,(mult-lo)/(hi-lo)))*100;
-    const clr=mult>=1.08?'var(--green)':mult>=0.95?'var(--amber)':'var(--red)';
-    const sgn=mult>=1?'+':'';
-    return`<div class="factor-item">
-      <div class="fi-header">
-        <span class="fi-name">${label}</span>
-        <span class="fi-val" style="color:${clr}">${mult.toFixed(2)}× <span style="font-size:.65rem">${sgn}${((mult-1)*100).toFixed(0)}%</span></span>
-      </div>
-      <div class="fi-bar"><div class="fi-fill" style="width:${pct2}%;background:${clr}"></div></div>
-    </div>`;
-  }
-
-  document.getElementById('detail-content').innerHTML=`
-    <div class="card" style="margin-bottom:10px">
-      <div class="detail-header">
-        <div>
-          <div class="detail-prob-big" style="color:${gc}">${pct}%</div>
-          <div style="font-size:.8rem;color:var(--t3)">${grd} · Fair odds: ${fair}</div>
-          <div class="detail-meta">${r.name} · ${r.team} · ${r.pos} · ${r.batHand}HB</div>
-          <div class="detail-meta">vs ${r.spNm} (${r.oppHand}HP) · ${r.game}</div>
-        </div>
-      </div>
-      <div style="font-size:.72rem;color:var(--t4);font-family:'JetBrains Mono',monospace;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-top:4px">
-        ${(r.anchor*100).toFixed(2)}% × ${r.platoon.toFixed(2)} × ${r.pitcher.toFixed(2)} × ${r.parkwx.toFixed(2)} × ${r.momentum.toFixed(2)} = <b style="color:${gc}">${pct}%</b>
-      </div>
-    </div>
-
-    ${detectAngles(r).length?`<div class="card" style="margin-bottom:10px">
-      <div class="slbl">⚡ Sharp Angles For</div>
-      ${detectAngles(r).map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--bg3)">
-        <span style="font-size:1rem">${a.icon}</span>
-        <div><div style="font-size:.8rem;font-weight:700;color:${a.color}">${a.label}</div>
-        <div style="font-size:.68rem;color:var(--t4)">${a.tip}</div></div>
-      </div>`).join('')}
-    </div>`:''}
-
-    ${detectNegativeAngles(r).length?`<div class="card" style="margin-bottom:10px;border-color:rgba(224,80,74,.25)">
-      <div class="slbl" style="color:var(--red)">🚨 Negative Angles Against</div>
-      ${detectNegativeAngles(r).map(a=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3)">
-        <span style="font-size:1.1rem;margin-top:1px">${a.icon}</span>
-        <div>
-          <div style="font-size:.82rem;font-weight:700;color:var(--red)">${a.label}</div>
-          <div style="font-size:.7rem;color:var(--t3);margin-top:2px;line-height:1.5">${a.tip}</div>
-        </div>
-      </div>`).join('')}
-    </div>`:'<div class="card" style="margin-bottom:10px;border-color:rgba(34,201,94,.2)"><div style="font-size:.78rem;color:var(--green);padding:4px 0">✅ No significant negative angles found for this player today</div></div>'}
-
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">Probability Breakdown</div>
-      ${fbar('Anchor (Blended HR Rate)',r.anchor/MLB_AVG,0.3,2.5)}
-      ${fbar('Platoon Split',r.platoon,0.65,1.35)}
-      ${fbar('Pitcher Matchup',r.pitcher,0.50,2.20)}
-      ${fbar('Park × Weather',r.parkwx,0.75,1.45)}
-      ${fbar('L15 Momentum',r.momentum,0.65,1.50)}
-    </div>
-
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">Season Stats</div>
-      <div class="stat-scroll">
-        ${[['Barrel%',r.barrel_pct,3,15,'%',1],['Hard%',r.hard_hit_pct,30,52,'%',1],
-           ['EV',r.avg_ev,86,94,' mph',1],['LA°',r.avg_la,5,20,'°',1],
-           ['Pull%',r.pull_pct,28,50,'%',1],['FB%',r.fb_pct,22,45,'%',1],
-           ['ISO',r.iso,.08,.28,'',3],['SwStr%',r.swstr_pct,5,14,'%',1]].map(([l,v,lo,hi,s,d])=>{
-          if(v==null)return'';
-          const p2=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
-          const vc=p2>=0.65?'var(--green)':p2>=0.45?'var(--amber)':'var(--red)';
-          return`<div class="stat-box"><span class="sb-val" style="color:${vc}">${v.toFixed(d)}${s}</span><span class="sb-lbl">${l}</span></div>`;
-        }).join('')}
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="slbl">💰 Bet Analysis</div>
-      ${fdOdds2!=null?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px;background:var(--bg3);border-radius:8px">
-        <div style="font-size:.72rem;color:var(--t4)">FanDuel</div>
-        <div style="font-family:'JetBrains Mono',monospace;font-weight:800;font-size:1.1rem;color:var(--t1)">${fdOdds2>0?'+':''}${fdOdds2}</div>
-        ${edgeData2?`<div style="font-size:.72rem;padding:3px 8px;border-radius:6px;font-weight:700;margin-left:auto;
-          background:${edgeData2.edge>=2?'rgba(34,201,94,.15)':'rgba(224,80,74,.15)'};
-          color:${edgeData2.edge>=2?'var(--green)':'var(--red)'}">${edgeData2.edge>=0?'+':''}${edgeData2.edge}% edge · EV ${edgeData2.ev>=0?'+':''}$${Math.abs(edgeData2.ev).toFixed(2)}</div>`:''}
-      </div>`:''}
-      <div class="form-group">
-        <label>Enter sportsbook line manually (e.g. +500)</label>
-        <input type="text" id="det-odds" placeholder="${fdOdds2!=null?fdOdds2:'+500'}" oninput="calcBetEV('${r.id}','${pct}')">
-      </div>
-      <div id="det-ev-result"></div>
-    </div>`;
-}
-
-function calcBetEV(id,pctStr){
-  const odds=document.getElementById('det-odds').value.trim();
-  const el=document.getElementById('det-ev-result');
-  if(!odds){el.innerHTML='';return;}
-  try{
-    const o=parseInt(odds);
-    const bookImp=o>0?100/(o+100):Math.abs(o)/(Math.abs(o)+100);
-    const bookNv=bookImp*0.95;
-    const prob=parseFloat(pctStr)/100;
-    const winAmt=o>0?o:100/Math.abs(o)*100;
-    const ev=Math.round((prob*winAmt-(1-prob)*100)*100)/100;
-    const edg=Math.round((prob-bookNv)*1000)/10;
-    const evClr=ev>=0?'var(--green)':'var(--red)';
-    const edgClr=edg>=0?'var(--green)':'var(--red)';
-    const grade=ev>=20?'🔥 Strong Value':ev>=8?'✅ Value':ev>=0?'⚖️ Break-even':ev>=-10?'⚠️ Slight -EV':'❌ Pass';
-    el.innerHTML=`<div class="bet-result">
-      <div class="bet-row"><span class="lbl">Our estimate</span><span class="val">${pctStr}%</span></div>
-      <div class="bet-row"><span class="lbl">Fair odds</span><span class="val">${probToAmerican(prob)}</span></div>
-      <div class="bet-row"><span class="lbl">Book implied (no vig)</span><span class="val">${(bookNv*100).toFixed(1)}%</span></div>
-      <div class="bet-row"><span class="lbl">Edge</span><span class="val" style="color:${edgClr}">${edg>=0?'+':''}${edg}%</span></div>
-      <div class="bet-row"><span class="lbl">EV / $100</span><span class="val" style="color:${evClr}">${ev>=0?'+':''}$${Math.abs(ev).toFixed(2)}</span></div>
-      <div style="font-size:.88rem;font-weight:700;color:${evClr};margin-top:8px">${grade}</div>
-    </div>`;
-  }catch{el.innerHTML=`<div style="color:var(--red);font-size:.8rem">Invalid odds format</div>`;}
-}
-
-// ==================================================================
-//  PARLAY BUILDER
-// ==================================================================
-function renderParlay(){
-  const minP=parseFloat(document.getElementById('par-min-prob').value||4)/100;
-  const eligible=S.allRows.filter(r=>r.prob>=minP).sort((a,b)=>b.prob-a.prob);
-
-  document.getElementById('parlay-legs').innerHTML=eligible.slice(0,30).map(r=>{
-    const sel=S.parlaySelected.has(r.id);
-    const pct=(r.prob*100).toFixed(1);
-    const[,gc]=probGrade(r.prob);
-    const l14=r.l15hr?` 🔥${r.l15hr}HR`:'';
-    return`<div class="parlay-leg${sel?' selected':''}" onclick="toggleParlayLeg('${r.id}')">
-      <div>
-        <div class="pl-name">${r.name}${l14}</div>
-        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.grade} · vs ${(r.spNm||'').split(' ').pop()}</div>
-      </div>
-      <div>
-        <div class="pl-prob" style="color:${gc}">${pct}%</div>
-        <div style="font-size:.68rem;color:var(--t4);text-align:right">${probToAmerican(r.prob)}</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  renderParlayResult();
-}
-
-function toggleParlayLeg(id){
-  if(S.parlaySelected.has(id))S.parlaySelected.delete(id);
-  else S.parlaySelected.add(id);
-  renderParlay();
-}
-
-function renderParlayResult(){
-  const sel=S.allRows.filter(r=>S.parlaySelected.has(r.id));
-  const res=document.getElementById('parlay-result');
-  const bookSec=document.getElementById('parlay-book-section');
-  if(sel.length<2){
-    res.innerHTML=sel.length===0
-      ?'<div style="font-size:.78rem;color:var(--t4);text-align:center;padding:12px">Tap legs above to build a parlay</div>'
-      :'<div style="font-size:.78rem;color:var(--amber);text-align:center;padding:12px">Select at least 2 legs</div>';
-    bookSec.style.display='none';return;
-  }
-  const p=sel.reduce((acc,r)=>acc*r.prob,1);
-  const pct=(p*100).toFixed(4);
-  const am=probToAmerican(p);
-  const dec=(1/p).toFixed(1);
-  const sgp=new Set(sel.map(r=>r.team)).size<sel.length;
-  const legs=sel.map(r=>`<b>${r.name}</b> ${(r.prob*100).toFixed(1)}%`).join(' · ');
-  res.innerHTML=`<div class="parlay-result">
-    <div class="pr-title">🎰 ${sel.length}-Leg HR Parlay${sgp?' · ⚠️ SGP':''}</div>
-    <div class="pr-stats">
-      <div class="pr-stat"><div class="lbl">Probability</div><div class="val" style="color:var(--amber)">${pct}%</div></div>
-      <div class="pr-stat"><div class="lbl">American</div><div class="val">${am}</div></div>
-      <div class="pr-stat"><div class="lbl">Decimal</div><div class="val">${dec}×</div></div>
-    </div>
-    <div class="pr-legs">Legs: ${legs}${sgp?'<br>⚠️ Same-team legs are correlated':''}</div>
-  </div>`;
-  bookSec.style.display='block';
-  calcParlayEV();
-}
-
-function calcParlayEV(){
-  const sel=S.allRows.filter(r=>S.parlaySelected.has(r.id));
-  if(sel.length<2)return;
-  const odds=document.getElementById('par-book-line').value.trim();
-  const el=document.getElementById('par-ev-result');
-  if(!odds){el.innerHTML='';return;}
-  try{
-    const o=parseInt(odds);
-    const bookImp=o>0?100/(o+100):Math.abs(o)/(Math.abs(o)+100);
-    const bookNv=bookImp*0.95;
-    const p=sel.reduce((acc,r)=>acc*r.prob,1);
-    const winAmt=o>0?o:100/Math.abs(o)*100;
-    const ev=Math.round((p*winAmt-(1-p)*100)*100)/100;
-    const edg=Math.round((p-bookNv)*10000)/100;
-    const evClr=ev>=0?'var(--green)':'var(--red)';
-    el.innerHTML=`<div class="bet-result">
-      <div class="bet-row"><span class="lbl">Model probability</span><span class="val">${(p*100).toFixed(4)}%</span></div>
-      <div class="bet-row"><span class="lbl">Book implied (no vig)</span><span class="val">${(bookNv*100).toFixed(4)}%</span></div>
-      <div class="bet-row"><span class="lbl">Edge</span><span class="val" style="color:${edg>=0?'var(--green)':'var(--red)'}">${edg>=0?'+':''}${edg}%</span></div>
-      <div class="bet-row"><span class="lbl">EV / $100</span><span class="val" style="color:${evClr}">${ev>=0?'+':''}$${Math.abs(ev).toFixed(2)}</span></div>
-    </div>`;
-  }catch{el.innerHTML=`<div style="color:var(--red);font-size:.8rem">Invalid odds format</div>`;}
-}
-
-
-// ==================================================================
-//  AB EXPLORER — RUDEBETS-STYLE STATCAST TABLE
-// ==================================================================
-function populateABSelect(){
-  const sel=document.getElementById('ab-batter');
-  if(!S.allRows.length){
-    sel.innerHTML='<option value="">— Load a game first —</option>';
-    document.getElementById('ab-list').innerHTML='<div class="empty">Load a game from the Slate tab first</div>';
-    document.getElementById('ab-summary').innerHTML='';
-    return;
-  }
-
-  ensurePitchTypeControl();
-
-  const cur=sel.value;
-  sel.innerHTML=S.allRows
-    .slice()
-    .sort((a,b)=>b.prob-a.prob)
-    .map(r=>`<option value="${r.id}">${r.name} (${r.team}) — ${(r.prob*100).toFixed(1)}%</option>`)
-    .join('');
-
-  if(cur && S.allRows.find(r=>String(r.id)===String(cur))) sel.value=cur;
-  loadABLog();
-}
-
-function ensurePitchTypeControl(){
-  if(document.getElementById('ab-pitch-type')) return;
-
-  const armEl=document.getElementById('ab-arm');
-  const parent=armEl?.closest('.card');
-  if(!parent) return;
-
-  const wrap=document.createElement('div');
-  wrap.className='form-group';
-  wrap.style.marginTop='12px';
-  wrap.innerHTML=`
-    <label>Pitch Type</label>
-    <select id="ab-pitch-type" onchange="loadABLog()">
-      <option value="">All Pitches</option>
-    </select>`;
-  parent.appendChild(wrap);
-}
-
-async function loadABLog(){
-  ensurePitchTypeControl();
-
-  const pid=document.getElementById('ab-batter').value;
-  const n=parseInt(document.getElementById('ab-count').value||20);
-  const arm=document.getElementById('ab-arm').value;
-  const pitchType=document.getElementById('ab-pitch-type')?.value||'';
-  const listEl=document.getElementById('ab-list');
-  const sumEl=document.getElementById('ab-summary');
-
-  if(!pid){
-    listEl.innerHTML='<div class="empty">Load a game from the Slate tab, then come back here</div>';
-    sumEl.innerHTML='';
-    return;
-  }
-
-  listEl.innerHTML='<div class="spinner"><div class="spin"></div>Loading Statcast batted balls…</div>';
-  sumEl.innerHTML='';
-
-  try{
-    const rows=await fetchABLog(pid,n,arm,pitchType);
-    S.abRows=rows;
-    await populatePitchTypeFilter(pid,arm,pitchType);
-    renderABLog(rows);
-  }catch(e){
-    console.error('loadABLog error',e);
-    listEl.innerHTML=`<div class="empty" style="text-align:left">
-      <div style="color:var(--red);font-weight:700;margin-bottom:6px">Failed to load Statcast AB data</div>
-      <div style="font-size:.72rem;background:var(--bg3);padding:8px;border-radius:6px;color:var(--t3)">${e.message}</div>
-    </div>`;
-  }
-}
-
-async function populatePitchTypeFilter(pid,arm,selected){
-  const sel=document.getElementById('ab-pitch-type');
-  if(!sel || sel.dataset.loading==='1') return;
-
-  try{
-    sel.dataset.loading='1';
-    const optionRows=await fetchABLog(pid,100,arm,'',true);
-    const types=[...new Set(optionRows.map(r=>r.pt).filter(Boolean))].sort();
-
-    const cur=selected || sel.value || '';
-    sel.innerHTML='<option value="">All Pitches</option>' +
-      types.map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join('');
-
-    if(cur && types.includes(cur)) sel.value=cur;
-  }catch(e){
-    console.warn('populate pitch types failed:',e.message);
-  }finally{
-    sel.dataset.loading='0';
-  }
-}
-
-async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
-  if(!pid) return [];
-
-  // Savant's own game feed endpoint — used by their player pages, no session needed
-  for(const s of[SEASON, SEASON-1]){
-    try{
-      // This is the API Savant's own JS calls to render the player game feed table
-      const url=`https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfPT=&hfAB=&hfGT=R%7C&hfPR=&hfZ=&hfStadium=&hfBBL=&hfNewZones=&hfPull=&hfC=&hfSea=${s}%7C&hfSit=&player_type=batter&hfOuts=&hfOpponent=&pitcher_throws=&batter_stands=&hfSA=&game_date_gt=&game_date_lt=&hfMo=&hfTeam=&home_road=&hfRO=&position=&hfInfield=&hfOutfield=&hfInn=&hfBBT=&hfFlag=&metric_1=&group_by=name-date&min_pitches=0&min_results=0&min_pas=0&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&min_abs=0&type=details&batters_lookup%5B%5D=${pid}&`;
-      const r = await fetch(PROXY+encodeURIComponent(url));
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      const txt2 = await r.text();
-      const lines = txt2.split('\n').filter(l=>l.trim());
-      console.log(`[AB] CSV season ${s}: ${lines.length} lines, size ${txt2.length}, x-had-cookie: ${r.headers.get('x-had-cookie')}`);
-      if(lines.length >= 2){
-        const rows = parseCSVText(txt2);
-        const AB_EVENTS = new Set(['single','double','triple','home_run','field_out',
-          'grounded_into_double_play','strikeout','strikeout_double_play','force_out',
-          'field_error','fielders_choice','fielders_choice_out','double_play','sac_fly',
-          'sac_bunt','walk','hit_by_pitch','intent_walk']);
-        let filtered = rows.filter(r => AB_EVENTS.has((r.events||'').toLowerCase().trim()));
-        if(arm) filtered = filtered.filter(r => r.p_throws===arm);
-        if(pitchType) filtered = filtered.filter(r => String(r.pitch_type||'').toUpperCase()===pitchType);
-        filtered.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
-        const out = filtered.slice(0, forOptions?200:n).map(r=>mapStatcastABRow(r));
-        if(out.length>0){
-          console.log(`[AB] Got ${out.length} PA rows`);
-          return out;
-        }
-      }
-    }catch(e){ console.warn(`[AB] CSV failed s=${s}:`, e.message); }
-  }
-
-  // MLB Stats API game log fallback (no EV/LA but shows results)
-  console.log('[AB] Falling back to MLB game log');
-  for(const s of[SEASON, SEASON-1]){
-    try{
-      const d = await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
-      const splits = (d.stats||[]).find(x=>x.type?.displayName==='gameLog')?.splits || d.stats?.[0]?.splits || [];
-      if(!splits.length) continue;
-
-      // Batch fetch pitcher names from schedule
-      const dates = [...new Set(splits.map(sp=>sp.date||'').filter(Boolean))].sort();
-      let spMap = {};
-      if(dates.length){
-        try{
-          const sched = await fetchJSON(`${MLB}/schedule?sportId=1&startDate=${dates[0]}&endDate=${dates[dates.length-1]}&hydrate=probablePitcher&gameType=R`);
-          for(const dt of sched.dates||[])
-            for(const g of dt.games||[]){
-              const gpk = String(g.gamePk);
-              spMap[gpk] = {
-                away:{name:g.teams?.away?.probablePitcher?.fullName||null, abbr:g.teams?.away?.team?.abbreviation||''},
-                home:{name:g.teams?.home?.probablePitcher?.fullName||null, abbr:g.teams?.home?.team?.abbreviation||''},
-              };
-            }
-        }catch{}
-      }
-
-      const playerTeam = splits[0]?.team?.abbreviation||'';
-      const rows = [...splits].reverse().map(sp=>{
-        const st = sp.stat||{};
-        const hr=parseInt(st.homeRuns)||0, h=parseInt(st.hits)||0, ab=parseInt(st.atBats)||0;
-        const bb=parseInt(st.baseOnBalls)||0, k=parseInt(st.strikeOuts)||0;
-        const doubles=parseInt(st.doubles)||0, triples=parseInt(st.triples)||0, rbi=parseInt(st.rbi)||0;
-        if(ab===0&&hr===0&&bb===0) return null;
-        let result='No Hit', isHR=false;
-        if(hr>0){result=hr>1?`${hr} HRs`:'Home Run';isHR=true;}
-        else if(triples>0)result='Triple'; else if(doubles>0)result='Double';
-        else if(h>=3)result=`${h}-Hit Game`; else if(h===2)result='2 Hits';
-        else if(h===1)result='Single'; else if(bb>0)result='Walk';
-        else if(k>=2)result='Multi-K'; else if(k===1)result='Strikeout';
-        // Pitcher name
-        const gpk = String(sp.game?.gamePk||'');
-        const gm = spMap[gpk];
-        let spName = sp.opponent?.abbreviation||'?';
-        if(gm){
-          const myTeam = sp.team?.abbreviation||playerTeam;
-          spName = (gm.away.abbr===myTeam ? gm.home.name : gm.away.name) || spName;
-        }
-        return{rawDate:sp.date||'', date:(sp.date||'').slice(5,10),
-          pitcher:spName, arm:'?', pt:'', ptNm:'--',
-          ev:null, la:null, dist:null, isBrl:false, result, isHR, traj:'', source:'gamelog',
-          gameNote:`${ab} AB \xb7 ${h} H \xb7 ${hr} HR \xb7 ${bb} BB \xb7 ${k} K`+(rbi>0?` \xb7 ${rbi} RBI`:''),
-        };
-      }).filter(Boolean);
-      if(rows.length) return rows.slice(0,n);
-    }catch(e){ console.warn('[AB] game log failed:',e.message); }
-  }
-  return [];
-}
-
-
-function mapStatcastABRow(row){
-  const ev=parseFloat(row.launch_speed);
-  const la=parseFloat(row.launch_angle);
-  const dist=parseFloat(row.hit_distance_sc);
-  const ptCode=String(row.pitch_type||'').toUpperCase();
-  const eventRaw=String(row.events||'').toLowerCase();
-  const bbRaw=String(row.bb_type||'').toLowerCase();
-
-  let isBrl=false;
-  if(ev>=98){
-    const mx=Math.min(50,30+(ev-98));
-    const mn=Math.max(8,26-(ev-98));
-    if(la>=mn&&la<=mx) isBrl=true;
-  }
-
-  return {
-    rawDate:row.game_date||'',
-    date:row.game_date||'--',
-    pitcher:row.player_name||row.pitcher_name||'--',
-    arm:row.p_throws||'',
-    pt:ptCode,
-    ptNm:PITCH_NAMES[ptCode]||ptCode||'--',
-    ev:Math.round(ev*10)/10,
-    la:Math.round(la*10)/10,
-    dist:isNaN(dist)?null:Math.round(dist),
-    isBrl,
-    result:titleCase(eventRaw.replace(/_/g,' '))||'--',
-    traj:titleCase(bbRaw.replace(/_/g,' '))||'--',
-    isHR:eventRaw==='home_run',
-    source:'statcast',
-  };
-}
-
-function titleCase(v){
-  return String(v||'').replace(/\b\w/g,c=>c.toUpperCase());
-}
-
-function renderABLog(rows){
-  if(!rows.length){
-    document.getElementById('ab-list').innerHTML='<div class="empty">No Statcast batted-ball data found. Check that your Cloudflare Worker is deployed and the PROXY URL is correct.</div>';
-    document.getElementById('ab-summary').innerHTML='';
-    return;
-  }
-
-  const isStatcast=rows[0]?.source==='statcast';
-  const bipRows=rows.filter(r=>r.ev!=null&&!isNaN(r.ev));
-  const n=bipRows.length||1;
-  const gb=bipRows.filter(r=>r.traj==='Ground Ball').length;
-  const fb=bipRows.filter(r=>r.traj==='Fly Ball').length;
-  const ld=bipRows.filter(r=>r.traj==='Line Drive').length;
-  const pu=bipRows.filter(r=>r.traj==='Popup'||r.traj==='Pop Up').length;
-  const hr=rows.filter(r=>r.isHR).length;
-  const hard=bipRows.filter(r=>r.ev>=95).length;
-  const brl=bipRows.filter(r=>r.isBrl).length;
-  const avgEV=bipRows.length?Math.round(bipRows.reduce((s,r)=>s+r.ev,0)/bipRows.length*10)/10:null;
-  const fbDenom=Math.max(1,fb+ld+pu);
-
-  const pct=x=>Math.round(x/n*100);
-  const pctDen=(x,d)=>Math.round(x/Math.max(1,d)*100);
-
-  const metric=(lbl,val,good=false)=>`
-    <div class="ab-metric">
-      <div class="lbl">${lbl}</div>
-      <div class="val ${good?'good':''}">${val}</div>
-    </div>`;
-
-  if(isStatcast){
-    document.getElementById('ab-summary').innerHTML=`
-      <div class="ab-metric-grid">
-        ${metric('GB%',pct(gb)+'%')}
-        ${metric('FB%',pct(fb)+'%')}
-        ${metric('LD%',pct(ld)+'%')}
-        ${metric('PU%',pct(pu)+'%')}
-        ${metric('HR/FB%',pctDen(hr,fbDenom)+'%',pctDen(hr,fbDenom)>=20)}
-        ${metric('Hard Hit%',pct(hard)+'%',pct(hard)>=45)}
-        ${metric('Avg EV',avgEV!=null?avgEV.toFixed(1):'--',avgEV>=90)}
-        ${metric('Barrel%',pct(brl)+'%',pct(brl)>=10)}
-      </div>`;
-  } else {
-    // Game log summary
-    const totalH=rows.reduce((s,r)=>s+(r.h||0),0);
-    document.getElementById('ab-summary').innerHTML=`
-      <div class="ab-metric-grid">
-        ${metric('Games',rows.length)}
-        ${metric('HRs 💥',hr,hr>0)}
-        ${metric('Hits',totalH,totalH>0)}
-      </div>
-      <div style="font-size:.68rem;color:var(--t4);padding:6px 10px;background:var(--bg3);border-radius:6px;margin-top:6px">
-        ⚠️ Proxy unavailable — showing game log. Check your Cloudflare Worker is deployed at:<br>
-        <code style="color:var(--amber);font-size:.65rem;word-break:break-all">${PROXY.split('?')[0]}</code>
-      </div>`;
-  }
-
-  document.getElementById('ab-list').innerHTML=`
-    <div class="ab-table-wrap">
-      <table class="ab-table">
-        <thead>
-          <tr>
-            <th>Date ↓</th>
-            <th>Pitcher</th>
-            <th>Arm</th>
-            <th>Pitch Type</th>
-            <th>EV</th>
-            <th>LA</th>
-            <th>Distance</th>
-            <th>Barrel</th>
-            <th>Event</th>
-            <th>BB Type</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(r=>{
-            const hasEV=r.ev!=null&&!isNaN(r.ev);
-            const hasLA=r.la!=null&&!isNaN(r.la);
-            const evStyle=hasEV?(r.ev>=95?'color:var(--green);font-weight:800':r.ev<80?'color:var(--red);font-weight:800':'color:var(--amber);font-weight:800'):'';
-            const laStyle=hasLA&&(r.la>=8&&r.la<=32)?'color:var(--green);font-weight:800':(hasLA&&(r.la<0||r.la>50)?'color:var(--red);font-weight:800':'');
-            return `<tr class="${r.isHR?'hr-row':''}">
-              <td>${r.date||'--'}</td>
-              <td>${r.pitcher||'--'}</td>
-              <td>${r.arm||'--'}</td>
-              <td>${r.ptNm||'--'}</td>
-              <td style="${evStyle}">${hasEV?r.ev.toFixed(1):'--'}</td>
-              <td style="${laStyle}">${hasLA?r.la:'--'}</td>
-              <td>${r.dist!=null?r.dist:'--'}</td>
-              <td style="${r.isBrl?'color:var(--amber);font-weight:800':''}">${hasEV?(r.isBrl?'✓':''):''}</td>
-              <td style="${r.isHR?'color:var(--green);font-weight:800':''}">${r.result||'--'}</td>
-              <td>${r.traj||'--'}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>`;
-}
-
-
-// ==================================================================
-//  UTILS
-// ==================================================================
-function refreshData(){
-  S.cache={};S.allRows=[];S.selPks.clear();loadSlate();
-}
-
-// ==================================================================
-//  PWA — Service Worker + Install Prompt
-// ==================================================================
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').then(reg=>{
-    console.log('SW registered:', reg.scope);
-  }).catch(e=>console.warn('SW registration failed:',e));
-}
-
-let _installPrompt=null;
-window.addEventListener('beforeinstallprompt', e=>{
-  e.preventDefault();
-  _installPrompt=e;
-  // Show install banner after a short delay
-  setTimeout(()=>{
-    if(_installPrompt) showInstallBanner();
-  }, 3000);
-});
-
-function showInstallBanner(){
-  if(document.getElementById('install-banner')) return;
-  const banner=document.createElement('div');
-  banner.id='install-banner';
-  banner.innerHTML=`
-    <div style="position:fixed;bottom:68px;left:12px;right:12px;z-index:100;
-      background:linear-gradient(135deg,#1e3a6e,#0e2448);
-      border:1.5px solid var(--blue);border-radius:12px;
-      padding:12px 14px;display:flex;align-items:center;gap:10px;
-      box-shadow:0 4px 20px rgba(0,0,0,.5)">
-      <div style="font-size:1.4rem">⚾</div>
-      <div style="flex:1">
-        <div style="font-size:.82rem;font-weight:700;color:var(--t1)">Add HR Hub to Home Screen</div>
-        <div style="font-size:.68rem;color:var(--t4)">Works offline · No App Store needed</div>
-      </div>
-      <button onclick="installApp()" style="background:var(--blue);border:none;border-radius:8px;
-        color:#fff;font-size:.78rem;font-weight:700;padding:8px 14px;cursor:pointer">Install</button>
-      <button onclick="document.getElementById('install-banner').remove()" style="background:none;
-        border:none;color:var(--t4);font-size:1.1rem;cursor:pointer;padding:4px">×</button>
-    </div>`;
-  document.body.appendChild(banner);
-}
-
-async function installApp(){
-  if(!_installPrompt) return;
-  _installPrompt.prompt();
-  const{outcome}=await _installPrompt.userChoice;
-  console.log('Install outcome:', outcome);
-  _installPrompt=null;
-  document.getElementById('install-banner')?.remove();
-}
-
-// iOS "Add to Home Screen" hint (no beforeinstallprompt on iOS)
-const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
-const isStandalone=window.navigator.standalone===true;
-if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
-  setTimeout(()=>{
-    const hint=document.createElement('div');
-    hint.innerHTML=`
-      <div style="position:fixed;bottom:68px;left:12px;right:12px;z-index:100;
-        background:linear-gradient(135deg,#1e3a6e,#0e2448);
-        border:1.5px solid var(--blue);border-radius:12px;padding:12px 14px;
-        box-shadow:0 4px 20px rgba(0,0,0,.5)">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-          <div style="font-size:1.4rem">⚾</div>
-          <div style="font-size:.82rem;font-weight:700;color:var(--t1)">Add HR Hub to Home Screen</div>
-          <button onclick="this.closest('div').parentElement.remove();localStorage.setItem('ios-hint-shown','1')"
-            style="background:none;border:none;color:var(--t4);font-size:1.1rem;cursor:pointer;margin-left:auto;padding:4px">×</button>
-        </div>
-        <div style="font-size:.72rem;color:var(--t3);line-height:1.6">
-          Tap <b style="color:var(--blue)">Share ↑</b> then <b style="color:var(--blue)">"Add to Home Screen"</b>
-          for full-screen app experience
-        </div>
-      </div>`;
-    document.body.appendChild(hint);
-    localStorage.setItem('ios-hint-shown','1');
-  }, 3000);
-}
-
-// ==================================================================
-//  INIT
-// ==================================================================
-populateABSelect();
-loadSlate();
-</script>
-</body>
-</html>
+>
