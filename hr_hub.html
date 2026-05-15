@@ -1136,9 +1136,13 @@ async function loadFanDuelOdds(force=false){
       const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
       if(!mkt) continue;
       for(const outcome of mkt.outcomes||[]){
-        if(!outcome.name) continue;
-        const key = normName(outcome.name);
-        map[key] = { odds: outcome.price, raw: outcome.name };
+        // batter_home_runs format: {name:'Over'/'Under', description:'Pete Alonso', price:525, point:0.5}
+        // We only want the Over (hitting a HR)
+        if(outcome.name!=='Over') continue;
+        const playerName = outcome.description || outcome.name;
+        if(!playerName || playerName==='Over' || playerName==='Under') continue;
+        const key = normName(playerName);
+        map[key] = { odds: outcome.price, raw: playerName };
         total++;
       }
     }
