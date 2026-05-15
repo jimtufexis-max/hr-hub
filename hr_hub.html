@@ -13,7 +13,7 @@
 <!-- PWA icons (add actual icon files to your repo) -->
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" href="icon-192.png">
-<title>HR Hub v6</title>
+<title>HR Hub v7</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -278,6 +278,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 <!-- ── HEADER ──────────────────────────────────────────────────── -->
 <div id="header">
   <div id="header-title">⚾ HR <span>Hub</span></div>
+  <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="refreshOdds();this.textContent='↺ refreshing...'">FD odds: loading…</div>
   <div id="header-date"></div>
   <button onclick="refreshData()" style="background:none;border:none;color:var(--t4);font-size:.8rem;cursor:pointer;padding:4px 8px;border:1px solid var(--bdr);border-radius:6px">↺</button>
 </div>
@@ -977,38 +978,90 @@ async function getPlayerPlatoonSplits(pid){
 // ==================================================================
 //  FANDUEL ODDS (via The Odds API)
 // ==================================================================
-let _fdOdds = null;  // { 'Player Name': american_odds }
+let _fdOdds = null;  // { normalizedName: {odds, rawName} }
 let _fdOddsLoaded = false;
+let _fdOddsTimestamp = null;
 
-async function loadFanDuelOdds(){
-  if(_fdOddsLoaded) return;
+async function loadFanDuelOdds(force=false){
+  // Refresh if older than 10 minutes
+  if(_fdOddsLoaded && !force && _fdOddsTimestamp && (Date.now()-_fdOddsTimestamp < 600000)) return;
   _fdOddsLoaded = true;
-  if(!ODDS_API_KEY){ console.log('[Odds] No API key set'); return; }
+  _fdOddsTimestamp = Date.now();
+  if(!ODDS_API_KEY){
+    console.log('[Odds] No API key — set ODDS_API_KEY in hr_hub.html line 416');
+    const statusEl = document.getElementById('odds-status');
+    if(statusEl) statusEl.textContent = 'FD odds: no key';
+    return;
+  }
   try{
     const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`;
+    console.log('[Odds] Fetching FanDuel HR props...');
     const r = await fetch(url);
-    if(!r.ok) throw new Error(`Odds API ${r.status}`);
+    if(!r.ok){
+      const body = await r.text().catch(()=>'');
+      throw new Error(`Odds API ${r.status}: ${body.slice(0,100)}`);
+    }
     const data = await r.json();
     const map = {};
+    let total = 0;
     for(const game of data){
       const fd = (game.bookmakers||[]).find(b=>b.key==='fanduel');
       if(!fd) continue;
       const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
       if(!mkt) continue;
       for(const outcome of mkt.outcomes||[]){
-        if(outcome.name) map[normName(outcome.name)] = outcome.price;
+        if(!outcome.name) continue;
+        const key = normName(outcome.name);
+        map[key] = { odds: outcome.price, raw: outcome.name };
+        total++;
       }
     }
     _fdOdds = map;
-    console.log(`[Odds] FanDuel HR props loaded: ${Object.keys(map).length} players`);
-    // Re-render slate with odds
+    const statusEl = document.getElementById('odds-status');
+    if(statusEl) statusEl.textContent = `FD: ${total} props ✓`;
+    console.log(`[Odds] ✅ Loaded ${total} FanDuel HR props. Sample:`,
+      Object.values(map).slice(0,5).map(v=>`${v.raw}: ${v.odds>0?'+':''}${v.odds}`).join(', '));
+
+    // Re-render slate now that odds are available
     if(S.allRows.length) renderSlate();
-  }catch(e){ console.warn('[Odds] FanDuel load failed:', e.message); }
+  }catch(e){
+    console.warn('[Odds] FanDuel load failed:', e.message);
+    const statusEl = document.getElementById('odds-status');
+    if(statusEl) statusEl.textContent = `FD odds: failed`;
+    _fdOdds = null;
+  }
 }
 
 function getFDOdds(name){
   if(!_fdOdds) return null;
-  return _fdOdds[normName(name)] ?? null;
+  const key = normName(name);
+  // Direct match
+  if(_fdOdds[key]) return _fdOdds[key].odds;
+  // Try last-name only match as fallback
+  const lastName = key.split(' ').pop();
+  const match = Object.keys(_fdOdds).find(k=>k.endsWith(' '+lastName)||k===lastName);
+  if(match) return _fdOdds[match].odds;
+  return null;
+}
+
+// Debug tool — call showOddsDebug() in console to see all loaded odds
+function showOddsDebug(){
+  if(!_fdOdds){ console.log('No FD odds loaded'); return; }
+  const sorted = Object.values(_fdOdds).sort((a,b)=>a.odds-b.odds);
+  console.table(sorted.map(v=>({name:v.raw, odds:v.odds>0?'+'+v.odds:v.odds})));
+  console.log(`Total: ${sorted.length} players`);
+  // Check specific player
+  const check = (name)=>{
+    const o=getFDOdds(name);
+    console.log(`${name}: ${o!=null?(o>0?'+':'')+o:'NOT FOUND'}`);
+  };
+  ['Matt Olson','Aaron Judge','Yordan Alvarez','Pete Alonso'].forEach(check);
+}
+
+// Refresh odds button
+function refreshOdds(){
+  _fdOddsLoaded=false;
+  loadFanDuelOdds(true).then(()=>console.log('[Odds] Refreshed'));
 }
 
 function calcEdge(ourProb, bookOdds){
