@@ -2352,6 +2352,8 @@ function renderDetail(r){
         </div>
       </div>`).join('')}
     </div>`:'<div class="card" style="margin-bottom:10px;border-color:rgba(34,201,94,.2)"><div style="font-size:.78rem;color:var(--green);padding:4px 0">✅ No significant negative angles found for this player today</div></div>'}
+
+    <div class="card" style="margin-bottom:10px">
       <div class="slbl">Probability Breakdown</div>
       ${fbar('Anchor (Blended HR Rate)',r.anchor/MLB_AVG,0.3,2.5)}
       ${fbar('Platoon Split',r.platoon,0.65,1.35)}
