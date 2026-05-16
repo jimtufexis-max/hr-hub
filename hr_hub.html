@@ -383,6 +383,94 @@ font-size:.72rem;font-weight:700;font-family:‘JetBrains Mono’,monospace}
     <div id="ab-list"></div>
   </div>
 
+  <!-- INFO / METHODOLOGY PAGE -->
+
+  <div id="page-info" class="page">
+    <div class="slbl">📖 How It Works</div>
+
+```
+<div class="card" style="margin-bottom:10px">
+  <div class="slbl">Probability Formula</div>
+  <div style="font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--amber);padding:8px;background:var(--bg3);border-radius:8px;margin-bottom:10px">
+    Prob = Anchor × Platoon × Pitcher × Park/Wx × Momentum
+  </div>
+  <div style="font-size:.75rem;color:var(--t3);line-height:1.7">
+    <b style="color:var(--t2)">Anchor</b> — Blended HR rate from season (50%), career (30%), and recent L100 PA (20%). Bayesian shrinkage applied: small samples regress toward league average (3.5%) to prevent noise.<br><br>
+    <b style="color:var(--t2)">Platoon</b> — Batter handedness vs pitcher handedness. R vs L is +22%, L vs R is +18%. L vs L is -28%. Uses player's actual split rate when sample ≥ 20 PA.<br><br>
+    <b style="color:var(--t2)">Pitcher</b> — SP's recent HR/9 vs league avg (1.35). Blends last 4 starts with season rate.<br><br>
+    <b style="color:var(--t2)">Park/Wx</b> — Park factor × wind direction aligned to power alley × temperature effect.<br><br>
+    <b style="color:var(--t2)">Momentum</b> — L15 game HR rate + last-3-game streak modifier. Regressed toward mean.
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:10px">
+  <div class="slbl">Grade Scale</div>
+  ${[['A+','≥15.0%','#22c95e'],['A','≥11.5%','#22c95e'],['B+','≥8.8%','#5fffb0'],['B','≥6.8%','#f0a500'],['C+','≥5.0%','#f0a500'],['C','≥3.5%','#e0504a'],['D','<3.5%','#607080']].map(([g,t,c])=>`
+    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bg3);font-size:.8rem">
+      <span style="font-weight:800;color:${c};min-width:30px">${g}</span>
+      <span style="color:var(--t3)">${t} probability per game</span>
+      <span style="color:var(--t4);font-size:.7rem">~${g==='A+'?'+570':g==='A'?'+770':g==='B+'?'+1040':g==='B'?'+1370':g==='C+'?'+1900':g==='C'?'+2760':'+∞'} fair odds</span>
+    </div>`).join('')}
+</div>
+
+<div class="card" style="margin-bottom:10px">
+  <div class="slbl">🏷️ Tag Key</div>
+  ${[
+    ['⭐','Elite Spot','4+ positive signal categories aligned — highest conviction'],
+    ['🌟','Prime Spot','Platoon + power + form all pointing same direction'],
+    ['🎯','Pull-Air King','22%+ pulled airballs — top 2% (lg avg 12.5%)'],
+    ['🛢️','Barrel King','20%+ barrel rate — elite (lg avg 8%)'],
+    ['💪','Barrel Threat','11-20% barrel — above average'],
+    ['🔨','Iron Fists','56%+ hard hit rate — top 3%'],
+    ['⚡','Nuclear EV','95+ mph avg EV — Judge/Alvarez tier'],
+    ['💣','Power Elite','ISO .300+ — judge-tier raw power'],
+    ['🧨','Dinger Machine','3.0+ HR/9 recent — gopher ball alert'],
+    ['🚀','Serving Dingers','2.2-3.0 HR/9 recent — very HR-prone SP'],
+    ['📤','HR-Prone SP','1.7-2.2 HR/9 recent — above lg avg'],
+    ['💥','Due for HRs','xHR from barrel% implies 5+ more HRs due'],
+    ['📊','xHR Ahead','Barrel% implies 3+ HRs more than actual'],
+    ['🔥','On Fire','2+ HR in last 3 games'],
+    ['⚡','On a Tear','L7 HR rate 1.8× above season rate'],
+    ['🏔️','Coors Field','Mile High — ball travels 10% farther'],
+    ['🏟️','HR Park','Park factor ≥1.08×'],
+    ['💨','Wind Blowing Out','12+ mph toward power alley'],
+    ['☀️','Heat Game','85°F+ — every 10°F above 72 adds ~2% HR prob'],
+    ['💰','FD Edge','Our probability exceeds FanDuel implied by 5%+'],
+  ].map(([icon,name,desc])=>`
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
+      <span style="font-size:1.1rem;flex-shrink:0">${icon}</span>
+      <div>
+        <div style="font-size:.8rem;font-weight:700;color:var(--t1)">${name}</div>
+        <div style="font-size:.68rem;color:var(--t4);margin-top:1px">${desc}</div>
+      </div>
+    </div>`).join('')}
+</div>
+
+<div class="card" style="margin-bottom:10px">
+  <div class="slbl">📊 Data Sources</div>
+  <div style="font-size:.75rem;color:var(--t3);line-height:1.8">
+    <b style="color:var(--t2)">MLB Stats API</b> — Schedule, rosters, game logs, season stats, pitcher logs. Free, CORS-enabled.<br>
+    <b style="color:var(--t2)">Baseball Savant</b> — Barrel%, hard hit%, EV, pull-air%, via Cloudflare Worker proxy.<br>
+    <b style="color:var(--t2)">Open-Meteo</b> — Real-time weather (temp, wind, rain) for each ballpark.<br>
+    <b style="color:var(--t2)">FanDuel odds</b> — Via The Odds API (requires paid plan for player props).
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:10px">
+  <div class="slbl">⚠️ Noise Reduction</div>
+  <div style="font-size:.75rem;color:var(--t3);line-height:1.7">
+    Small sample sizes are the #1 source of noise. We apply Bayesian shrinkage:<br><br>
+    • Season rate needs <b style="color:var(--t2)">100+ PA</b> for full weight. Below that, regresses toward 3.5% MLB avg.<br>
+    • L100 rate needs <b style="color:var(--t2)">80+ PA</b> minimum to use at all.<br>
+    • Career needs <b style="color:var(--t2)">200+ PA</b>.<br>
+    • No Statcast data = capped at 1.3× MLB avg max.<br><br>
+    This prevents catchers and backup players with 2 HRs in 30 PA from outranking established power hitters.
+  </div>
+</div>
+```
+
+  </div>
+
 </div><!-- /content -->
 
 <!-- ── BOTTOM NAV ──────────────────────────────────────────────── -->
@@ -399,6 +487,10 @@ font-size:.72rem;font-weight:700;font-family:‘JetBrains Mono’,monospace}
   <button class="nav-btn" onclick="showPage('ab')" id="nav-ab">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
     AB Log
+  </button>
+  <button class="nav-btn" onclick="showPage('info')" id="nav-info">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Info
   </button>
 </nav>
 
@@ -545,9 +637,41 @@ async function getSavantBatters(){
         hard_hit_pct:parseF(row.ev95percent),
         avg_ev:      parseF(row.avg_hit_speed ?? row.avg_exit_velocity),
         avg_la:      parseF(row.avg_hit_angle ?? row.avg_launch_angle),
+        hr_fb_pct:   parseF(row.home_run_per_flyball ?? row.hr_flyball ?? row.hr_per_fb ?? row.hr_over_flyball),
       };
     }
-    console.log(`Savant batters: ${Object.keys(out).length} players`);
+    console.log(`Savant batters (statcast): ${Object.keys(out).length} players`);
+
+    // ── Batted-ball leaderboard: pull_air_rate, fb_rate, pull_rate ──
+    // Confirmed columns: id, pull_rate, air_rate, fb_rate, pull_air_rate (all 0-1 decimals)
+    try{
+      const url2=`https://baseballsavant.mlb.com/leaderboard/batted-ball?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
+      const r2 = await fetch(PROXY + encodeURIComponent(url2));
+      if(r2.ok){
+        const rows2 = parseCSVText(await r2.text());
+        console.log(`[Savant batted-ball] ${rows2.length} rows`);
+        const toP = v => { const f=parseFloat(v); return isNaN(f)?null:Math.round(f*1000)/10; };
+        let enriched = 0;
+        for(const row of rows2){
+          const pid = String(row.id||'').replace(/\.0$/,'');
+          if(!pid) continue;
+          if(!out[pid]) out[pid] = {};
+          const pa  = toP(row.pull_air_rate); // already computed by Savant
+          const fb  = toP(row.fb_rate);
+          const pull= toP(row.pull_rate);
+          const air = toP(row.air_rate);
+          if(pa!=null)   out[pid].pull_air_pct = pa;
+          if(fb!=null)   out[pid].fb_pct       = fb;
+          if(pull!=null) out[pid].pull_pct      = pull;
+          if(air!=null)  out[pid].air_pct       = air;
+          enriched++;
+        }
+        const withPA = Object.values(out).filter(v=>v.pull_air_pct!=null).length;
+        console.log(`[Savant batted-ball] enriched ${enriched} players, ${withPA} with pull_air_pct`);
+      }
+    }catch(e2){ console.warn('[Savant batted-ball] failed:', e2.message); }
+
+    console.log(`Savant batters total: ${Object.keys(out).length} players`);
     return out;
   }catch(e){console.warn('getSavantBatters failed:',e.message);return{};}
 }
@@ -690,74 +814,67 @@ function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
 
 function calcAnchor(stats){
   const {
-    l100hr,
-    l100pa,
-    szHR,
-    szPA,
-    careerHR,
-    careerPA,
-    barrel_pct,
-    hard_hit_pct,
-    iso,
-    pull_air_pct
+    l100hr, l100pa,
+    szHR, szPA,
+    careerHR, careerPA,
+    barrel_pct, hard_hit_pct, iso, pull_air_pct
   } = stats;
 
-  // ── REAL HR RATES ─────────────────────────────────────────────
+  // ── REAL HR RATES with sample-size confidence ─────────────────
+  // Bayesian shrinkage: low sample = regress toward league average
+  // This is what kills Drew Romo hot streaks — small sample gets
+  // pulled hard toward MLB_AVG (3.5%)
 
-  const l100Rate = (l100pa >= 60)
-    ? l100hr / l100pa
-    : null;
+  // Minimum PAs before we trust a rate at all
+  const MIN_L100 = 80;   // ~25 games
+  const MIN_SZN  = 100;  // ~30 games
+  const MIN_CAR  = 200;  // career floor
 
-  const sznRate = (szPA >= 40)
-    ? szHR / szPA
-    : null;
+  // Raw rates (null if insufficient sample)
+  const l100RateRaw = (l100pa >= MIN_L100) ? l100hr / l100pa : null;
+  const sznRateRaw  = (szPA   >= MIN_SZN)  ? szHR   / szPA   : null;
+  const carRateRaw  = (careerPA >= MIN_CAR) ? careerHR / careerPA : null;
 
-  const careerRate = (careerPA >= 150)
-    ? careerHR / careerPA
-    : null;
+  // Confidence-weighted blend: more PA = more weight on actual rate
+  // Formula: blended = (observed * confidence) + (MLB_AVG * (1 - confidence))
+  // where confidence = min(PA / target_PA, 1.0)
+  const shrink = (rate, pa, targetPA) => {
+    if(rate == null) return null;
+    const conf = Math.min(pa / targetPA, 1.0);
+    return (rate * conf) + (MLB_AVG * (1.0 - conf));
+  };
 
+  const l100Rate = shrink(l100RateRaw, l100pa||0, 200); // full trust at 200 PA
+  const sznRate  = shrink(sznRateRaw,  szPA||0,   300); // full trust at 300 PA
+  const carRate  = shrink(carRateRaw,  careerPA||0, 400);
+
+  // Blend rates — season is primary signal, recent is secondary
   let rateScore = null;
-
-  if(l100Rate != null && sznRate != null && careerRate != null){
-    rateScore =
-      (l100Rate * 0.25) +
-      (sznRate  * 0.45) +
-      (careerRate * 0.15);
+  if(sznRate != null && carRate != null && l100Rate != null){
+    rateScore = (sznRate * 0.50) + (carRate * 0.30) + (l100Rate * 0.20);
+  } else if(sznRate != null && l100Rate != null){
+    rateScore = (sznRate * 0.60) + (l100Rate * 0.40);
+  } else if(sznRate != null && carRate != null){
+    rateScore = (sznRate * 0.70) + (carRate * 0.30);
+  } else if(sznRate != null){
+    // Only season — low sample gets strong regression
+    const conf = Math.min((szPA||0) / 300, 1.0);
+    rateScore = (sznRateRaw * conf) + (MLB_AVG * (1.0 - conf));
+  } else if(carRate != null){
+    rateScore = carRate; // already shrunk
   }
-  else if(l100Rate != null && sznRate != null){
-    rateScore =
-      (l100Rate * 0.35) +
-      (sznRate  * 0.65);
-  }
-  else if(sznRate != null && careerRate != null){
-    rateScore =
-      (sznRate * 0.75) +
-      (careerRate * 0.25);
-  }
-  else if(sznRate != null){
-    rateScore = sznRate;
-  }
-  else if(careerRate != null){
-    rateScore = careerRate;
-  }
+  // If NO rate data at all → fall back to power profile only
+  // but cap at MLB_AVG * 1.2 to prevent noise from sending no-data
+  // players to the top
 
-  // ── POWER PROFILE ────────────────────────────────────────────
+  // ── POWER PROFILE (Statcast) ──────────────────────────────────
+  // Only boosts/penalizes — doesn't create probability from nothing
+  const hasStatcast = barrel_pct != null || hard_hit_pct != null || iso != null;
 
-  const barrelScore = (barrel_pct != null)
-    ? clamp(barrel_pct / 10.0, 0.35, 2.2)
-    : 1.0;
-
-  const pullAirScore = (pull_air_pct != null)
-    ? clamp(pull_air_pct / 15.0, 0.35, 2.4)
-    : 1.0;
-
-  const isoScore = (iso != null)
-    ? clamp(iso / 0.185, 0.35, 2.3)
-    : 1.0;
-
-  const hardHitScore = (hard_hit_pct != null)
-    ? clamp(hard_hit_pct / 42.0, 0.40, 1.8)
-    : 1.0;
+  const barrelScore   = barrel_pct   != null ? clamp(barrel_pct   / 10.0, 0.35, 2.2) : 1.0;
+  const pullAirScore  = pull_air_pct != null ? clamp(pull_air_pct / 15.0, 0.35, 2.0) : 1.0;
+  const isoScore      = iso           != null ? clamp(iso          / 0.185, 0.35, 2.0) : 1.0;
+  const hardHitScore  = hard_hit_pct  != null ? clamp(hard_hit_pct / 42.0, 0.40, 1.6) : 1.0;
 
   const powerProfile =
     (barrelScore  * 0.45) +
@@ -766,18 +883,21 @@ function calcAnchor(stats){
     (hardHitScore * 0.10);
 
   // ── FINAL BLEND ──────────────────────────────────────────────
-
   let base;
-
   if(rateScore != null){
-    // Real HR skill remains dominant
-    base =
-      (rateScore * 0.85) +
-      ((MLB_AVG * powerProfile) * 0.15);
-  }
-  else {
-    // Statcast fallback only
-    base = MLB_AVG * powerProfile;
+    if(hasStatcast){
+      // Have both rate data AND Statcast — high confidence blend
+      base = (rateScore * 0.80) + ((MLB_AVG * powerProfile) * 0.20);
+    } else {
+      // Rate data only, no Statcast — less refinement
+      base = (rateScore * 0.90) + (MLB_AVG * 0.10);
+    }
+  } else if(hasStatcast){
+    // No rate data, Statcast only — cap at 1.3× MLB_AVG to prevent noise
+    base = MLB_AVG * Math.min(powerProfile, 1.3);
+  } else {
+    // Nothing — return slightly below MLB_AVG (unknown player)
+    base = MLB_AVG * 0.85;
   }
 
   return clamp(base, 0.005, 0.38);
