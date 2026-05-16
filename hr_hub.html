@@ -1810,6 +1810,7 @@ async function loadSelectedGames(){
   const el=document.getElementById('hitter-list');
   el.innerHTML='<div class="spinner"><div class="spin"></div>Loading leaderboard data…</div>';
   await ensureLeaderboards();
+  await ensurePitchArsenalMap(); // load pitcher arsenal for all SPs
   loadFanDuelOdds(); // fire and forget
 
   const toLoad=[];
@@ -1902,54 +1903,116 @@ async function getPitcherGameLog(pid){
 // ==================================================================
 //  PITCHER ARSENAL — pitch mix + vulnerability scoring
 // ==================================================================
+// ==================================================================
+//  PITCHER ARSENAL — from Savant pitch-arsenal-stats leaderboard
+// ==================================================================
+let _pitchArsenalMap = null; // pid → {pitch_type: pct%}
+
+async function ensurePitchArsenalMap(){
+  if(_pitchArsenalMap !== null) return;
+  _pitchArsenalMap = {};
+  try{
+    const url = `https://baseballsavant.mlb.com/leaderboard/pitch-arsenal-stats?type=pitcher&pitchType=&year=${SEASON}&team=&min=1&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`pitch-arsenal-stats ${r.status}`);
+    const txt = await r.text();
+    const rows = parseCSVText(txt);
+    console.log(`[Arsenal leaderboard] ${rows.length} rows, cols:`, rows[0]?Object.keys(rows[0]).slice(0,8):[] );
+
+    // Find column names
+    const sample = rows[0] || {};
+    const idCol  = ['pitcher_id','mlbam_id','player_id','id'].find(c=>sample[c]!=null);
+    const ptCol  = ['pitch_type','pitch_name'].find(c=>sample[c]!=null);
+    const pctCol = ['run_frequency_formatted','pitch_percent','pitch_usage','pitch_frequency'].find(c=>sample[c]!=null);
+
+    console.log(`[Arsenal leaderboard] id=${idCol} pt=${ptCol} pct=${pctCol}`);
+    if(!idCol || !ptCol){ throw new Error('Column mapping failed'); }
+
+    for(const row of rows){
+      const pid = String(row[idCol]||'').replace(/\.0$/,'').trim();
+      if(!pid) continue;
+      const pt  = String(row[ptCol]||'').trim().toUpperCase();
+      if(!pt || pt==='NAN' || pt==='NA') continue;
+      let pct = null;
+      if(pctCol){
+        const raw = String(row[pctCol]||'').replace('%','');
+        pct = parseFloat(raw);
+        if(!isNaN(pct)){
+          if(pct <= 1.0) pct = Math.round(pct*1000)/10; // 0.44 → 44.0
+          else pct = Math.round(pct*10)/10;              // 44.0 → 44.0
+        }
+      }
+      if(!_pitchArsenalMap[pid]) _pitchArsenalMap[pid] = {};
+      if(pct!=null && pct>0) _pitchArsenalMap[pid][pt] = pct;
+    }
+    const count = Object.keys(_pitchArsenalMap).length;
+    console.log(`[Arsenal leaderboard] built map for ${count} pitchers`);
+    // Sample output
+    const sample2 = Object.entries(_pitchArsenalMap).slice(0,2);
+    sample2.forEach(([pid,mix])=>console.log(`  pid ${pid}:`,mix));
+  }catch(e){
+    console.warn('[Arsenal leaderboard] failed:', e.message);
+    _pitchArsenalMap = {}; // empty — don't retry
+  }
+}
+
 async function getPitcherArsenal(spId){
   if(!spId) return null;
   const key = `arsenal_${spId}`;
   if(_playerCache[key] !== undefined) return _playerCache[key];
-  try{
-    // Try pitchArsenal endpoint
-    const d = await fetchJSON(
-      `${MLB}/people/${spId}/stats?stats=pitchArsenal&group=pitching&season=${SEASON}&gameType=R`
-    );
-    console.log(`[Arsenal] pitcher ${spId} response:`, JSON.stringify(d.stats?.[0]?.splits?.slice(0,2)||[]).slice(0,200));
-    const splits = d.stats?.[0]?.splits || [];
 
-    // MLB API pitch arsenal splits use sp.split.description for pitch name
-    // and sp.stat.percentage for usage %
-    const mix = {};
-    for(const sp of splits){
-      // Try multiple field paths the API uses
-      const pt  = sp.stat?.type?.code
-               || sp.split?.code
-               || sp.stat?.pitchType?.code
-               || '';
-      const pct = parseFloat(
-        sp.stat?.percentage ?? sp.stat?.percent ??
-        sp.stat?.pitchPercentage ?? 0
-      );
-      if(pt && pct > 0) mix[pt] = Math.round(pct * 10) / 10;
-    }
+  // Ensure the bulk leaderboard is loaded
+  await ensurePitchArsenalMap();
 
-    console.log(`[Arsenal] pitcher ${spId} mix:`, mix);
+  const pid = String(spId).replace(/\.0$/,'');
+  const mix = _pitchArsenalMap[pid] || null;
 
-    if(!Object.keys(mix).length){
-      _playerCache[key] = null;
-      return null;
-    }
-
-    const primary = Object.entries(mix).sort((a,b)=>b[1]-a[1])[0]?.[0] || '';
-    const isFastballHeavy = (mix.FF||0)+(mix.SI||0) > 55;
-    const isBreakingHeavy = (mix.SL||0)+(mix.CU||0)+(mix.ST||0) > 45;
-    const isOffspeedHeavy = (mix.CH||0)+(mix.FS||0) > 25;
-
-    const result = { mix, primary, isFastballHeavy, isBreakingHeavy, isOffspeedHeavy };
-    _playerCache[key] = result;
-    return result;
-  }catch(e){
-    console.warn('[Arsenal] failed for', spId, ':', e.message);
+  if(!mix || !Object.keys(mix).length){
+    // Fallback: try Savant statcast CSV for this pitcher grouped by pitch_type
+    try{
+      const now = new Date(), st = new Date(); st.setDate(st.getDate()-60);
+      const fd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const url = `https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfSea=${SEASON}%7C&player_type=pitcher&pitchers_lookup%5B%5D=${pid}&type=details&hfGT=R%7C&min_results=0&group_by=name&sort_col=pitches&sort_order=desc&`;
+      const r = await fetch(PROXY + encodeURIComponent(url));
+      if(r.ok){
+        const txt = await r.text();
+        const rows = parseCSVText(txt);
+        if(rows.length >= 2){
+          const counts = {};
+          for(const row of rows){
+            const pt = String(row.pitch_type||'').toUpperCase().trim();
+            if(!pt || pt==='NA' || pt==='NAN') continue;
+            counts[pt] = (counts[pt]||0)+1;
+          }
+          const total = Object.values(counts).reduce((a,b)=>a+b,0);
+          if(total > 0){
+            const csvMix = {};
+            for(const [pt,n] of Object.entries(counts)){
+              csvMix[pt] = Math.round(n/total*1000)/10;
+            }
+            console.log(`[Arsenal CSV fallback] pitcher ${pid}:`, csvMix);
+            const result = buildArsenalResult(csvMix);
+            _playerCache[key] = result;
+            return result;
+          }
+        }
+      }
+    }catch(e2){ console.warn('[Arsenal CSV fallback]:', e2.message); }
     _playerCache[key] = null;
     return null;
   }
+
+  const result = buildArsenalResult(mix);
+  _playerCache[key] = result;
+  return result;
+}
+
+function buildArsenalResult(mix){
+  const primary = Object.entries(mix).sort((a,b)=>b[1]-a[1])[0]?.[0] || '';
+  const isFastballHeavy = (mix.FF||0)+(mix.SI||0) > 55;
+  const isBreakingHeavy = (mix.SL||0)+(mix.CU||0)+(mix.ST||0) > 45;
+  const isOffspeedHeavy = (mix.CH||0)+(mix.FS||0) > 25;
+  return { mix, primary, isFastballHeavy, isBreakingHeavy, isOffspeedHeavy };
 }
 
 // Get batter's performance vs specific pitch types from MLB API
