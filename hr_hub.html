@@ -954,8 +954,15 @@ function calcPitcherMult(pitcherStats){
 
   if(!scores.length) return 1.0;
   const tw = scores.reduce((s,[,w])=>s+w, 0);
-  const wm = scores.reduce((s,[m,w])=>s+m*w, 0) / tw;
-  return clamp(wm, 0.50, 2.20);
+  let wm = scores.reduce((s,[m,w])=>s+m*w, 0) / tw;
+
+  // Arsenal matchup modifier — how well does THIS batter hit THIS SP's pitches
+  if(pitcherStats._arsenalMult != null && pitcherStats._arsenalMult !== 1.0){
+    // Blend: 75% HR rate signal, 25% arsenal matchup
+    wm = wm * 0.75 + pitcherStats._arsenalMult * 0.25;
+  }
+
+  return clamp(wm, 0.45, 2.30);
 }
 
 // ── PARK + WEATHER ─────────────────────────────────────────────────
@@ -1033,7 +1040,10 @@ function calcMomentumMult(recentGames){
 // ── FINAL PROBABILITY ─────────────────────────────────────────────
 function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const anchor   = calcAnchor(batterStats);
-  const overallRate = (batterStats.szPA>30) ? batterStats.szHR/batterStats.szPA : null;
+  // Use anchor as overallRate fallback when season PA is too small
+  const overallRate = (batterStats.szPA >= 50)
+    ? batterStats.szHR / batterStats.szPA
+    : anchor; // anchor is already the best blended rate estimate
   const platoon  = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
                      batterStats.platRate, overallRate);
   const pitcher  = calcPitcherMult(pitcherStats);
@@ -1287,6 +1297,10 @@ function detectAngles(r){
       label:'Favorable hand',
       color:'var(--green)',
       tip:`${r.batHand}HB vs ${r.oppHand}HP — cross-hand advantage`});
+  } else if(r.batHand==='R' && r.oppHand==='R'){
+    angles.push({icon:'🔵',cat:'platoon',tier:3,
+      label:'R vs R',color:'var(--t4)',
+      tip:'RHB vs RHP — slight platoon disadvantage (0.88×). Most common MLB matchup, slightly favors pitcher.'});
   } else if(r.platoon <= 0.74){
     angles.push({icon:'⚠️', cat:'platoon', tier:3,
       label:'Same-hand fade',
@@ -1518,6 +1532,21 @@ function detectAngles(r){
       label:'💣 Power Elite',
       color:'var(--green)',
       tip:`ISO .${Math.round(r.iso*1000)} — elite raw power (Judge-tier .300+)`});
+  }
+
+  // ── ARSENAL MATCHUP SIGNAL ───────────────────────────────────────
+  if(pit._arsenalDesc && pit._arsenalMult != null){
+    if(pit._arsenalMult >= 1.12){
+      angles.push({icon:'🎵',cat:'arsenal',tier:1,
+        label:'Pitch Mix Advantage',
+        color:'var(--green)',
+        tip:`${pit._arsenalDesc} — this batter's ISO vs SP's primary pitches is above league avg`});
+    } else if(pit._arsenalMult >= 1.06){
+      angles.push({icon:'🎵',cat:'arsenal',tier:2,
+        label:'Favorable Pitch Mix',
+        color:'#90c0ff',
+        tip:`${pit._arsenalDesc}`});
+    }
   }
 
   // ── PITCHER VULNERABILITY SIGNALS ───────────────────────────────
@@ -1870,6 +1899,132 @@ async function getPitcherGameLog(pid){
   }catch{ return null; }
 }
 
+// ==================================================================
+//  PITCHER ARSENAL — pitch mix + vulnerability scoring
+// ==================================================================
+async function getPitcherArsenal(spId){
+  if(!spId) return null;
+  const key = `arsenal_${spId}`;
+  if(_playerCache[key]) return _playerCache[key];
+  try{
+    // MLB API pitch arsenal endpoint
+    const d = await fetchJSON(
+      `${MLB}/people/${spId}/stats?stats=pitchArsenal&group=pitching&season=${SEASON}&gameType=R`
+    );
+    const splits = d.stats?.[0]?.splits || [];
+    if(!splits.length){ _playerCache[key]=null; return null; }
+
+    // Build pitch mix: {FF:45%, SL:25%, CH:18%, ...}
+    const mix = {};
+    for(const sp of splits){
+      const pt  = sp.stat?.type?.code || sp.split?.code || '';
+      const pct = parseFloat(sp.stat?.percentage || sp.stat?.percent || 0);
+      if(pt && pct>0) mix[pt] = Math.round(pct*10)/10;
+    }
+
+    // Primary pitch type (most used)
+    const primary = Object.entries(mix).sort((a,b)=>b[1]-a[1])[0]?.[0] || '';
+
+    // Pitch group classification
+    const isFastballHeavy = (mix.FF||0)+(mix.SI||0) > 55;
+    const isBreakingHeavy = (mix.SL||0)+(mix.CU||0)+(mix.ST||0) > 45;
+    const isOffspeedHeavy = (mix.CH||0)+(mix.FS||0) > 25;
+
+    const result = { mix, primary, isFastballHeavy, isBreakingHeavy, isOffspeedHeavy };
+    _playerCache[key] = result;
+    return result;
+  }catch(e){
+    console.warn('[Arsenal] failed:', e.message);
+    _playerCache[key] = null;
+    return null;
+  }
+}
+
+// Get batter's performance vs specific pitch types from MLB API
+async function getBatterVsPitchType(batId){
+  if(!batId) return null;
+  const key = `vspitch_${batId}`;
+  if(_playerCache[key]) return _playerCache[key];
+  try{
+    const d = await fetchJSON(
+      `${MLB}/people/${batId}/stats?stats=vsTeam&group=hitting&season=${SEASON}&gameType=R`
+    );
+    // vsTeam doesn't have pitch type — use pitchArsenal for batters
+    const d2 = await fetchJSON(
+      `${MLB}/people/${batId}/stats?stats=pitchArsenal&group=hitting&season=${SEASON}&gameType=R`
+    );
+    const splits = d2.stats?.[0]?.splits || [];
+    const result = {};
+    for(const sp of splits){
+      const pt  = sp.stat?.type?.code || sp.split?.code || '';
+      if(!pt) continue;
+      result[pt] = {
+        slg:  parseFloat(sp.stat?.slg  || 0) || null,
+        iso:  parseFloat(sp.stat?.iso  || 0) || null,
+        hr:   parseInt(sp.stat?.homeRuns || 0) || 0,
+        pa:   parseInt(sp.stat?.plateAppearances || sp.stat?.atBats || 0) || 0,
+        avg:  parseFloat(sp.stat?.avg  || 0) || null,
+      };
+    }
+    _playerCache[key] = Object.keys(result).length ? result : null;
+    return _playerCache[key];
+  }catch(e){
+    _playerCache[key] = null;
+    return null;
+  }
+}
+
+// Score batter vs pitcher arsenal matchup
+// Returns multiplier 0.7–1.4 and description string
+function scoreArsenalMatchup(arsenal, batVsPitch){
+  if(!arsenal || !batVsPitch) return { mult:1.0, desc:null };
+
+  const mix = arsenal.mix;
+  let weightedISO = 0, totalWeight = 0;
+  const strengths = [], weaknesses = [];
+
+  const LG_ISO_BY_PITCH = {
+    FF:0.180, SI:0.130, FC:0.145, SL:0.155, ST:0.160,
+    CU:0.140, CH:0.145, FS:0.130, KC:0.130, SV:0.150
+  };
+
+  for(const [pt, pct] of Object.entries(mix)){
+    if(pct < 5) continue; // ignore <5% pitches
+    const batData = batVsPitch[pt];
+    if(!batData || batData.pa < 10) continue; // need 10+ PA vs this pitch type
+
+    const lgISO  = LG_ISO_BY_PITCH[pt] || 0.155;
+    const batISO = batData.iso || 0;
+    const isoRatio = batISO / lgISO;
+    const weight = pct / 100;
+
+    weightedISO += isoRatio * weight;
+    totalWeight += weight;
+
+    if(isoRatio >= 1.4 && batData.pa >= 20){
+      strengths.push(`${pt} (ISO +${Math.round((isoRatio-1)*100)}%)`);
+    }
+    if(isoRatio <= 0.65 && batData.pa >= 20){
+      weaknesses.push(`${pt}`);
+    }
+  }
+
+  if(totalWeight < 0.20) return { mult:1.0, desc:null }; // not enough data
+
+  const avgRatio = weightedISO / totalWeight;
+  const mult = clamp(0.80 + avgRatio * 0.20, 0.75, 1.35);
+
+  let desc = null;
+  if(strengths.length && mult >= 1.10){
+    desc = `Hits ${strengths[0]} well vs this SP's mix`;
+  } else if(weaknesses.length && mult <= 0.88){
+    desc = `Struggles vs ${weaknesses[0]} (SP's primary weapon)`;
+  }
+
+  return { mult, desc, strengths, weaknesses, avgRatio };
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -1901,10 +2056,12 @@ async function loadGame(g){
     getPitcherHand(g.homeSpId),
   ]);
 
-  // Fetch pitcher game logs for HR/9 (last 4 starts)
-  const [awPitLog, hmPitLog] = await Promise.all([
+  // Fetch pitcher game logs + arsenal
+  const [awPitLog, hmPitLog, awArsenal, hmArsenal] = await Promise.all([
     getPitcherGameLog(g.awaySpId),
     getPitcherGameLog(g.homeSpId),
+    getPitcherArsenal(g.awaySpId),
+    getPitcherArsenal(g.homeSpId),
   ]);
 
   const wx  = await getWeather(g.venue);
@@ -1923,29 +2080,40 @@ async function loadGame(g){
     // Build pitcher stats object
     const savP   = (_savP||{})[String(spId)]||{};
     const fgP    = (_fgP||{})[String(spId)]||{};
+    const spArsenal = key.endsWith('_away') ? hmArsenal : awArsenal;
     const pitcherStats = {
-      pitHand:          oppHand,
-      hr9_recent:       pitLog?.hr9_recent ?? null,
-      hr9_season:       pitLog?.hr9_season ?? null,
-      hrFb:             fgP.hrFb           ?? null,
-      barrel_pct_allowed: savP.barrel_pct  ?? null,
+      pitHand:            oppHand,
+      hr9_recent:         pitLog?.hr9_recent  ?? null,
+      hr9_season:         pitLog?.hr9_season  ?? null,
+      recentK9:           pitLog?.recentK9    ?? null,
+      seasonK9:           pitLog?.seasonK9    ?? null,
+      totalStarts:        pitLog?.totalStarts ?? null,
+      hrFb:               fgP.hrFb            ?? null,
+      barrel_pct_allowed: savP.barrel_pct     ?? null,
+      arsenal:            spArsenal,
+      _arsenalMult:       null,
+      _arsenalDesc:       null,
+      _arsenalStrengths:  [],
+      _arsenalWeaknesses: [],
     };
 
     // Batch-fetch batter recent games + platoon splits in parallel
     const BATCH = 8;
     const recentGamesMap = {};
     const platoonMap = {};
+    const vsPitchMap = {};
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk   = hitters.slice(i, i+BATCH);
-      const [recResults, platResults, statResults] = await Promise.all([
+      const [recResults, platResults, statResults, pitchResults] = await Promise.all([
         Promise.allSettled(chunk.map(h=>getBatterRecentGames(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPlayerPlatoonSplits(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPlayerStats(String(h.id), SEASON))),
+        Promise.allSettled(chunk.map(h=>getBatterVsPitchType(String(h.id)))),
       ]);
       chunk.forEach((h,j)=>{
-        if(recResults[j].status==='fulfilled')  recentGamesMap[String(h.id)] = recResults[j].value;
-        if(platResults[j].status==='fulfilled') platoonMap[String(h.id)]    = platResults[j].value;
-        // statResults populate _playerCache[pid_SEASON] automatically via getPlayerStats
+        if(recResults[j].status==='fulfilled')   recentGamesMap[String(h.id)] = recResults[j].value;
+        if(platResults[j].status==='fulfilled')  platoonMap[String(h.id)]     = platResults[j].value;
+        if(pitchResults[j].status==='fulfilled') vsPitchMap[String(h.id)]     = pitchResults[j].value;
       });
     }
 
@@ -2000,6 +2168,14 @@ async function loadGame(g){
         pull_pct:        savH.pull_pct      ?? null,
         fb_pct:          savH.fb_pct        ?? null,
       };
+
+      // Arsenal matchup
+      const batVsPitch = vsPitchMap[pid] || null;
+      const arsenalMatch = scoreArsenalMatchup(pitcherStats.arsenal, batVsPitch);
+      pitcherStats._arsenalMult = arsenalMatch.mult;
+      pitcherStats._arsenalDesc = arsenalMatch.desc;
+      pitcherStats._arsenalStrengths = arsenalMatch.strengths || [];
+      pitcherStats._arsenalWeaknesses = arsenalMatch.weaknesses || [];
 
       const res = calcHRProb(batterStats, pitcherStats, pf, wx, recent);
       const [grd, gc, gCls] = probGrade(res.prob);
@@ -2078,6 +2254,9 @@ function detectNegativeAngles(r){
   if(r.pitcher<0.82)
     neg.push({icon:'🧱',label:`Pitcher Suppressing HRs (${r.pitcher.toFixed(2)}×)`,
       tip:`SP limiting HRs in recent starts. ${r.pitcher.toFixed(2)}× vs league avg.`});
+  if(pit._arsenalMult!=null&&pit._arsenalMult<=0.88&&pit._arsenalDesc)
+    neg.push({icon:'🎵',label:'Unfavorable Pitch Mix',
+      tip:`${pit._arsenalDesc} — struggles vs this SP's arsenal historically.`});
   if(pit.recentK9!=null&&pit.seasonK9!=null&&pit.recentK9>pit.seasonK9*1.18&&pit.seasonK9>=6)
     neg.push({icon:'📈',label:'SP Strikeouts Up',
       tip:`K/9 ${pit.seasonK9.toFixed(1)}→${pit.recentK9.toFixed(1)}. Better stuff = fewer HRs.`});
