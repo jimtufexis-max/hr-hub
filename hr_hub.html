@@ -2468,6 +2468,100 @@ function renderDetail(r){
       ${fbar('L15 Momentum',r.momentum,0.65,1.50)}
     </div>
 
+    ${(()=>{
+      const pit = r._pitcherStats||{};
+      const arsenal = pit.arsenal;
+      if(!arsenal) return '';
+
+      // Sort pitch types by usage
+      const pitches = Object.entries(arsenal.mix||{})
+        .filter(([,pct])=>pct>=5)
+        .sort((a,b)=>b[1]-a[1]);
+      if(!pitches.length) return '';
+
+      const PITCH_FULL = {FF:'4-Seam FB',SI:'Sinker',FC:'Cutter',SL:'Slider',
+        ST:'Sweeper',CU:'Curveball',CH:'Changeup',FS:'Splitter',KC:'Knuckle-Curve',SV:'Slurve'};
+      const PITCH_CLR  = {FF:'#dc2626',SI:'#b91c1c',FC:'#ea580c',SL:'#2563eb',
+        ST:'#1d4ed8',CU:'#7c3aed',CH:'#16a34a',FS:'#15803d',KC:'#6d28d9',SV:'#0891b2'};
+      const LG_ISO     = {FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,
+        CU:0.140,CH:0.145,FS:0.130,KC:0.130,SV:0.150};
+
+      // Arsenal angle tags based on batter vs pitch data
+      const arsenalTags = [];
+      const batVsPitch  = {}; // will be populated below if available
+
+      // Build pitch rows
+      const pitchRows = pitches.map(([pt,pct])=>{
+        const fullName = PITCH_FULL[pt]||pt;
+        const clr      = PITCH_CLR[pt]||'#607080';
+        const lgISO    = LG_ISO[pt]||0.155;
+
+        // Bar width for pitch usage
+        const barW = Math.round(pct);
+
+        // Check if batter has data vs this pitch from cache
+        const bvp = (pit._arsenalStrengths||[]).find(s=>s.startsWith(pt));
+        const bvpWeak = (pit._arsenalWeaknesses||[]).includes(pt);
+
+        let matchupTag = '';
+        if(bvp){
+          matchupTag = `<span style="font-size:.62rem;padding:1px 6px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green);margin-left:6px">✓ Hits well</span>`;
+        } else if(bvpWeak){
+          matchupTag = `<span style="font-size:.62rem;padding:1px 6px;border-radius:99px;background:rgba(224,80,74,.15);color:var(--red);margin-left:6px">✗ Struggles</span>`;
+        }
+
+        return `<div style="margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+            <span style="font-size:.75rem;font-weight:700;color:${clr};min-width:70px">${fullName}</span>
+            <span style="font-size:.72rem;color:var(--t4);min-width:36px">${pct.toFixed(0)}%</span>
+            ${matchupTag}
+          </div>
+          <div style="background:var(--bg3);border-radius:3px;height:5px;overflow:hidden">
+            <div style="width:${barW}%;height:5px;background:${clr};border-radius:3px;opacity:.8"></div>
+          </div>
+        </div>`;
+      }).join('');
+
+      // Primary pitch tag
+      const primary = pitches[0];
+      const primaryName = PITCH_FULL[primary?.[0]]||primary?.[0]||'';
+      const primaryPct  = primary?.[1]||0;
+      const isStrong    = (pit._arsenalMult||1) >= 1.10;
+      const isWeak      = (pit._arsenalMult||1) <= 0.88;
+
+      const arsenalSummaryTag = isStrong
+        ? `<span style="font-size:.68rem;padding:2px 8px;border-radius:99px;background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.3);color:var(--green);font-weight:700">🎵 Favorable Mix</span>`
+        : isWeak
+        ? `<span style="font-size:.68rem;padding:2px 8px;border-radius:99px;background:rgba(224,80,74,.15);border:1px solid rgba(224,80,74,.3);color:var(--red);font-weight:700">🎵 Unfavorable Mix</span>`
+        : `<span style="font-size:.68rem;padding:2px 8px;border-radius:99px;background:var(--bg3);border:1px solid var(--bdr);color:var(--t4)">🎵 Neutral Mix</span>`;
+
+      const pitchTypeNote = arsenal.isFastballHeavy
+        ? '⚡ Fastball-heavy SP'
+        : arsenal.isBreakingHeavy
+        ? '🌀 Breaking ball-heavy SP'
+        : arsenal.isOffspeedHeavy
+        ? '💧 Offspeed-heavy SP'
+        : '';
+
+      return `<div class="card" style="margin-bottom:10px">
+        <div class="slbl">🎵 Pitcher Arsenal</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          ${arsenalSummaryTag}
+          ${pitchTypeNote?`<span style="font-size:.68rem;color:var(--t4)">${pitchTypeNote}</span>`:''}
+          ${pit._arsenalDesc?`<span style="font-size:.65rem;color:var(--t3);margin-left:auto;text-align:right;max-width:160px">${pit._arsenalDesc}</span>`:''}
+        </div>
+        ${pitchRows}
+        ${(pit._arsenalMult!=null&&pit._arsenalMult!==1.0)?`
+        <div style="padding-top:8px;border-top:1px solid var(--bg3);margin-top:4px">
+          <div style="font-size:.68rem;color:var(--t4)">Arsenal matchup adjustment</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:.82rem;font-weight:700;
+            color:${pit._arsenalMult>=1.05?'var(--green)':pit._arsenalMult<=0.95?'var(--red)':'var(--t3)'}">
+            ${pit._arsenalMult>=1?'+':''}${((pit._arsenalMult-1)*100).toFixed(0)}% vs neutral
+          </div>
+        </div>`:''}
+      </div>`;
+    })()}
+
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">Season Stats</div>
       <div class="stat-scroll">
