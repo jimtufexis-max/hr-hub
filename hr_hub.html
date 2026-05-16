@@ -1281,9 +1281,9 @@ function detectAngles(r){
         icon:'💥',
         cat:'power',
         tier:1,
-        label:`${gap.toFixed(0)} xHR gap`,
+        label:'💥 Due for HRs',
         color:'var(--blue)',
-        tip:`Elite HR regression candidate — xHR ${xHR.toFixed(1)} vs actual ${actualHR}`
+        tip:`xHR ${xHR.toFixed(1)} vs actual ${actualHR} — elite regression candidate`
       });
     }
 
@@ -1295,7 +1295,7 @@ function detectAngles(r){
         icon:'📈',
         cat:'power',
         tier:2,
-        label:`${gap.toFixed(0)} xHR gap`,
+        label:'📊 xHR Ahead',
         color:'var(--blue)',
         tip:`Underlying power quality exceeds actual HR results`
       });
@@ -1322,18 +1322,18 @@ function detectAngles(r){
       icon:'🛢️',
       cat:'power',
       tier:1,
-      label:`${r.barrel_pct}% Barrel`,
+      label:'🛢️ Barrel King',
       color:'var(--green)',
-      tip:`Elite barrel rate — top-tier HR profile`
+      tip:`${r.barrel_pct}% barrel — elite (lg avg 8%)`
     });
   } else if(r.barrel_pct!=null && r.barrel_pct >= 11){
     angles.push({
       icon:'💪',
       cat:'power',
       tier:2,
-      label:`${r.barrel_pct}% Barrel`,
+      label:'💪 Barrel Threat',
       color:'var(--green)',
-      tip:'Above-average barrel rate — strong HR upside'
+      tip:`${r.barrel_pct}% barrel — above average`
     });
   }
 
@@ -1343,9 +1343,9 @@ function detectAngles(r){
       icon:'🚀',
       cat:'power',
       tier:1,
-      label:`${r.pull_air_pct}% Pull-Air`,
-      color:'var(--green)',
-      tip:'Elite pulled fly-ball profile'
+      label:'🎯 Pull-Air King',
+      color:'#ffd700',
+      tip:`${r.pull_air_pct}% Pull-Air — elite (lg avg 12.5%). Best HR shape in baseball`
     });
   }
 
@@ -1355,9 +1355,9 @@ function detectAngles(r){
       icon:'🎯',
       cat:'power',
       tier:2,
-      label:`${r.hr_fb_pct}% HR/FB`,
+      label:'🚀 HR Machine',
       color:'var(--green)',
-      tip:'Elite fly-ball conversion skill'
+      tip:`${r.hr_fb_pct}% HR/FB — elite fly ball conversion (lg avg 13%)`
     });
   }
 
@@ -1367,58 +1367,58 @@ function detectAngles(r){
       icon:'💣',
       cat:'power',
       tier:2,
-      label:`.${String(r.iso).replace('0.','')}`,
+      label:'💣 Power Elite',
       color:'var(--green)',
-      tip:'Elite isolated power profile'
+      tip:`ISO .${String(r.iso).replace('0.','')} — elite raw power`
     });
   }
 
   // Elite hard hit%
   if(r.hard_hit_pct!=null && r.hard_hit_pct >= 50){
     angles.push({icon:'🔨', cat:'power', tier:2,
-      label:`${r.hard_hit_pct}% Hard Hit`,
+      label:'🔨 Iron Fists',
       color:'var(--green)',
-      tip:'Top-tier hard hit rate — consistently driving ball with authority'});
+      tip:`${r.hard_hit_pct}% hard hit — top 10% (lg avg 38%)`});
   }
 
   // High EV
   if(r.avg_ev!=null && r.avg_ev >= 92){
     angles.push({icon:'⚡', cat:'power', tier:2,
-      label:`${r.avg_ev} mph EV`,
+      label:'⚡ Nuclear EV',
       color:'var(--green)',
-      tip:'Elite exit velocity — generates consistently deep contact'});
+      tip:`${r.avg_ev} mph avg EV — elite (lg avg 88.5)`});
   }
 
   // High ISO
   if(r.iso!=null && r.iso >= 0.220){
     angles.push({icon:'💣', cat:'power', tier:2,
-      label:`ISO .${Math.round(r.iso*1000)}`,
+      label:'💣 Power Elite',
       color:'var(--green)',
-      tip:`ISO ${r.iso.toFixed(3)} — elite raw power (Judge-tier is .300+)`});
+      tip:`ISO .${Math.round(r.iso*1000)} — elite raw power (Judge-tier .300+)`});
   }
 
   // ── PITCHER VULNERABILITY SIGNALS ───────────────────────────────
   if(pit.hr9_recent!=null && pit.hr9_recent >= 2.5){
     angles.push({icon:'🚀', cat:'pitcher', tier:1,
-      label:`${pit.hr9_recent.toFixed(1)} HR/9 recent`,
-      color:'var(--green)',
-      tip:`SP allowing ${pit.hr9_recent.toFixed(1)} HR/9 in recent starts — gopher ball risk`});
+      label:'🧨 Dinger Machine',
+      color:'#ffd700',
+      tip:`SP allowing ${pit.hr9_recent.toFixed(1)} HR/9 recent (lg avg 1.35) — gopher ball risk`});
   } else if(pit.hr9_recent!=null && pit.hr9_recent >= 1.8){
     angles.push({icon:'📤', cat:'pitcher', tier:2,
-      label:'SP HR-prone',
+      label:'🚀 Serving Dingers',
       color:'#90c0ff',
-      tip:`SP at ${pit.hr9_recent.toFixed(1)} HR/9 recent — above league avg (1.35)`});
+      tip:`SP at ${pit.hr9_recent.toFixed(1)} HR/9 recent — above lg avg (1.35)`});
   }
 
   // Pitcher early in season / low start count
   if(pit.totalStarts!=null && pit.totalStarts <= 3){
     angles.push({icon:'🆕', cat:'pitcher', tier:1,
-      label:`SP only ${pit.totalStarts} starts`,
+      label:'🆕 Fresh SP',
       color:'var(--amber)',
       tip:`Only ${pit.totalStarts} starts this season — small sample, book pricing uncertain. HR rates +40% in starts 1-3 back from IL`});
   } else if(pit.totalStarts!=null && pit.totalStarts <= 6){
     angles.push({icon:'📋', cat:'pitcher', tier:2,
-      label:`SP ${pit.totalStarts} starts`,
+      label:'📋 Limited SP',
       color:'var(--t4)',
       tip:`${pit.totalStarts} starts this season — still limited sample`});
   }
@@ -1427,7 +1427,7 @@ function detectAngles(r){
   if(pit.recentK9!=null && pit.seasonK9!=null && pit.recentK9 < pit.seasonK9 * 0.80 && pit.seasonK9 >= 7){
     const drop = Math.round((1 - pit.recentK9/pit.seasonK9)*100);
     angles.push({icon:'📉', cat:'pitcher', tier:2,
-      label:`K% down ${drop}%`,
+      label:'📉 SP Losing Stuff',
       color:'var(--amber)',
       tip:`SP K/9 dropped from ${pit.seasonK9.toFixed(1)} to ${pit.recentK9.toFixed(1)} — stuff declining`});
   }
@@ -1436,12 +1436,12 @@ function detectAngles(r){
   // Coors gets its own special badge
   if(r.team==='COL' || r.game?.includes('@COL') || r.game?.includes('COL@')){
     angles.push({icon:'🏔️', cat:'park', tier:1,
-      label:'Coors altitude',
+      label:'🏔️ Coors Field',
       color:'var(--amber)',
       tip:'Mile High — ball travels ~10% farther than sea level, highest HR park in MLB'});
   } else if(r.pf >= 1.08){
     angles.push({icon:'🏟️', cat:'park', tier:2,
-      label:`${r.pf.toFixed(2)}× park`,
+      label:'🏟️ HR Park',
       color:'var(--amber)',
       tip:`Hitter-friendly park — ball carries well here`});
   }
@@ -1449,7 +1449,7 @@ function detectAngles(r){
   // Temperature boost — hot weather meaningfully increases HR rates
   if(wx.temp!=null && wx.temp >= 85){
     angles.push({icon:'☀️', cat:'weather', tier:2,
-      label:`${Math.round(wx.temp)}°F`,
+      label:'☀️ Heat Game',
       color:'var(--amber)',
       tip:`Hot conditions — every 10°F above 72 adds ~2% HR probability`});
   }
@@ -1457,12 +1457,12 @@ function detectAngles(r){
   // Wind blowing out to power alley
   if(wx.wind >= 12 && r.parkwx >= 1.08){
     angles.push({icon:'💨', cat:'weather', tier:1,
-      label:`Wind out ${Math.round(wx.wind)} mph`,
+      label:'💨 Wind Blowing Out',
       color:'var(--green)',
       tip:`${windLabel(wx.wind,wx.wdir)} blowing toward ${r.batHand}HB power alley`});
   } else if(wx.wind >= 8 && r.parkwx >= 1.05){
     angles.push({icon:'🌬️', cat:'weather', tier:2,
-      label:`Wind out ${Math.round(wx.wind)} mph`,
+      label:'🌬️ Wind Assist',
       color:'#90c0ff',
       tip:`${windLabel(wx.wind,wx.wdir)} — slight out-to-power advantage`});
   }
@@ -1470,7 +1470,7 @@ function detectAngles(r){
   // Wind blowing IN — fade signal
   if(wx.wind >= 12 && r.parkwx <= 0.92){
     angles.push({icon:'🌀', cat:'weather', tier:3,
-      label:`Wind in ${Math.round(wx.wind)} mph`,
+      label:'🌀 Wind Blowing In',
       color:'var(--red)',
       tip:`${windLabel(wx.wind,wx.wdir)} — headwind suppresses HRs`});
   }
@@ -1478,7 +1478,7 @@ function detectAngles(r){
   // Rain — HR suppressor
   if(wx.rain >= 60){
     angles.push({icon:'🌧️', cat:'weather', tier:3,
-      label:`${Math.round(wx.rain)}% rain`,
+      label:'🌧️ Rain Risk',
       color:'var(--red)',
       tip:'High rain probability — wet ball, heavy air, HR rates drop'});
   }
@@ -1490,17 +1490,17 @@ function detectAngles(r){
     if(edgeData){
       if(edgeData.edge >= 5){
         angles.push({icon:'💰', cat:'value', tier:1,
-          label:`+${edgeData.edge}% vs FD`,
+          label:`💰 +${edgeData.edge}% Edge`,
           color:'var(--green)',
           tip:`Strong value: FD ${fdOdds>0?'+':''}${fdOdds} vs our fair ${probToAmerican(r.prob)} | EV +$${edgeData.ev.toFixed(2)}/100`});
       } else if(edgeData.edge >= 2){
         angles.push({icon:'📈', cat:'value', tier:2,
-          label:`+${edgeData.edge}% edge`,
+          label:`📈 +${edgeData.edge}% Value`,
           color:'var(--green)',
           tip:`Slight value: FD ${fdOdds>0?'+':''}${fdOdds} vs our fair ${probToAmerican(r.prob)}`});
       } else if(edgeData.edge <= -5){
         angles.push({icon:'🚫', cat:'value', tier:3,
-          label:`-${Math.abs(edgeData.edge)}% vs FD`,
+          label:'🚫 Overpriced',
           color:'var(--red)',
           tip:`Overpriced: FD has you at ${(edgeData.bookImp)}% implied vs our ${(r.prob*100).toFixed(1)}%`});
       }
@@ -1512,12 +1512,12 @@ function detectAngles(r){
   const positiveCount = angles.filter(a=>a.tier<=2 && a.color!=='var(--red)').length;
   if(positiveCount >= 4){
     angles.unshift({icon:'⭐', cat:'combo', tier:1,
-      label:'Multi-factor spot',
+      label:'⭐ Elite Spot',
       color:'#ffd700',
       tip:`${positiveCount} positive signals aligned — high-conviction play`});
   } else if(positiveCount >= 3 && r.platoon >= 1.10 && (l3hr >= 1 || r.barrel_pct >= 11)){
     angles.unshift({icon:'🌟', cat:'combo', tier:1,
-      label:'Prime spot',
+      label:'🌟 Prime Spot',
       color:'#ffd700',
       tip:'Platoon + power + form all pointing same direction'});
   }
