@@ -2878,6 +2878,9 @@ async function loadGame(g){
     const recentGamesMap = {};
     const platoonMap = {};
     const vsPitchMap = {};
+    const homeAwayMap = {};
+    const priorRateMap = {};
+    const hvhMap = {};
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk   = hitters.slice(i, i+BATCH);
       const [recResults, platResults, statResults, haResults, priorResults] = await Promise.all([
@@ -2890,7 +2893,6 @@ async function loadGame(g){
       // Fire BvP + careerVsSP in parallel (heavy Savant CSVs — non-blocking)
       const bvpPromises = chunk.map(h=>getBatterVsPitchType(String(h.id)));
       const hvhPromises = chunk.map(h=>getCareerVsSP(String(h.id), String(spId)));
-      const homeAwayMap={}, priorRateMap={}, hvhMap={};
       // Await BvP and HvH now (they were fired non-blocking earlier)
       const bvpSettled = await Promise.allSettled(bvpPromises);
       const hvhSettled = await Promise.allSettled(hvhPromises);
