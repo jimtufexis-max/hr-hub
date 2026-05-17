@@ -2173,6 +2173,7 @@ function renderDetail(r){
     </div>`;
   }
 
+  try {
   document.getElementById('detail-content').innerHTML=`
     <div class="card" style="margin-bottom:10px">
       <div class="detail-header">
@@ -2360,6 +2361,10 @@ function renderDetail(r){
       </div>
       <div id="det-ev-result"></div>
     </div>`;
+  } catch(e) {
+    console.error('[renderDetail] ERROR:', e.message, e.stack?.split('\n')[1]);
+    document.getElementById('detail-content').innerHTML=`<div class="card" style="color:var(--red);padding:12px">Error loading player detail: ${e.message}</div>`;
+  }
 }
 
 function calcBetEV(id,pctStr){
