@@ -1380,12 +1380,6 @@ function detectNegativeAngles(r){
 // ==================================================================
 //  RENDER SLATE
 // ==================================================================
-function setSort(key,el){
-  S.sortKey=key;
-  document.querySelectorAll('.filter-pill').forEach(p=>p.classList.remove('active'));
-  el.classList.add('active');
-  renderSlate();
-}
 
 async function ensureLeaderboards(){
   if(_savB!==null) return; // already loaded
