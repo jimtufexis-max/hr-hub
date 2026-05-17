@@ -557,10 +557,12 @@ async function getGames(){
   if(d.dates?.length) console.log('first date games:', d.dates[0].games?.length);
 
   const games=(d.dates||[]).flatMap(dt=>(dt.games||[]).map(g=>({
-    pk:   String(g.gamePk),
-    away: g.teams?.away?.team?.abbreviation || g.teams?.away?.team?.teamCode || '???',
-    home: g.teams?.home?.team?.abbreviation || g.teams?.home?.team?.teamCode || '???',
-    venue:g.venue?.name||'',
+    pk:        String(g.gamePk),
+    away:      g.teams?.away?.team?.abbreviation || g.teams?.away?.team?.teamCode || '???',
+    home:      g.teams?.home?.team?.abbreviation || g.teams?.home?.team?.teamCode || '???',
+    awayId:    g.teams?.away?.team?.id || null,
+    homeId:    g.teams?.home?.team?.id || null,
+    venue:     g.venue?.name||'',
     awaySpId:  g.teams?.away?.probablePitcher?.id||null,
     awaySpName:g.teams?.away?.probablePitcher?.fullName||'TBD',
     homeSpId:  g.teams?.home?.probablePitcher?.id||null,
@@ -2835,12 +2837,14 @@ async function getBatterRecentGames(pid){
 
 async function loadGame(g){
   const pk = g.pk;
+  console.log(`[loadGame] START ${g.away}@${g.home} pk=${pk} awaySpId=${g.awaySpId} homeSpId=${g.homeSpId}`);
 
   // Fetch pitcher hands + season stats
   const [awHand, hmHand] = await Promise.all([
     getPitcherHand(g.awaySpId),
     getPitcherHand(g.homeSpId),
   ]);
+  console.log(`[loadGame] pitcher hands: away=${awHand} home=${hmHand}`);
 
   // Fetch pitcher game logs for HR/9 (last 4 starts)
   const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR] = await Promise.all([
@@ -2921,6 +2925,7 @@ async function loadGame(g){
     }
 
     const rows = [];
+    console.log(`[loadGame] ${key}: processing ${hitters.length} hitters`);
     for(const h of hitters){
       const pid    = String(h.id);
       const savH   = (_savB||{})[pid] || {};
@@ -3016,7 +3021,13 @@ async function loadGame(g){
       pitcherStats._arsenalStrengths = arsenalMatch.strengths||[];
       pitcherStats._arsenalWeaknesses = arsenalMatch.weaknesses||[];
 
-      const res = calcHRProb(batterStats, pitcherStats, pf, wx, recent);
+      let res;
+      try{
+        res = calcHRProb(batterStats, pitcherStats, pf, wx, recent);
+      }catch(calcErr){
+        console.error(`[loadGame] calcHRProb failed for ${h.name}:`, calcErr.message);
+        continue; // skip this batter, don't crash entire game load
+      }
       const [grd, gc, gCls] = probGrade(res.prob);
 
       // L15 HR count for display badge
@@ -3055,9 +3066,11 @@ async function loadGame(g){
         _oppHand: oppHand,
       });
     }
+    console.log(`[loadGame] ${key}: ${rows.length} rows computed`);
     rows.sort((a,b)=>b.prob-a.prob);
     S.cache[key] = rows;
   }
+  console.log(`[loadGame] DONE ${g.away}@${g.home}`);
 }
 
 
