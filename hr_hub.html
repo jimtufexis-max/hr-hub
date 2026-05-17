@@ -615,6 +615,35 @@ async function getSavantBatters(){
         avg_la:      parseF(row.avg_hit_angle ?? row.avg_launch_angle),
       };
     }
+    console.log(`Savant batters (statcast): ${Object.keys(out).length} players`);
+
+    // Batted-ball leaderboard — pull_air_rate, fb_rate, pull_rate (all 0-1 decimals)
+    try{
+      const url2=`https://baseballsavant.mlb.com/leaderboard/batted-ball?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
+      const r2=await fetch(PROXY+encodeURIComponent(url2));
+      if(r2.ok){
+        const rows2=parseCSVText(await r2.text());
+        const toP=v=>{const f=parseFloat(v);return isNaN(f)?null:Math.round(f*1000)/10;};
+        let enriched=0;
+        for(const row of rows2){
+          const pid=String(row.id||'').replace(/\.0$/,'');
+          if(!pid)continue;
+          if(!out[pid])out[pid]={};
+          const pa=toP(row.pull_air_rate),fb=toP(row.fb_rate),pull=toP(row.pull_rate),air=toP(row.air_rate);
+          // hr_fb_pct from home_run_per_flyball column (if present)
+          const hrfb=toP(row.home_run_per_flyball??row.hr_flyball??row.hr_per_fb);
+          if(pa!=null)   out[pid].pull_air_pct=pa;
+          if(fb!=null)   out[pid].fb_pct=fb;
+          if(pull!=null) out[pid].pull_pct=pull;
+          if(air!=null)  out[pid].air_pct=air;
+          if(hrfb!=null) out[pid].hr_fb_pct=hrfb;
+          enriched++;
+        }
+        const withPA=Object.values(out).filter(v=>v.pull_air_pct!=null).length;
+        console.log(`[batted-ball] enriched ${enriched} rows, ${withPA} with pull_air_pct`);
+      }
+    }catch(e2){console.warn('[batted-ball]:',e2.message);}
+
     console.log(`Savant batters: ${Object.keys(out).length} players`);
     return out;
   }catch(e){console.warn('getSavantBatters failed:',e.message);return{};}
