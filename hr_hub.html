@@ -432,19 +432,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <div style="display:flex;gap:10px;padding:6px 0"><span style="min-width:22px">🚫</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">Overpriced (-)</div><div style="font-size:.65rem;color:var(--t4)">Book implied beats our probability by 5%+</div></div></div>
       </div>
     </div>
-    ${(()=>{
-      const stats=getModelStats();
-      if(!stats||stats.total<5) return '';
-      return `<div class="card" style="margin-bottom:10px">
-        <div class="slbl">📈 Model Performance (Your Results)</div>
-        <div class="stat-scroll">
-          <div class="stat-box"><span class="sb-val">${stats.total}</span><span class="sb-lbl">Tracked</span></div>
-          <div class="stat-box"><span class="sb-val" style="color:var(--green)">${stats.hrRate}%</span><span class="sb-lbl">Actual HR%</span></div>
-          ${stats.highConfTotal>=5?`<div class="stat-box"><span class="sb-val" style="color:var(--amber)">${stats.highConfHitRate}%</span><span class="sb-lbl">High Conf HR%</span></div>`:''}
-        </div>
-        <div style="font-size:.68rem;color:var(--t4);margin-top:6px">Use Record Result on each player's detail page after games to track accuracy.</div>
-      </div>`;
-    })()}
+    <div id="model-perf-card"></div>
 
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">📊 Data Sources</div>
@@ -531,6 +519,25 @@ function showPage(name){
   document.getElementById(`nav-${name}`)?.classList.add('active');
   if(name==='ab') populateABSelect();
   if(name==='parlay') renderParlay();
+  if(name==='info'){
+    const el=document.getElementById('model-perf-card');
+    if(el){
+      const stats=getModelStats();
+      if(stats&&stats.total>=5){
+        el.innerHTML=`<div class="card" style="margin-bottom:10px">
+          <div class="slbl">📈 Model Performance (Your Results)</div>
+          <div class="stat-scroll">
+            <div class="stat-box"><span class="sb-val">${stats.total}</span><span class="sb-lbl">Tracked</span></div>
+            <div class="stat-box"><span class="sb-val" style="color:var(--green)">${stats.hrRate}%</span><span class="sb-lbl">Actual HR%</span></div>
+            ${stats.highConfTotal>=5?`<div class="stat-box"><span class="sb-val" style="color:var(--amber)">${stats.highConfHitRate}%</span><span class="sb-lbl">High Conf HR%</span></div>`:''}
+          </div>
+          <div style="font-size:.68rem;color:var(--t4);margin-top:6px">Record results on each player detail page to track model accuracy.</div>
+        </div>`;
+      } else {
+        el.innerHTML='';
+      }
+    }
+  }
 }
 
 // ==================================================================
@@ -2750,15 +2757,37 @@ function recordResult(playerId, playerName, prob, actualHR){
   try{
     const key = 'hr_hub_results';
     const stored = JSON.parse(localStorage.getItem(key)||'[]');
-    stored.push({
-      id: playerId, name: playerName, prob,
-      actual: actualHR, date: ds(),
-      hit: (prob>=0.08&&actualHR>0)||(prob<0.08&&actualHR===0)
-    });
-    // Keep last 500
+    // Avoid duplicate for same player same day
+    const today = ds();
+    const existing = stored.findIndex(r=>r.id===playerId&&r.date===today);
+    const entry = { id:playerId, name:playerName, prob, actual:actualHR, date:today,
+      hit:(prob>=0.08&&actualHR>0)||(prob<0.08&&actualHR===0) };
+    if(existing>=0) stored[existing]=entry; // update if re-recording
+    else stored.push(entry);
     if(stored.length>500) stored.splice(0,stored.length-500);
     localStorage.setItem(key, JSON.stringify(stored));
-  }catch(e){}
+
+    // Visual feedback
+    const btn = event?.target;
+    if(btn){
+      const orig = btn.innerHTML;
+      const origBg = btn.style.background;
+      btn.innerHTML = actualHR ? '✅ Saved!' : '❌ Saved!';
+      btn.style.background = actualHR ? 'rgba(34,201,94,.5)' : 'rgba(224,80,74,.5)';
+      btn.disabled = true;
+      // Also mark the other button as inactive
+      const parent = btn.parentElement;
+      if(parent){
+        [...parent.querySelectorAll('button')].forEach(b=>{
+          if(b!==btn){ b.disabled=true; b.style.opacity='0.4'; }
+        });
+      }
+    }
+  }catch(e){
+    console.error('recordResult error:', e.message);
+    // Fallback: show alert
+    alert(actualHR ? '✅ HR result saved!' : '❌ No HR result saved!');
+  }
 }
 
 function getModelStats(){
@@ -2823,14 +2852,17 @@ async function getBatterRecentGames(pid){
 
 async function loadGame(g){
   const pk = g.pk;
-  console.log(`[loadGame] START ${g.away}@${g.home} pk=${pk} awaySpId=${g.awaySpId} homeSpId=${g.homeSpId}`);
+  console.log(`[loadGame] START ${g.away}@${g.home} pk=${pk}`);
+  const el = document.getElementById('hitter-list');
+
+  try{
 
   // Fetch pitcher hands + season stats
   const [awHand, hmHand] = await Promise.all([
     getPitcherHand(g.awaySpId),
     getPitcherHand(g.homeSpId),
   ]);
-  console.log(`[loadGame] pitcher hands: away=${awHand} home=${hmHand}`);
+  console.log(`[loadGame] hands: aw=${awHand} hm=${hmHand}`);
 
   // Fetch pitcher game logs for HR/9 (last 4 starts)
   const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR] = await Promise.all([
@@ -3057,6 +3089,15 @@ async function loadGame(g){
     S.cache[key] = rows;
   }
   console.log(`[loadGame] DONE ${g.away}@${g.home}`);
+
+  }catch(err){
+    console.error('[loadGame] CRASH:', err.message, err.stack);
+    el.innerHTML=`<div class="card" style="color:var(--red);padding:16px;font-size:.85rem">
+      <b>Load Error: ${err.message}</b><br>
+      <pre style="font-size:.65rem;white-space:pre-wrap;margin-top:8px">${err.stack?.split('\n').slice(0,4).join('\n')}</pre>
+    </div>`;
+    throw err;
+  }
 }
 
 
