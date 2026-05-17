@@ -1844,9 +1844,8 @@ async function loadSelectedGames(){
   el.innerHTML='<div class="spinner"><div class="spin"></div>Loading games…</div>';
   loadFanDuelOdds(); // fire and forget
 
-  // Fire ALL leaderboards immediately in parallel — they'll be ready by the time
-  // we need them for player enrichment (usually 2-4 sec ahead of per-batter processing)
-  const leaderboardReady = ensureLeaderboards(); // single call that parallelizes internally
+  // Fire ALL leaderboards immediately in parallel
+  const leaderboardReady = ensureLeaderboards();
 
   const toLoad=[];
   for(const pk of S.selPks){
@@ -1855,11 +1854,24 @@ async function loadSelectedGames(){
     if(!S.cache[`${pk}_away`]||!S.cache[`${pk}_home`])toLoad.push(g);
   }
 
+  console.log(`[loadSelectedGames] toLoad: ${toLoad.length} games, selPks: ${[...S.selPks].join(',')}`);
+
+  if(!toLoad.length && !S.allRows.length){
+    el.innerHTML='<div class="empty">Tap a game above to load players</div>';
+    return;
+  }
+
   let loaded=0;
   for(const g of toLoad){
     el.innerHTML=`<div class="spinner"><div class="spin"></div>Loading ${g.away}@${g.home}… (${loaded+1}/${toLoad.length})</div>`;
-    renderSlate(); // show partial data immediately as it loads
-    await loadGame(g);
+    try{
+      await loadGame(g);
+      console.log(`[loadSelectedGames] loadGame done for ${g.away}@${g.home}`);
+    }catch(e){
+      console.error(`[loadSelectedGames] loadGame FAILED for ${g.away}@${g.home}:`, e.message, e.stack?.split('\n')[1]);
+      el.innerHTML=`<div class="card" style="color:var(--red)">Error loading ${g.away}@${g.home}: ${e.message}</div>`;
+      return;
+    }
     loaded++;
   }
 
@@ -1867,11 +1879,14 @@ async function loadSelectedGames(){
   const seen=new Set();S.allRows=[];
   for(const pk of S.selPks){
     for(const side of['away','home']){
-      for(const r of S.cache[`${pk}_${side}`]||[]){
+      const cached=S.cache[`${pk}_${side}`]||[];
+      console.log(`[merge] ${pk}_${side}: ${cached.length} rows`);
+      for(const r of cached){
         if(!seen.has(r.id)){seen.add(r.id);S.allRows.push(r);}
       }
     }
   }
+  console.log(`[loadSelectedGames] total allRows: ${S.allRows.length}`);
 
   // Weather strip for first game
   const firstG=gamesCache.find(g=>S.selPks.has(g.pk));
@@ -2828,7 +2843,7 @@ async function loadGame(g){
   ]);
 
   // Fetch pitcher game logs for HR/9 (last 4 starts)
-  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR,awBullpen,hmBullpen] = await Promise.all([
+  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR] = await Promise.all([
     getPitcherGameLog(g.awaySpId),  getPitcherGameLog(g.homeSpId),
     getPitcherArsenal(g.awaySpId),  getPitcherArsenal(g.homeSpId),
     getLineup(g.pk, g.awayId||0),  getLineup(g.pk, g.homeId||0),
@@ -2836,7 +2851,6 @@ async function loadGame(g){
     getPitcherWorkload(g.awaySpId), getPitcherWorkload(g.homeSpId),
     getSPDaysRest(g.awaySpId),     getSPDaysRest(g.homeSpId),
     getTeamHRContext(g.away),      getTeamHRContext(g.home),
-    getBullpenQuality(g.away),     getBullpenQuality(g.home),
   ]);
 
   const wx  = await getWeather(g.venue);
@@ -2991,7 +3005,6 @@ async function loadGame(g){
         isHome:          key.endsWith('_home'),
         lineupPos:       (key.endsWith('_away') ? awLineup : hmLineup)?.[pid] || null,
         umpMult:         umpData?.mult ?? 1.0,
-        bullpenMult:     (key.endsWith('_away') ? hmBullpen : awBullpen)?.mult ?? 1.0,
         teamHRMult:      (key.endsWith('_away') ? awTeamHR : hmTeamHR)?.mult ?? 1.0,
       };
 
