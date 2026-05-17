@@ -1707,19 +1707,37 @@ function scoreArsenalMatchup(arsenal,batVsPitch){
   const LG={FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130,KC:0.130,SV:0.150};
   const PF={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Changeup',FS:'Splitter'};
   let wISO=0,wT=0;const strengths=[],weaknesses=[];
+
   for(const[pt,pct]of Object.entries(mix)){
-    if(pct<5)continue; const bdata=batVsPitch[pt]; if(!bdata||bdata.pa<10)continue;
-    const lgISO=LG[pt]||0.155,ratio=(bdata.iso||0)/lgISO,w=pct/100;
+    if(pct<8)continue;                          // only pitches thrown 8%+ of time
+    const bdata=batVsPitch[pt];
+    if(!bdata||bdata.pa<15)continue;            // need meaningful sample
+    if(bdata.iso==null)continue;                // skip if no ISO data (don't treat as 0)
+    const lgISO=LG[pt]||0.155;
+    const ratio=bdata.iso/lgISO;
+    const w=(pct/100)*Math.min(bdata.pa/40,1.0); // weight by usage × sample confidence
     wISO+=ratio*w; wT+=w;
-    if(ratio>=1.4&&bdata.pa>=20) strengths.push(`${pt}`);
-    if(ratio<=0.65&&bdata.pa>=20) weaknesses.push(`${pt}`);
+    if(ratio>=1.4&&bdata.pa>=20) strengths.push(pt);
+    if(ratio<=0.65&&bdata.pa>=20) weaknesses.push(pt);
   }
-  if(wT<0.20) return{mult:1.0,desc:null};
-  const avg=wISO/wT,mult=clamp(0.80+avg*0.20,0.75,1.35);
+
+  if(wT<0.15) return{mult:1.0,desc:null}; // not enough data — don't penalize
+
+  const avg=wISO/wT;
+  // avg=1.0 means league average → mult=1.0
+  // avg=1.5 means 50% above avg → mult=1.10 (capped at 1.25)
+  // avg=0.5 means 50% below avg → mult=0.90 (capped at 0.80)
+  const mult=clamp(avg*0.20+0.80,0.80,1.25);
+
+  // Summary: use majority vote of strengths vs weaknesses, not the overall mult
+  const PF2=pt=>PF[pt]||pt;
   let desc=null;
-  if(strengths.length&&mult>=1.10) desc=`Hits ${PF[strengths[0]]||strengths[0]} well vs SP mix`;
-  else if(weaknesses.length&&mult<=0.88) desc=`Struggles vs ${PF[weaknesses[0]]||weaknesses[0]} (SP primary)`;
-  return{mult,desc,strengths,weaknesses};
+  if(strengths.length>weaknesses.length&&mult>=1.05)
+    desc=`Hits ${PF2(strengths[0])} well vs SP mix`;
+  else if(weaknesses.length>strengths.length&&mult<=0.95)
+    desc=`Struggles vs ${PF2(weaknesses[0])} (SP primary)`;
+
+  return{mult,desc,strengths,weaknesses,avg};
 }
 
 async function getBatterVsPitchType(batId){
@@ -2184,8 +2202,8 @@ function renderDetail(r){
       if(arsenal && Object.keys(arsenal.mix||{}).length){
         const pitches = Object.entries(arsenal.mix).filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1]);
         const bvp = r._bvp||{};
-        const isStrong = (pit._arsenalMult||1)>=1.10;
-        const isWeak   = (pit._arsenalMult||1)<=0.88;
+        const isStrong = (pit._arsenalMult||1)>=1.06;
+        const isWeak   = (pit._arsenalMult||1)<=0.94;
 
         const mixTag = isStrong
           ? `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.3);color:var(--green);font-weight:700">✓ Favorable Mix</span>`
