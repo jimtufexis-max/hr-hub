@@ -2238,7 +2238,7 @@ function renderDetail(r){
         const isWeak   = (pit._arsenalMult||1)<=0.94;
 
         // Determine mix tag based on primary pitch data (consistent with slate card tag)
-        const primaryPT2 = spArsenal.primary;
+        const primaryPT2 = arsenal.primary;
         const bvpPrimary2 = bvp[primaryPT2];
         const LG2 = {FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130};
         let mixLabel='Neutral Mix', mixGood=false, mixBad=false;
