@@ -1097,10 +1097,7 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platoon  = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
                      batterStats.platRate, overallRate, arsenalPlatMod);
   const pitcher  = calcPitcherMult(pitcherStats);
-  const parkwx   = calcParkWxMult(pf, {...(wx||{}),
-    team: batterStats.isHome ? batterStats.team : batterStats.oppTeam,
-    venue: g?.venue || '',
-  }, batterStats.batHand);
+  const parkwx   = calcParkWxMult(pf, wx||{}, batterStats.batHand);
   const momentum = calcMomentumMult(recentGames);
 
   // Home/away split adjustment
@@ -1112,41 +1109,30 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     const relevantPA   = isHome ? ha.homePA   : ha.awayPA;
     if(relevantRate!=null && relevantPA>=30){
       const ratio = relevantRate / (overallRate||anchor||MLB_AVG);
-      homeAwayMult = clamp(ratio*0.50 + 1.0*0.50, 0.75, 1.35); // 50% weight, regressed
+      homeAwayMult = clamp(ratio*0.50 + 1.0*0.50, 0.75, 1.35);
     }
   }
 
-  // Lineup position — more PA = more HR chances
-  // Leadoff (1) gets ~4.3 PA/game, 9-hole gets ~3.7 — small but real
   const lineupPos = batterStats.lineupPos;
   const paMultiplier = lineupPos && lineupPos<=9
     ? clamp(1.0 + (4.0 - lineupPos) * 0.012, 0.95, 1.06)
     : 1.0;
 
-  // Umpire HR tendency
   const umpMult = clamp(batterStats.umpMult||1.0, 0.85, 1.20);
 
-  // Career vs this SP (direct evidence beats population rates)
   let hvhMult = 1.0;
   const hvh = batterStats.careerVsSP;
   if(hvh && hvh.pa>=15){
     const hvhRate = hvh.hr / hvh.pa;
     const ratio = hvhRate / (overallRate||anchor||MLB_AVG);
-    hvhMult = clamp(ratio*0.35 + 1.0*0.65, 0.75, 1.40); // 35% weight on direct evidence
+    hvhMult = clamp(ratio*0.35 + 1.0*0.65, 0.75, 1.40);
   }
 
-  // Team HR context — if lineup is hot, all individual probs get a bump
   const teamMult = batterStats.teamHRMult ?? 1.0;
-  // Bullpen quality — if SP has short workload lately, bullpen matters more
-  const bullpenMult = batterStats.bullpenMult ?? 1.0;
-  // Weight bullpen based on SP workload trend (shorter outings = more bullpen exposure)
-  const wkTrend = pitcherStats.workload?.ipTrend ?? 0;
-  const bullpenWeight = clamp(0.15 + (wkTrend < -0.5 ? 0.15 : 0), 0.10, 0.30);
-  const adjBullpen = 1.0 + (bullpenMult - 1.0) * bullpenWeight;
 
   const prob = clamp(
     anchor * platoon * pitcher * parkwx * momentum
-    * homeAwayMult * paMultiplier * umpMult * hvhMult * teamMult * adjBullpen,
+    * homeAwayMult * paMultiplier * umpMult * hvhMult * teamMult,
     0.005, 0.50
   );
 
