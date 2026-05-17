@@ -2934,8 +2934,8 @@ async function loadGame(g){
 
       // Compute L30 stats from game log
       const l30games = recent.slice(0, 30);
-      const l30hr    = l30games.reduce((s,g)=>s+(g.hr||0), 0);
-      const l30pa    = l30games.reduce((s,g)=>s+(g.pa||g.ab||0), 0);
+      const l30hr    = l30games.reduce((s,x)=>s+(x.hr||0), 0);
+      const l30pa    = l30games.reduce((s,x)=>s+(x.pa||x.ab||0), 0);
 
       // Season stats from MLB API cache (set during getPlayerStats)
       const mlbPs   = _playerCache[`${pid}_${SEASON}`];
@@ -3031,7 +3031,7 @@ async function loadGame(g){
       const [grd, gc, gCls] = probGrade(res.prob);
 
       // L15 HR count for display badge
-      const l15hr = recent.slice(0,15).reduce((s,g)=>s+(g.hr||0),0);
+      const l15hr = recent.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
 
       rows.push({
         id:pid, name:h.name, team, pos:h.pos,
