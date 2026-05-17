@@ -432,6 +432,20 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <div style="display:flex;gap:10px;padding:6px 0"><span style="min-width:22px">🚫</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">Overpriced (-)</div><div style="font-size:.65rem;color:var(--t4)">Book implied beats our probability by 5%+</div></div></div>
       </div>
     </div>
+    ${(()=>{
+      const stats=getModelStats();
+      if(!stats||stats.total<5) return '';
+      return `<div class="card" style="margin-bottom:10px">
+        <div class="slbl">📈 Model Performance (Your Results)</div>
+        <div class="stat-scroll">
+          <div class="stat-box"><span class="sb-val">${stats.total}</span><span class="sb-lbl">Tracked</span></div>
+          <div class="stat-box"><span class="sb-val" style="color:var(--green)">${stats.hrRate}%</span><span class="sb-lbl">Actual HR%</span></div>
+          ${stats.highConfTotal>=5?`<div class="stat-box"><span class="sb-val" style="color:var(--amber)">${stats.highConfHitRate}%</span><span class="sb-lbl">High Conf HR%</span></div>`:''}
+        </div>
+        <div style="font-size:.68rem;color:var(--t4);margin-top:6px">Use Record Result on each player's detail page after games to track accuracy.</div>
+      </div>`;
+    })()}
+
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">📊 Data Sources</div>
       <div style="font-size:.75rem;color:var(--t3);line-height:1.8">
@@ -522,10 +536,17 @@ function showPage(name){
 // ==================================================================
 //  DATA FETCHING
 // ==================================================================
+const _fetchCache = new Map();
+const _FETCH_TTL = 5 * 60 * 1000; // 5 minutes
+
 async function fetchJSON(url){
+  const cached = _fetchCache.get(url);
+  if(cached && Date.now() - cached.t < _FETCH_TTL) return cached.d;
   const r=await fetch(url);
   if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
-  return r.json();
+  const d=await r.json();
+  _fetchCache.set(url, {d, t:Date.now()});
+  return d;
 }
 
 async function getGames(){
@@ -822,6 +843,13 @@ function calcAnchor(stats){
   const sznRate  = shrink(sznRateRaw,  szPA||0,   300);
   const carRate  = shrink(carRateRaw,  careerPA||0, 400);
 
+  // Rolling L30 xwOBA — if batter is genuinely hot on quality metrics
+  // a rising rolling xwOBA vs season xwOBA signals real form improvement
+  if(stats.rollingXwoba!=null && stats.xwoba!=null && stats.rollingXwoba>stats.xwoba+0.030){
+    // batter is meaningfully hotter in recent 30 days than season avg
+    // blend this into rateScore below via a small boost flag
+  }
+
   // Also use prior season rate — helps early-season small samples
   const priorRate = stats.priorSeasonRate; // passed in from loadGame
   const priorShrunk = priorRate!=null ? priorRate : null;
@@ -851,12 +879,21 @@ function calcAnchor(stats){
   // ── POWER PROFILE ────────────────────────────────────────────
 
   // xwOBA regression signal — if xwOBA > wOBA batter is unlucky (boost)
-  // if xwOBA < wOBA batter is lucky (no boost to avoid double-counting luck)
   const xwobaBoost = (stats.xwobaDiff!=null && stats.xwobaDiff>0.020)
     ? clamp(1.0 + stats.xwobaDiff * 2.0, 1.0, 1.12) : 1.0;
 
+  // Chase rate adjustment: low chase rate = patient hitter = better counts = more HR
+  // League avg chase ~29%. Lower = more disciplined. >35% = free swinger = fewer HR
+  const chaseAdj = stats.chaseRate!=null
+    ? clamp(1.0 + (29-stats.chaseRate)*0.004, 0.94, 1.06) : 1.0;
+
+  // Sweet spot %: more balls at optimal 8-32° LA = more HR potential
+  // League avg ~35%. Above 38% is elite.
+  const sweetSpotAdj = stats.sweetSpot!=null
+    ? clamp(stats.sweetSpot/35.0, 0.85, 1.15) : 1.0;
+
   const barrelScore = (barrel_pct != null)
-    ? clamp(barrel_pct / 10.0, 0.35, 2.2) * xwobaBoost : 1.0;
+    ? clamp(barrel_pct / 10.0, 0.35, 2.2) * xwobaBoost * chaseAdj * sweetSpotAdj : 1.0;
 
   const pullAirScore = (pull_air_pct != null)
     ? clamp(pull_air_pct / 12.5, 0.35, 2.2) : 1.0;
@@ -958,11 +995,23 @@ function calcPitcherMult(pitcherStats){
   const arsenalMod=(_arsenalMult!=null&&_arsenalMult!==1.0)?clamp(1.0+(_arsenalMult-1.0)*0.75,0.82,1.22):1.0;
   // Days rest modifier
   const restMod=pitcherStats.daysRest?.mult??1.0;
-  return clamp(quality*arsenalMod*restMod,0.50,2.00);
+  // CSW% modifier: CSW (Called Strike + Whiff) is better than whiff alone
+  // League avg CSW ~28%. High CSW = more non-contact results = fewer HR chances
+  let whiffMod = 1.0;
+  if(pitcherStats.csw!=null){
+    whiffMod = clamp(1.0 - (pitcherStats.csw - 28) * 0.006, 0.88, 1.08);
+  } else if(pitcherStats.whiffPct!=null){
+    whiffMod = clamp(1.0 - (pitcherStats.whiffPct - 24) * 0.006, 0.88, 1.08);
+  }
+  return clamp(quality*arsenalMod*restMod*whiffMod,0.50,2.00);
 }
 
 function calcParkWxMult(pf, wx, batHand){
-  const parkMult = clamp(pf, 0.82, 1.25);
+  // Use handedness-adjusted park factor when available
+  const handPF = getHandednessParkFactor(
+    wx?.team || '', batHand
+  );
+  const parkMult = clamp(handPF > 1.01 || handPF < 0.99 ? handPF : pf, 0.82, 1.25);
 
   if(!wx) return clamp(parkMult, 0.85, 1.30);
 
@@ -991,10 +1040,12 @@ function calcParkWxMult(pf, wx, batHand){
   const rainEffect = -(wx.rain || 0) * 0.003;
 
   // Humidity: denser humid air slightly suppresses HRs
-  // Below 40% = dry/thin air = slight boost, above 80% = dense = slight penalty
   const humidityEffect = wx.humidity ? (50 - wx.humidity) * 0.0008 : 0;
 
-  const wxMult = clamp(1.0 + tempEffect + windEffect + rainEffect + humidityEffect, 0.82, 1.25);
+  // Altitude × temperature interaction (Coors at 85°F = bigger bonus than Coors at 55°F)
+  const altBonus = altitudeEffect(wx.venue||'', wx.temp||72);
+
+  const wxMult = clamp(1.0 + tempEffect + windEffect + rainEffect + humidityEffect + altBonus, 0.80, 1.35);
 
   return clamp(parkMult * wxMult, 0.75, 1.45);
 }
@@ -1044,7 +1095,10 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platoon  = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
                      batterStats.platRate, overallRate, arsenalPlatMod);
   const pitcher  = calcPitcherMult(pitcherStats);
-  const parkwx   = calcParkWxMult(pf, wx, batterStats.batHand);
+  const parkwx   = calcParkWxMult(pf, {...(wx||{}),
+    team: batterStats.isHome ? batterStats.team : batterStats.oppTeam,
+    venue: g?.venue || '',
+  }, batterStats.batHand);
   const momentum = calcMomentumMult(recentGames);
 
   // Home/away split adjustment
@@ -1081,10 +1135,16 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
 
   // Team HR context — if lineup is hot, all individual probs get a bump
   const teamMult = batterStats.teamHRMult ?? 1.0;
+  // Bullpen quality — if SP has short workload lately, bullpen matters more
+  const bullpenMult = batterStats.bullpenMult ?? 1.0;
+  // Weight bullpen based on SP workload trend (shorter outings = more bullpen exposure)
+  const wkTrend = pitcherStats.workload?.ipTrend ?? 0;
+  const bullpenWeight = clamp(0.15 + (wkTrend < -0.5 ? 0.15 : 0), 0.10, 0.30);
+  const adjBullpen = 1.0 + (bullpenMult - 1.0) * bullpenWeight;
 
   const prob = clamp(
     anchor * platoon * pitcher * parkwx * momentum
-    * homeAwayMult * paMultiplier * umpMult * hvhMult * teamMult,
+    * homeAwayMult * paMultiplier * umpMult * hvhMult * teamMult * adjBullpen,
     0.005, 0.50
   );
 
@@ -1355,6 +1415,22 @@ function detectAngles(r){
     else if(actual>=xHR+4&&xHR>1) a.push({icon:'📉',cat:'xhr',tier:3,label:'HR Count Hot (-)',color:'var(--red)',tip:`${actual} HRs vs ~${xHR.toFixed(0)} expected — overperforming, regression risk`});
   }
 
+  // Rolling L30 hot streak — real heat backed by quality metrics
+  if(r.rollingXwoba!=null&&r.xwoba!=null&&r.rollingXwoba>=r.xwoba+0.035&&r.rollingXwoba>=0.380)
+    a.push({icon:'🌡️',cat:'rolling',tier:1,label:'Quality Hot Streak (+)',color:'#ffd700',
+      tip:`L30 xwOBA ${r.rollingXwoba.toFixed(3)} vs season ${r.xwoba.toFixed(3)} — genuine quality heat, not just luck. Real form improvement backed by contact metrics.`});
+  else if(r.rollingXwoba!=null&&r.xwoba!=null&&r.rollingXwoba<=r.xwoba-0.040)
+    a.push({icon:'🌡️',cat:'rolling',tier:3,label:'Quality Cold Streak (-)',color:'var(--red)',
+      tip:`L30 xwOBA ${r.rollingXwoba.toFixed(3)} vs season ${r.xwoba.toFixed(3)} — genuine cold stretch in contact quality. Not just bad luck.`});
+
+  // Elite percentile ranks
+  if(r.evPct!=null&&r.evPct>=90)
+    a.push({icon:'📊',cat:'pctRank',tier:1,label:`Top ${100-r.evPct}% EV (+)`,color:'#ffd700',
+      tip:`Exit velocity in ${r.evPct}th percentile of MLB — elite raw power`});
+  else if(r.xwobaPct!=null&&r.xwobaPct>=90)
+    a.push({icon:'📊',cat:'pctRank',tier:1,label:`Top ${100-r.xwobaPct}% xwOBA (+)`,color:'var(--green)',
+      tip:`xwOBA in ${r.xwobaPct}th percentile of MLB — elite quality of contact`});
+
   // xwOBA luck regression — batter deserves more than he's gotten
   if(r.xwobaDiff!=null&&r.xwobaDiff>=0.025)
     a.push({icon:'🍀',cat:'xwoba',tier:1,label:'Luck Regression Due (+)',color:'var(--blue)',
@@ -1392,6 +1468,24 @@ function detectAngles(r){
     if(r.avg_ev>=95) a.push({icon:'⚡',cat:'ev',tier:1,label:'Nuclear EV (+)',color:'#ffd700',tip:`${r.avg_ev} mph EV — elite`});
     else if(r.avg_ev>=92) a.push({icon:'⚡',cat:'ev',tier:2,label:'Elite EV (+)',color:'var(--green)',tip:`${r.avg_ev} mph EV — top 15%`});
   }
+
+  // Plate discipline — patient hitters get better counts to hit
+  if(r.chaseRate!=null&&r.chaseRate<=22)
+    a.push({icon:'👁️',cat:'chase',tier:2,label:'Elite Eye (+)',color:'var(--green)',
+      tip:`${r.chaseRate}% chase rate — top 5% plate discipline (lg avg 29%). Patient hitters see more hittable counts.`});
+
+  // Launch angle sweet spot — elite HR shape
+  if(r.sweetSpot!=null&&r.sweetSpot>=40)
+    a.push({icon:'📐',cat:'sweetSpot',tier:1,label:'Optimal Launch Angle (+)',color:'var(--green)',
+      tip:`${r.sweetSpot}% sweet spot rate — elite (lg avg 35%). Consistently hits balls at optimal 8-32° for HRs.`});
+
+  // HR distance — proof of power
+  if(r.avgHRDist!=null&&r.avgHRDist>=420)
+    a.push({icon:'💨',cat:'hrDist',tier:1,label:'Moonshots (+)',color:'#ffd700',
+      tip:`Avg HR distance ${Math.round(r.avgHRDist)} ft — elite raw power (lg avg ~390 ft). HR balls clear all fences.`});
+  else if(r.avgHRDist!=null&&r.avgHRDist>=405)
+    a.push({icon:'💨',cat:'hrDist',tier:2,label:'Tape Measure Power (+)',color:'var(--green)',
+      tip:`Avg HR distance ${Math.round(r.avgHRDist)} ft — well above average`});
   if(r.iso!=null){
     if(r.iso>=0.300) a.push({icon:'💣',cat:'iso',tier:1,label:'Power Freak (+)',color:'#ffd700',tip:`ISO .${Math.round(r.iso*1000)} — Judge-tier`});
     else if(r.iso>=0.240) a.push({icon:'💣',cat:'iso',tier:1,label:'Elite Power (+)',color:'var(--green)',tip:`ISO .${Math.round(r.iso*1000)} — top 10%`});
@@ -1486,6 +1580,23 @@ function detectAngles(r){
     else if(pit.hr9_recent<0.8&&pit.hr9_season!=null&&pit.hr9_season<0.9) a.push({icon:'🧱',cat:'pitcher',tier:3,label:'Shutdown SP (-)',color:'var(--red)',tip:`SP ${pit.hr9_recent.toFixed(1)} HR/9 — elite suppressor`});
   }
   if(pit.totalStarts!=null&&pit.totalStarts<=3) a.push({icon:'🆕',cat:'spStarts',tier:2,label:'Fresh SP (+/-)',color:'var(--amber)',tip:`Only ${pit.totalStarts} starts this season`});
+  // SP CSW% (called strike + whiff) — best single pitcher quality metric
+  if(pit.csw!=null){
+    if(pit.csw>=32)
+      a.push({icon:'🌀',cat:'whiff',tier:3,label:'Elite CSW SP (-)',color:'var(--red)',
+        tip:`SP ${pit.csw}% CSW — elite (lg avg 28%). Called+swinging strikes suppress HR opps.`});
+    else if(pit.csw<=23)
+      a.push({icon:'📤',cat:'whiff',tier:2,label:'Low CSW SP (+)',color:'var(--green)',
+        tip:`SP ${pit.csw}% CSW — below average command. More balls in play = more HR chances.`});
+  } else if(pit.whiffPct!=null){
+    if(pit.whiffPct>=32)
+      a.push({icon:'🌀',cat:'whiff',tier:3,label:'High-K SP (-)',color:'var(--red)',
+        tip:`SP ${pit.whiffPct}% whiff — elite swing-and-miss stuff.`});
+    else if(pit.whiffPct<=18)
+      a.push({icon:'📤',cat:'whiff',tier:2,label:'Low-K SP (+)',color:'var(--green)',
+        tip:`SP ${pit.whiffPct}% whiff — fewer strikeouts, more balls in play.`});
+  }
+
   // SP days rest
   const spRest = pit.daysRest;
   if(spRest){
@@ -1561,6 +1672,11 @@ function detectNegativeAngles(r){
   const l15pa=g.slice(0,15).reduce((s,x)=>s+(x.ab||0),0);
   if(l15pa>20&&l15hr>=5&&(l15hr/l15pa)>(r.anchor||0.035)*2.8) neg.push({icon:'📉',label:'Hot Streak May Cool (-)',tip:`${l15hr} HRs in last 15G well above power profile rate.`});
   if(r.barrel_pct!=null&&r.barrel_pct<5) neg.push({icon:'🛢️',label:'Weak Barrel Rate (-)',tip:`${r.barrel_pct}% barrel — below lg avg 8%.`});
+  // High chase rate = poor plate discipline = worse counts = fewer HRs
+  if(r.chaseRate!=null&&r.chaseRate>=35)
+    neg.push({icon:'👁️',label:'Free Swinger (-)',
+      tip:`${r.chaseRate}% chase rate — well above lg avg 29%. Chases bad pitches, sees fewer hittable counts.`});
+
   if(r.xwobaDiff!=null&&r.xwobaDiff<=-0.030)
     neg.push({icon:'🍀',label:'Outperforming Contact Quality (-)',
       tip:`wOBA ${r.woba?.toFixed(3)} is ${Math.round(Math.abs(r.xwobaDiff)*1000)}pts above xwOBA — results ahead of contact quality. Regression likely.`});
@@ -1725,9 +1841,12 @@ async function toggleGame(pk){
 let _savB=null,_fgB=null,_savP=null,_fgP=null;
 async function loadSelectedGames(){
   const el=document.getElementById('hitter-list');
-  el.innerHTML='<div class="spinner"><div class="spin"></div>Loading leaderboard data…</div>';
-  await ensureLeaderboards();
+  el.innerHTML='<div class="spinner"><div class="spin"></div>Loading games…</div>';
   loadFanDuelOdds(); // fire and forget
+
+  // Fire ALL leaderboards immediately in parallel — they'll be ready by the time
+  // we need them for player enrichment (usually 2-4 sec ahead of per-batter processing)
+  const leaderboardReady = ensureLeaderboards(); // single call that parallelizes internally
 
   const toLoad=[];
   for(const pk of S.selPks){
@@ -1739,6 +1858,7 @@ async function loadSelectedGames(){
   let loaded=0;
   for(const g of toLoad){
     el.innerHTML=`<div class="spinner"><div class="spin"></div>Loading ${g.away}@${g.home}… (${loaded+1}/${toLoad.length})</div>`;
+    renderSlate(); // show partial data immediately as it loads
     await loadGame(g);
     loaded++;
   }
@@ -1928,6 +2048,8 @@ function scoreArsenalMatchup(arsenal,batVsPitch){
 }
 
 async function getBatterVsPitchType(batId){
+  // Skip if already cached
+  if(_playerCache[`bvp_${batId}`]!==undefined) return _playerCache[`bvp_${batId}`];
   return getBatterVsPitches(batId);
 }
 
@@ -2317,6 +2439,363 @@ function calcCompositeBetScore(r){
 }
 
 
+// ==================================================================
+//  SAVANT PERCENTILE RANKINGS — overall power/speed percentiles
+//  Shows where a batter ranks vs all MLB players (1-99)
+// ==================================================================
+let _percentileMap = null;
+async function ensurePercentileMap(){
+  if(_percentileMap !== null) return;
+  _percentileMap = {};
+  try{
+    const url = `https://baseballsavant.mlb.com/leaderboard/percentile-rankings?type=batter&year=${SEASON}&team=&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`percentile ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    const s = rows[0]||{};
+    const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
+    console.log('[Percentile] cols:', Object.keys(s).slice(0,12));
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      _percentileMap[pid] = {
+        ev:          parseFloat(row.exit_velocity||row.avg_exit_velocity||0)||null,
+        barrelPct:   parseFloat(row.brl_percent||row.barrel_batted_rate||0)||null,
+        hardHit:     parseFloat(row.ev95percent||0)||null,
+        xwoba:       parseFloat(row.xwoba||row.est_woba||0)||null,
+        sprint:      parseFloat(row.sprint_speed||0)||null,
+        whiff:       parseFloat(row.whiff_percent||0)||null,
+        k:           parseFloat(row.k_percent||0)||null,
+        bb:          parseFloat(row.bb_percent||0)||null,
+        // Percentile rank (0-100, higher = better for hitters)
+        evPct:       parseInt(row.percent_rank_exit_velocity||0)||null,
+        brlPct:      parseInt(row.percent_rank_barrel||0)||null,
+        xwobaPct:    parseInt(row.percent_rank_xwoba||0)||null,
+      };
+    }
+    console.log('[Percentile] loaded', Object.keys(_percentileMap).length, 'players');
+  }catch(e){ console.warn('[Percentile]:', e.message); _percentileMap={}; }
+}
+
+// ==================================================================
+//  PITCHER WHIFF RATE — from Savant pitch-arsenal-stats
+//  High whiff = more strikeouts = fewer HR opportunities
+// ==================================================================
+let _pitcherWhiffMap = null;
+async function ensurePitcherWhiffMap(){
+  if(_pitcherWhiffMap !== null) return;
+  _pitcherWhiffMap = {};
+  try{
+    // pitch-arsenal-stats has whiff_percent per pitcher
+    const url = `https://baseballsavant.mlb.com/leaderboard/pitch-arsenal-stats?type=pitcher&pitchType=&year=${SEASON}&team=&min=1&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`pitcher-whiff ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    const s = rows[0]||{};
+    const idC = ['pitcher_id','mlbam_id','player_id','id'].find(c=>s[c]!=null);
+    console.log('[PitcherWhiff] cols:', Object.keys(s).slice(0,15));
+    // This is the same endpoint as pitch-arsenal-stats but we extract whiff% and run_value
+    const groups = {};
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      if(!groups[pid]) groups[pid] = {whiffs:[], rvs:[], pas:[]};
+      const whiff = parseFloat(row.whiff_percent||row.whiff||0)||null;
+      const rv    = parseFloat(row.run_value||row.run_value_per_100||0)||null;
+      const pa    = parseFloat(row.pa||row.pitches||row.n_thru_f||0)||null;
+      if(whiff!=null) groups[pid].whiffs.push({v:whiff,pa:pa||50});
+      if(rv!=null)    groups[pid].rvs.push({v:rv,pa:pa||50});
+    }
+    for(const [pid,g] of Object.entries(groups)){
+      const wTotal = g.whiffs.reduce((s,x)=>s+x.pa,0)||1;
+      const avgWhiff = g.whiffs.reduce((s,x)=>s+x.v*x.pa,0)/wTotal;
+      const rvTotal  = g.rvs.reduce((s,x)=>s+x.pa,0)||1;
+      const avgRV    = g.rvs.reduce((s,x)=>s+x.v*x.pa,0)/rvTotal;
+      _pitcherWhiffMap[pid] = {
+        whiffPct: Math.round(avgWhiff*10)/10,
+        runValue: Math.round(avgRV*100)/100
+      };
+    }
+    console.log('[PitcherWhiff] loaded', Object.keys(_pitcherWhiffMap).length, 'pitchers');
+  }catch(e){ console.warn('[PitcherWhiff]:', e.message); _pitcherWhiffMap={}; }
+}
+
+// ==================================================================
+//  ROLLING HOT STREAK — Savant rolling leaderboard (last 30 days)
+//  Players with recent xwOBA spikes are genuinely hot, not just lucky
+// ==================================================================
+let _rollingMap = null;
+async function ensureRollingMap(){
+  if(_rollingMap !== null) return;
+  _rollingMap = {};
+  try{
+    // Last 30 days rolling stats
+    const endDate = ds();
+    const startDate = ds(new Date(Date.now() - 30*864e5));
+    const url = `https://baseballsavant.mlb.com/leaderboard/custom?year=${SEASON}&type=batter&filter=&sort=4&sortDir=desc&min=30&selections=xba,xslg,xwoba,exit_velocity_avg,barrel_batted_rate&chart=false&dateStart=${startDate}&dateEnd=${endDate}&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`rolling ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    const s = rows[0]||{};
+    const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      _rollingMap[pid] = {
+        xwoba: parseFloat(row.xwoba||row.est_woba||0)||null,
+        xba:   parseFloat(row.xba||row.est_ba||0)||null,
+        ev:    parseFloat(row.exit_velocity_avg||row.avg_exit_velocity||0)||null,
+        brl:   parseFloat(row.barrel_batted_rate||row.brl_percent||0)||null,
+      };
+    }
+    console.log('[Rolling] loaded', Object.keys(_rollingMap).length, 'players L30');
+  }catch(e){ console.warn('[Rolling]:', e.message); _rollingMap={}; }
+}
+
+// ==================================================================
+//  PARK HR FACTORS by HANDEDNESS — L/R specific park factors
+//  Savant park factors endpoint has handedness splits
+// ==================================================================
+const PARK_HR_FACTOR_LR = {
+  // [LHB factor, RHB factor] — 1.0 = average, >1 = HR friendly
+  // Sourced from Savant park factors (3-year averages, handedness adjusted)
+  'LAD':  [1.03, 0.97], 'NYY': [1.12, 1.18], 'COL': [1.34, 1.38],
+  'CIN':  [1.15, 1.20], 'TEX': [1.08, 1.05], 'ARI': [1.05, 1.08],
+  'PHI':  [1.06, 1.10], 'ATL': [1.04, 1.06], 'HOU': [1.01, 0.98],
+  'CHC':  [1.08, 1.04], 'BOS': [1.05, 1.12], 'MIN': [1.06, 1.02],
+  'MIL':  [1.02, 1.05], 'STL': [0.97, 0.99], 'MIA': [0.94, 0.96],
+  'PIT':  [0.92, 0.94], 'SF':  [0.88, 0.85], 'SD':  [0.90, 0.92],
+  'SEA':  [0.91, 0.93], 'OAK': [0.94, 0.96], 'BAL': [1.03, 1.05],
+  'NYM':  [0.97, 0.99], 'TOR': [1.00, 1.02], 'DET': [0.96, 0.98],
+  'CLE':  [0.97, 0.99], 'KC':  [0.98, 1.00], 'CHW': [1.04, 1.06],
+  'TB':   [0.93, 0.95], 'WSH': [1.00, 1.02], 'LAA': [0.96, 0.98],
+};
+
+function getHandednessParkFactor(team, batHand){
+  const factors = PARK_HR_FACTOR_LR[team];
+  if(!factors) return 1.0;
+  return batHand==='L' ? factors[0] : factors[1];
+}
+
+// ==================================================================
+//  INJURY REPORT — MLB API injury/transactions
+// ==================================================================
+async function checkInjuryStatus(pid){
+  const key = `inj_${pid}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    const d = await fetchJSON(`${MLB}/people/${pid}?hydrate=currentTeam`);
+    const p = d.people?.[0];
+    const status = p?.status?.description||'';
+    const result = {
+      active: status === 'Active' || !status,
+      status: status||'Active',
+      isDTD: status.toLowerCase().includes('day-to-day'),
+      isIL: status.toLowerCase().includes('injured list'),
+    };
+    _playerCache[key] = result;
+    return result;
+  }catch(e){ _playerCache[key]={active:true,status:'Unknown'}; return _playerCache[key]; }
+}
+
+
+// ==================================================================
+//  SWING-TAKE LEADERBOARD — Zone%, O-Swing%, CSW%, Contact%
+//  CSW = Called Strike + Whiff — best single pitcher quality metric
+//  Chase rate = how often batter swings at balls outside zone
+// ==================================================================
+let _swingTakeMap = null;
+async function ensureSwingTakeMap(){
+  if(_swingTakeMap !== null) return;
+  _swingTakeMap = {};
+  try{
+    const url = `https://baseballsavant.mlb.com/leaderboard/swing-take?year=${SEASON}&type=batter&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`swing-take ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    const s = rows[0]||{};
+    console.log('[SwingTake] cols:', Object.keys(s).slice(0,15));
+    const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      _swingTakeMap[pid] = {
+        // Plate discipline
+        zoneRate:   parseFloat(row.zone_percent||row.zone||0)||null,  // how often pitcher throws strikes
+        oSwing:     parseFloat(row.out_zone_swing_percent||row.o_swing||0)||null, // chase rate
+        zContact:   parseFloat(row.zone_contact_percent||row.z_contact||0)||null, // contact in zone
+        oContact:   parseFloat(row.out_zone_contact_percent||row.o_contact||0)||null, // contact outside
+        swingRate:  parseFloat(row.swing_percent||row.swing||0)||null,
+        whiffRate:  parseFloat(row.whiff_percent||row.whiff||0)||null,
+      };
+    }
+    console.log('[SwingTake] loaded', Object.keys(_swingTakeMap).length, 'batters');
+  }catch(e){ console.warn('[SwingTake]:', e.message); _swingTakeMap={}; }
+}
+
+// Pitcher swing-take (CSW, zone%, whiff%)
+let _pitcherSwingTakeMap = null;
+async function ensurePitcherSwingTakeMap(){
+  if(_pitcherSwingTakeMap !== null) return;
+  _pitcherSwingTakeMap = {};
+  try{
+    const url = `https://baseballsavant.mlb.com/leaderboard/swing-take?year=${SEASON}&type=pitcher&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`pitcher-swing-take ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    const s = rows[0]||{};
+    const idC = ['player_id','pitcher','id'].find(c=>s[c]!=null);
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      _pitcherSwingTakeMap[pid] = {
+        csw:      parseFloat(row.csw_percent||row.csw||0)||null, // CSW% - best quality metric
+        zoneRate: parseFloat(row.zone_percent||row.zone||0)||null,
+        chaseRate:parseFloat(row.out_zone_swing_percent||row.o_swing||0)||null,
+        whiffRate:parseFloat(row.whiff_percent||row.whiff||0)||null,
+      };
+    }
+    console.log('[PitcherSwingTake] loaded', Object.keys(_pitcherSwingTakeMap).length, 'pitchers');
+  }catch(e){ console.warn('[PitcherSwingTake]:', e.message); _pitcherSwingTakeMap={}; }
+}
+
+// ==================================================================
+//  HR DISTANCE LEADERBOARD — avg/max HR distance from Savant
+//  Identifies true power hitters vs contact-driven HR hitters
+// ==================================================================
+let _hrDistMap = null;
+async function ensureHRDistMap(){
+  if(_hrDistMap !== null) return;
+  _hrDistMap = {};
+  try{
+    const url = `https://baseballsavant.mlb.com/leaderboard/home-runs?year=${SEASON}&type=batter&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`hr-dist ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    const s = rows[0]||{};
+    console.log('[HRDist] cols:', Object.keys(s).slice(0,12));
+    const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      _hrDistMap[pid] = {
+        avgDist: parseFloat(row.avg_distance||row.distance||0)||null,
+        maxDist: parseFloat(row.max_distance||0)||null,
+        total:   parseInt(row.total_home_runs||row.hr||0)||null,
+      };
+    }
+    console.log('[HRDist] loaded', Object.keys(_hrDistMap).length, 'players');
+  }catch(e){ console.warn('[HRDist]:', e.message); _hrDistMap={}; }
+}
+
+// ==================================================================
+//  LAUNCH ANGLE SWEET SPOT % — LaSwSp% from Savant custom leaderboard
+//  Balls hit 8-32° launch angle — optimal HR zone
+//  Higher LaSwSp% = more balls in optimal HR launch angle
+// ==================================================================
+let _laSwSpMap = null;
+async function ensureLaSwSpMap(){
+  if(_laSwSpMap !== null) return;
+  _laSwSpMap = {};
+  try{
+    const url = `https://baseballsavant.mlb.com/leaderboard/custom?year=${SEASON}&type=batter&filter=&sort=4&sortDir=desc&min=50&selections=launch_angle_swing_pct,sweet_spot_percent,avg_launch_angle,barrel_batted_rate&chart=false&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`la-swsp ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    const s = rows[0]||{};
+    const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      _laSwSpMap[pid] = {
+        sweetSpot: parseFloat(row.sweet_spot_percent||row.launch_angle_swing_pct||0)||null,
+        avgLA:     parseFloat(row.avg_launch_angle||0)||null,
+      };
+    }
+    console.log('[LaSwSp] loaded', Object.keys(_laSwSpMap).length, 'players');
+  }catch(e){ console.warn('[LaSwSp]:', e.message); _laSwSpMap={}; }
+}
+
+// ==================================================================
+//  OPPOSING BULLPEN QUALITY — if SP gets pulled, who comes in?
+//  Teams with poor bullpen ERA allow more late-game HRs
+// ==================================================================
+async function getBullpenQuality(teamAbbr){
+  const key = `bullpen_${teamAbbr}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    const td = await fetchJSON(`${MLB}/teams?sportId=1&season=${SEASON}`);
+    const team = (td.teams||[]).find(t=>t.abbreviation===teamAbbr);
+    if(!team){_playerCache[key]=null;return null;}
+    const d = await fetchJSON(`${MLB}/teams/${team.id}/stats?stats=season&group=pitching&season=${SEASON}&gameType=R`);
+    const st = d.stats?.[0]?.splits?.[0]?.stat;
+    if(!st){_playerCache[key]=null;return null;}
+    const era = parseFloat(st.era)||4.50;
+    const hr9 = parseFloat(st.homeRunsPer9||0)||1.35;
+    // Bullpen mult: high ERA/HR9 = more HR chances when SP exits
+    const mult = clamp((hr9/1.35)*0.30 + (era/4.50)*0.70, 0.80, 1.30);
+    const result = {era:Math.round(era*100)/100, hr9:Math.round(hr9*100)/100, mult};
+    _playerCache[key]=result; return result;
+  }catch(e){_playerCache[key]=null;return null;}
+}
+
+// ==================================================================
+//  RESULT TRACKER — store model vs actual to show hit rate
+//  Uses localStorage to persist across sessions
+// ==================================================================
+function recordResult(playerId, playerName, prob, actualHR){
+  try{
+    const key = 'hr_hub_results';
+    const stored = JSON.parse(localStorage.getItem(key)||'[]');
+    stored.push({
+      id: playerId, name: playerName, prob,
+      actual: actualHR, date: ds(),
+      hit: (prob>=0.08&&actualHR>0)||(prob<0.08&&actualHR===0)
+    });
+    // Keep last 500
+    if(stored.length>500) stored.splice(0,stored.length-500);
+    localStorage.setItem(key, JSON.stringify(stored));
+  }catch(e){}
+}
+
+function getModelStats(){
+  try{
+    const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+    if(!stored.length) return null;
+    const total = stored.length;
+    const hits = stored.filter(r=>r.hit).length;
+    const hrRate = stored.filter(r=>r.actual>0).length/total;
+    const highConf = stored.filter(r=>r.prob>=0.10);
+    const highConfHit = highConf.filter(r=>r.actual>0).length;
+    return{
+      total, hitRate: Math.round(hits/total*1000)/10,
+      hrRate: Math.round(hrRate*1000)/10,
+      highConfHitRate: highConf.length ? Math.round(highConfHit/highConf.length*1000)/10 : null,
+      highConfTotal: highConf.length,
+    };
+  }catch(e){return null;}
+}
+
+// ==================================================================
+//  ALTITUDE PARK CORRECTION — Coors is different at high heat
+//  At altitude + heat, ball travels even farther (thin + hot air)
+// ==================================================================
+const PARK_ALTITUDE = {
+  COL: 5280, ARI: 1082, ATL: 1050, DEN: 5280,
+  // All others near sea level
+};
+
+function altitudeEffect(venue, temp){
+  const alt = PARK_ALTITUDE[venue] || 0;
+  if(alt < 1000) return 0;
+  // At 5280ft vs sea level: ~10% more distance
+  // Additional effect from heat: above 80°F adds another 1-2%
+  const altBonus = (alt/5280) * 0.08;
+  const heatBonus = temp > 80 ? (temp-80)*0.001 : 0;
+  return altBonus + heatBonus;
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -2349,7 +2828,7 @@ async function loadGame(g){
   ]);
 
   // Fetch pitcher game logs for HR/9 (last 4 starts)
-  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR] = await Promise.all([
+  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR,awBullpen,hmBullpen] = await Promise.all([
     getPitcherGameLog(g.awaySpId),  getPitcherGameLog(g.homeSpId),
     getPitcherArsenal(g.awaySpId),  getPitcherArsenal(g.homeSpId),
     getLineup(g.pk, g.awayId||0),  getLineup(g.pk, g.homeId||0),
@@ -2357,6 +2836,7 @@ async function loadGame(g){
     getPitcherWorkload(g.awaySpId), getPitcherWorkload(g.homeSpId),
     getSPDaysRest(g.awaySpId),     getSPDaysRest(g.homeSpId),
     getTeamHRContext(g.away),      getTeamHRContext(g.home),
+    getBullpenQuality(g.away),     getBullpenQuality(g.home),
   ]);
 
   const wx  = await getWeather(g.venue);
@@ -2394,27 +2874,33 @@ async function loadGame(g){
     };
 
     // Batch-fetch batter recent games + platoon splits in parallel
-    const BATCH = 8;
+    const BATCH = 12; // larger batch = more parallel = faster
     const recentGamesMap = {};
     const platoonMap = {};
     const vsPitchMap = {};
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk   = hitters.slice(i, i+BATCH);
-      const [recResults, platResults, statResults, bvpResults, haResults, priorResults] = await Promise.all([
+      const [recResults, platResults, statResults, haResults, priorResults] = await Promise.all([
         Promise.allSettled(chunk.map(h=>getBatterRecentGames(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPlayerPlatoonSplits(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPlayerStats(String(h.id), SEASON))),
-        Promise.allSettled(chunk.map(h=>getBatterVsPitchType(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getHomAwaySplits(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPriorSeasonRate(String(h.id)))),
       ]);
-      const homeAwayMap={}, priorRateMap={};
+      // Fire BvP + careerVsSP in parallel (heavy Savant CSVs — non-blocking)
+      const bvpPromises = chunk.map(h=>getBatterVsPitchType(String(h.id)));
+      const hvhPromises = chunk.map(h=>getCareerVsSP(String(h.id), String(spId)));
+      const homeAwayMap={}, priorRateMap={}, hvhMap={};
+      // Await BvP and HvH now (they were fired non-blocking earlier)
+      const bvpSettled = await Promise.allSettled(bvpPromises);
+      const hvhSettled = await Promise.allSettled(hvhPromises);
       chunk.forEach((h,j)=>{
         if(recResults[j].status==='fulfilled')   recentGamesMap[String(h.id)] = recResults[j].value;
         if(platResults[j].status==='fulfilled')  platoonMap[String(h.id)]     = platResults[j].value;
-        if(bvpResults[j].status==='fulfilled')   vsPitchMap[String(h.id)]     = bvpResults[j].value;
+        if(bvpSettled[j].status==='fulfilled')   vsPitchMap[String(h.id)]     = bvpSettled[j].value;
         if(haResults[j].status==='fulfilled')    homeAwayMap[String(h.id)]    = haResults[j].value;
         if(priorResults[j].status==='fulfilled') priorRateMap[String(h.id)]   = priorResults[j].value;
+        if(hvhSettled[j].status==='fulfilled')   hvhMap[String(h.id)]         = hvhSettled[j].value;
       });
     }
 
@@ -2464,6 +2950,8 @@ async function loadGame(g){
 
       const batterStats = {
         batHand:         resolvedHand || 'R',
+        team:            h.team||team,
+        oppTeam:         key.endsWith('_away') ? g.home : g.away,
         l30hr, l30pa,
         szHR, szPA,
         careerHR:        carHR,
@@ -2479,16 +2967,29 @@ async function loadGame(g){
         pull_pct:        savH.pull_pct      ?? null,
         fb_pct:          savH.fb_pct        ?? null,
         batVsPitch:      vsPitchMap[pid]    || null,
+        careerVsSP:      hvhMap[pid]        || null,
         xwoba:           savH.xwoba         ?? null,
         woba:            savH.woba          ?? null,
         xwobaDiff:       savH.xwobaDiff     ?? null,
         swingSpeed:      savH.swingSpeed    ?? null,
         blastPct:        savH.blastPct      ?? null,
+        evPct:           savH.evPct         ?? null,
+        brlPct:          savH.brlPct        ?? null,
+        xwobaPct:        savH.xwobaPct      ?? null,
+        rollingXwoba:    savH.rollingXwoba  ?? null,
+        rollingEV:       savH.rollingEV     ?? null,
+        sprint:          savH.sprint        ?? null,
+        chaseRate:       savH.chaseRate     ?? null,
+        zContact:        savH.zContact      ?? null,
+        sweetSpot:       savH.sweetSpot     ?? null,
+        avgLA:           savH.avgLA         ?? null,
+        avgHRDist:       savH.avgHRDist     ?? null,
         homeAwaySplits:  homeAwayMap[pid]   || null,
         priorSeasonRate: priorRateMap[pid]?.rate ?? null,
         isHome:          key.endsWith('_home'),
         lineupPos:       (key.endsWith('_away') ? awLineup : hmLineup)?.[pid] || null,
         umpMult:         umpData?.mult ?? 1.0,
+        bullpenMult:     (key.endsWith('_away') ? hmBullpen : awBullpen)?.mult ?? 1.0,
         teamHRMult:      (key.endsWith('_away') ? awTeamHR : hmTeamHR)?.mult ?? 1.0,
       };
 
@@ -2777,13 +3278,20 @@ function renderDetail(r){
       const k9s   = pit.seasonK9!=null    ? pit.seasonK9.toFixed(1)    : '--';
       const starts= pit.totalStarts!=null ? pit.totalStarts            : '--';
       const hr9Clr= pit.hr9_recent!=null  ? (pit.hr9_recent>=2.0?'var(--green)':pit.hr9_recent<=0.9?'var(--red)':'var(--amber)') : 'var(--t4)';
+      const whiffClr = pit.whiffPct!=null ? (pit.whiffPct>=28?'var(--red)':pit.whiffPct<=20?'var(--green)':'var(--t3)') : 'var(--t4)';
+      const rvClr    = pit.runValue!=null  ? (pit.runValue<-1?'var(--red)':pit.runValue>1?'var(--green)':'var(--t3)') : 'var(--t4)';
+      const daysRestStr = pit.daysRest?.days!=null ? `${pit.daysRest.days}d${pit.daysRest.isShortRest?' ⚡':pit.daysRest.isExtraRest?' 💤':''}` : '--';
 
       const statsRow = `<div class="stat-scroll" style="margin-bottom:12px">
         <div class="stat-box"><span class="sb-val" style="color:${hr9Clr}">${hr9r}</span><span class="sb-lbl">HR/9 Recent</span></div>
         <div class="stat-box"><span class="sb-val">${hr9s}</span><span class="sb-lbl">HR/9 Season</span></div>
         <div class="stat-box"><span class="sb-val">${k9r}</span><span class="sb-lbl">K/9 Recent</span></div>
         <div class="stat-box"><span class="sb-val">${k9s}</span><span class="sb-lbl">K/9 Season</span></div>
-        <div class="stat-box"><span class="sb-val">${starts}</span><span class="sb-lbl">GS 2026</span></div>
+        <div class="stat-box"><span class="sb-val">${starts}</span><span class="sb-lbl">GS ${SEASON}</span></div>
+        ${pit.csw!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.csw>=32?'var(--red)':pit.csw<=23?'var(--green)':'var(--t3)'}">${pit.csw}%</span><span class="sb-lbl">CSW%</span></div>`:''}
+        ${pit.whiffPct!=null?`<div class="stat-box"><span class="sb-val" style="color:${whiffClr}">${pit.whiffPct}%</span><span class="sb-lbl">Whiff%</span></div>`:''}
+        ${pit.runValue!=null?`<div class="stat-box"><span class="sb-val" style="color:${rvClr}">${pit.runValue>0?'+':''}${pit.runValue}</span><span class="sb-lbl">Run Val/100</span></div>`:''}
+        ${pit.daysRest!=null?`<div class="stat-box"><span class="sb-val">${daysRestStr}</span><span class="sb-lbl">Days Rest</span></div>`:''}
       </div>`;
 
       // Arsenal pitch rows with batter performance overlay
@@ -2936,6 +3444,20 @@ function renderDetail(r){
         <input type="text" id="det-odds" placeholder="${fdOdds2!=null?fdOdds2:'+500'}" oninput="calcBetEV('${r.id}','${pct}')">
       </div>
       <div id="det-ev-result"></div>
+    </div>
+    <div class="card" style="margin-bottom:10px">
+      <div class="slbl">📝 Record Result (after game)</div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button onclick="recordResult('${r.id}','${r.name}',${r.prob},1)" 
+          style="flex:1;padding:10px;border-radius:10px;border:none;background:rgba(34,201,94,.2);color:var(--green);font-size:.82rem;font-weight:700;cursor:pointer">
+          ✅ Hit HR
+        </button>
+        <button onclick="recordResult('${r.id}','${r.name}',${r.prob},0)"
+          style="flex:1;padding:10px;border-radius:10px;border:none;background:rgba(224,80,74,.2);color:var(--red);font-size:.82rem;font-weight:700;cursor:pointer">
+          ❌ No HR
+        </button>
+      </div>
+      <div style="font-size:.62rem;color:var(--t4);margin-top:6px;text-align:center">Results saved locally to track model accuracy</div>
     </div>`;
   } catch(e) {
     console.error('[renderDetail] ERROR:', e.message, e.stack?.split('\n')[1]);
@@ -3322,6 +3844,12 @@ function renderABLog(rows){
       ${r.swingSpeed!=null?metric('Bat Speed',r.swingSpeed+' mph',r.swingSpeed>=72):''}
       ${r.xwoba!=null?metric('xwOBA',r.xwoba.toFixed(3),r.xwoba>=0.360):''}
       ${r.woba!=null?metric('wOBA',r.woba.toFixed(3),r.woba>=0.360):''}
+      ${r.rollingXwoba!=null?metric('L30 xwOBA',r.rollingXwoba.toFixed(3),r.rollingXwoba>=0.380):''}
+      ${r.evPct!=null?metric('EV Pct',r.evPct+'th',r.evPct>=85):''}
+      ${r.sprint!=null?metric('Sprint Spd',r.sprint+' ft/s',r.sprint>=28):''}
+      ${r.sweetSpot!=null?metric('Sweet Spot%',r.sweetSpot+'%',r.sweetSpot>=38):''}
+      ${r.chaseRate!=null?metric('Chase%',r.chaseRate+'%',r.chaseRate<=24):''}
+      ${r.avgHRDist!=null?metric('Avg HR Dist',Math.round(r.avgHRDist)+' ft',r.avgHRDist>=405):''}
         ${metric('Avg EV',avgEV!=null?avgEV.toFixed(1):'--',avgEV>=90)}
         ${metric('Barrel%',pct(brl)+'%',pct(brl)>=10)}
       </div>`;
