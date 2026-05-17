@@ -956,7 +956,9 @@ function calcPitcherMult(pitcherStats){
   if(scores.length){const tw=scores.reduce((s,[,w])=>s+w,0);quality=clamp(scores.reduce((s,[m,w])=>s+m*w,0)/tw,0.60,1.60);}
   // Arsenal modifier: how well THIS batter hits THIS SP's pitches (fixes Brandon Lowe)
   const arsenalMod=(_arsenalMult!=null&&_arsenalMult!==1.0)?clamp(1.0+(_arsenalMult-1.0)*0.75,0.82,1.22):1.0;
-  return clamp(quality*arsenalMod,0.50,2.00);
+  // Days rest modifier
+  const restMod=pitcherStats.daysRest?.mult??1.0;
+  return clamp(quality*arsenalMod*restMod,0.50,2.00);
 }
 
 function calcParkWxMult(pf, wx, batHand){
@@ -1077,14 +1079,17 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     hvhMult = clamp(ratio*0.35 + 1.0*0.65, 0.75, 1.40); // 35% weight on direct evidence
   }
 
+  // Team HR context — if lineup is hot, all individual probs get a bump
+  const teamMult = batterStats.teamHRMult ?? 1.0;
+
   const prob = clamp(
     anchor * platoon * pitcher * parkwx * momentum
-    * homeAwayMult * paMultiplier * umpMult * hvhMult,
+    * homeAwayMult * paMultiplier * umpMult * hvhMult * teamMult,
     0.005, 0.50
   );
 
   return { prob, anchor, platoon, pitcher, parkwx, momentum,
-           homeAwayMult, paMultiplier, umpMult, hvhMult };
+           homeAwayMult, paMultiplier, umpMult, hvhMult, teamMult };
 }
 
 // ── GRADES ────────────────────────────────────────────────────────
@@ -1407,6 +1412,14 @@ function detectAngles(r){
         tip:`0 HR in ${hvhData.pa} career PA vs this pitcher — historically struggles in this matchup`});
   }
 
+  // Team HR context — hot lineup boosts individual HR odds
+  if(r.teamMult>=1.15)
+    a.push({icon:'🔥',cat:'teamCtx',tier:2,label:'Lineup Running Hot (+)',color:'var(--amber)',
+      tip:`${r.team} averaging ${r.teamHRContext||'high'} HR/game over last 14 days — hot lineup context boosts individual HR probability`});
+  else if(r.teamMult<=0.82)
+    a.push({icon:'❄️',cat:'teamCtx',tier:3,label:'Lineup Cold (-)',color:'var(--t4)',
+      tip:`${r.team} batting through a cold stretch — fewer HR opportunities in low-scoring lineup context`});
+
   // Lineup position
   if(r.lineupPos){
     if(r.lineupPos <= 4)
@@ -1473,6 +1486,17 @@ function detectAngles(r){
     else if(pit.hr9_recent<0.8&&pit.hr9_season!=null&&pit.hr9_season<0.9) a.push({icon:'🧱',cat:'pitcher',tier:3,label:'Shutdown SP (-)',color:'var(--red)',tip:`SP ${pit.hr9_recent.toFixed(1)} HR/9 — elite suppressor`});
   }
   if(pit.totalStarts!=null&&pit.totalStarts<=3) a.push({icon:'🆕',cat:'spStarts',tier:2,label:'Fresh SP (+/-)',color:'var(--amber)',tip:`Only ${pit.totalStarts} starts this season`});
+  // SP days rest
+  const spRest = pit.daysRest;
+  if(spRest){
+    if(spRest.isShortRest)
+      a.push({icon:'😓',cat:'rest',tier:1,label:'SP Short Rest (+)',color:'var(--green)',
+        tip:`SP on only ${spRest.days} days rest — fatigue affects command, typically allows more HRs`});
+    else if(spRest.isExtraRest)
+      a.push({icon:'😴',cat:'rest',tier:3,label:'SP Extra Rest (-)',color:'var(--t4)',
+        tip:`SP on ${spRest.days} days rest — extra rest improves command, slightly suppresses HRs`});
+  }
+
   // SP workload — short outings mean bullpen sooner = more HR chances
   if(pit.workload){
     if(pit.workload.ipTrend<=-0.8)
@@ -2198,6 +2222,101 @@ async function getPitcherWorkload(spId){
 }
 
 
+// ==================================================================
+//  SP DAYS REST — affects command, velocity, HR rate
+//  Extra rest (6+ days) = slightly better command = fewer HRs
+//  Short rest (3 days) = fatigue = more HRs allowed
+// ==================================================================
+async function getSPDaysRest(spId){
+  const key=`rest_${spId}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    const d=await fetchJSON(`${MLB}/people/${spId}/stats?stats=gameLog&group=pitching&season=${SEASON}&gameType=R`);
+    const logs=(d.stats?.[0]?.splits||[]).filter(s=>s.stat?.gamesStarted>=1);
+    if(logs.length<1){_playerCache[key]=null;return null;}
+    const lastStart=logs[logs.length-1];
+    const lastDate=lastStart?.date;
+    if(!lastDate){_playerCache[key]=null;return null;}
+    const today=new Date();
+    const last=new Date(lastDate);
+    const days=Math.round((today-last)/(1000*60*60*24));
+    const result={days,lastDate,isShortRest:days<=3,isExtraRest:days>=6};
+    // Mult: short rest = more HRs allowed (+8%), extra rest = fewer (-5%)
+    result.mult=days<=3?1.08:days>=6?0.95:1.0;
+    _playerCache[key]=result; return result;
+  }catch(e){_playerCache[key]=null;return null;}
+}
+
+// ==================================================================
+//  TEAM CONTEXT — opponent team HR rate lately (boosts all batters)
+//  If the whole lineup is hot, individual HR probability gets a bump
+// ==================================================================
+async function getTeamHRContext(teamAbbr){
+  const key=`teamhr_${teamAbbr}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    const td=await fetchJSON(`${MLB}/teams?sportId=1&season=${SEASON}`);
+    const team=(td.teams||[]).find(t=>t.abbreviation===teamAbbr);
+    if(!team){_playerCache[key]=null;return null;}
+    const d=await fetchJSON(`${MLB}/teams/${team.id}/stats?stats=byDateRange&group=hitting&season=${SEASON}&startDate=${ds(new Date(Date.now()-14*864e5))}&endDate=${ds()}`);
+    const st=d.stats?.[0]?.splits?.[0]?.stat;
+    if(!st){_playerCache[key]=null;return null;}
+    const gp=parseInt(st.gamesPlayed)||1;
+    const hr=parseInt(st.homeRuns)||0;
+    const hrPerGame=hr/gp;
+    // League avg ~1.3 HR/game/team
+    const mult=clamp(hrPerGame/1.3,0.75,1.35);
+    const result={hrPerGame:Math.round(hrPerGame*10)/10,mult,gp};
+    _playerCache[key]=result; return result;
+  }catch(e){_playerCache[key]=null;return null;}
+}
+
+// ==================================================================
+//  DATA CONFIDENCE SCORE — how much data backs this probability
+//  A = full Statcast + big PA samples + platoon splits
+//  B = some data missing (no Statcast or small samples)
+//  C = mostly estimated (rookie, new team, tiny sample)
+// ==================================================================
+function calcDataConfidence(r){
+  let score=0, total=0;
+  // PA sample (max 30pts)
+  const pa=(r.szPA||0)+(r.l100pa||0);
+  score+=pa>=300?30:pa>=150?20:pa>=75?10:3; total+=30;
+  // Statcast (max 30pts)
+  if(r.barrel_pct!=null) score+=12; total+=12;
+  if(r.avg_ev!=null)     score+=8;  total+=8;
+  if(r.pull_air_pct!=null) score+=10; total+=10;
+  // Arsenal data (max 20pts)
+  if(r._bvp && Object.keys(r._bvp).length>2) score+=20; total+=20;
+  // Platoon split (max 10pts)
+  if(r._platoon?.vsLSample>=30||r._platoon?.vsRSample>=30) score+=10; total+=10;
+  // xwOBA (max 10pts)
+  if(r.xwoba!=null) score+=10; total+=10;
+  const pct=score/total;
+  if(pct>=0.75) return{grade:'A',color:'var(--green)',desc:'High confidence — rich data'};
+  if(pct>=0.50) return{grade:'B',color:'var(--amber)',desc:'Moderate confidence — some data gaps'};
+  return{grade:'C',color:'var(--red)',desc:'Low confidence — limited data, wide probability range'};
+}
+
+// ==================================================================
+//  BEST BET SELECTOR — composite score for daily top pick
+// ==================================================================
+function calcCompositeBetScore(r){
+  // Weighted composite: probability × data confidence × positive signals
+  const conf={A:1.0,B:0.85,C:0.65};
+  const dc=calcDataConfidence(r);
+  const confMult=conf[dc.grade]||0.75;
+  // Count positive angle categories
+  const angles=detectAngles(r);
+  const posCats=new Set(angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).map(a=>a.cat));
+  const angleBonus=Math.min(posCats.size*0.08,0.40);
+  // Penalize if many negative angles
+  const negAngles=detectNegativeAngles(r);
+  const negPenalty=Math.min(negAngles.length*0.05,0.25);
+  return (r.prob * confMult * (1+angleBonus-negPenalty));
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -2230,12 +2349,14 @@ async function loadGame(g){
   ]);
 
   // Fetch pitcher game logs for HR/9 (last 4 starts)
-  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload] = await Promise.all([
+  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR] = await Promise.all([
     getPitcherGameLog(g.awaySpId),  getPitcherGameLog(g.homeSpId),
     getPitcherArsenal(g.awaySpId),  getPitcherArsenal(g.homeSpId),
     getLineup(g.pk, g.awayId||0),  getLineup(g.pk, g.homeId||0),
     getUmpire(g.pk),
     getPitcherWorkload(g.awaySpId), getPitcherWorkload(g.homeSpId),
+    getSPDaysRest(g.awaySpId),     getSPDaysRest(g.homeSpId),
+    getTeamHRContext(g.away),      getTeamHRContext(g.home),
   ]);
 
   const wx  = await getWeather(g.venue);
@@ -2368,6 +2489,7 @@ async function loadGame(g){
         isHome:          key.endsWith('_home'),
         lineupPos:       (key.endsWith('_away') ? awLineup : hmLineup)?.[pid] || null,
         umpMult:         umpData?.mult ?? 1.0,
+        teamHRMult:      (key.endsWith('_away') ? awTeamHR : hmTeamHR)?.mult ?? 1.0,
       };
 
       // Score batter vs SP arsenal and apply to pitcherStats
@@ -2452,7 +2574,32 @@ function renderSlate(){
   rows.sort(sortFn);
 
   const multiGame=S.selPks.size>1;
-  document.getElementById('hitter-list').innerHTML=rows.map(r=>renderHitterCard(r,multiGame)).join('');
+
+  // Best bet of the day — highest composite score
+  const scoredRows=[...rows].sort((a,b)=>calcCompositeBetScore(b)-calcCompositeBetScore(a));
+  const bestBet=scoredRows[0];
+  const bestBetHTML=bestBet?(()=>{
+    const dc=calcDataConfidence(bestBet);
+    const angles=detectAngles(bestBet).filter(a=>a.tier<=2&&!a.label.endsWith('(-)'));
+    return`<div class="card" style="margin:0 0 10px;border-color:rgba(255,215,0,.4);background:rgba(255,215,0,.05)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.62rem;color:var(--amber);font-weight:700;letter-spacing:.08em;margin-bottom:3px">⭐ BEST BET TODAY</div>
+          <div style="font-size:.92rem;font-weight:800;color:var(--t1)">${bestBet.name}</div>
+          <div style="font-size:.66rem;color:var(--t4)">${bestBet.team} · ${bestBet.batHand}HB vs ${bestBet.oppHand}HP${bestBet.lineupPos?' · #'+bestBet.lineupPos:''}</div>
+          <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
+            ${angles.slice(0,3).map(a=>`<span style="font-size:.60rem;padding:2px 6px;border-radius:99px;background:${a.color}22;border:1px solid ${a.color}44;color:${a.color}">${a.icon} ${a.label}</span>`).join('')}
+          </div>
+        </div>
+        <div style="text-align:center;flex-shrink:0">
+          <div style="font-size:1.6rem;font-weight:900;color:var(--amber)">${(bestBet.prob*100).toFixed(1)}%</div>
+          <div style="font-size:.62rem;color:${dc.color};font-weight:700">${dc.grade} data</div>
+        </div>
+      </div>
+    </div>`;
+  })():'';
+
+  document.getElementById('hitter-list').innerHTML=bestBetHTML+rows.map(r=>renderHitterCard(r,multiGame)).join('');
 }
 
 function renderHitterCard(r,showGame){
@@ -2502,7 +2649,7 @@ function renderHitterCard(r,showGame){
       </div>
       <div class="prob-circle" style="border-color:${gc};color:${gc}">
         <span class="pct">${pct}%</span>
-        <span class="lbl">${grd}</span>
+        <span class="lbl">${(()=>{const dc=calcDataConfidence(r);return grd+' '+dc.grade;})()}</span>
       </div>
     </div>
     <div class="mult-row">
@@ -2612,6 +2759,8 @@ function renderDetail(r){
       ${r.hvhMult&&r.hvhMult!==1?fbar('Career vs This SP',r.hvhMult,0.75,1.40):''}
       ${r.umpMult&&r.umpMult!==1?fbar(`Umpire (${r.umpire||'?'})`,r.umpMult,0.85,1.20):''}
       ${r.paMultiplier&&r.paMultiplier!==1?fbar(`Lineup Spot #${r.lineupPos}`,r.paMultiplier,0.95,1.06):''}
+      ${r.teamMult&&r.teamMult!==1?fbar('Team HR Context',r.teamMult,0.80,1.35):''}
+      ${(()=>{const dc=calcDataConfidence(r);return`<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bg3);font-size:.68rem;color:var(--t4)">Data confidence: <b style="color:${dc.color}">${dc.grade}</b> — ${dc.desc}</div>`;})()}
     </div>
 
     ${(()=>{
