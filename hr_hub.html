@@ -805,26 +805,22 @@ function calcAnchor(stats){
   // ── POWER PROFILE ────────────────────────────────────────────
 
   const barrelScore = (barrel_pct != null)
-    ? clamp(barrel_pct / 10.0, 0.35, 2.2)
-    : 1.0;
+    ? clamp(barrel_pct / 10.0, 0.35, 2.2) : 1.0;
 
   const pullAirScore = (pull_air_pct != null)
-    ? clamp(pull_air_pct / 15.0, 0.35, 2.4)
-    : 1.0;
+    ? clamp(pull_air_pct / 12.5, 0.35, 2.2) : 1.0;
 
   const isoScore = (iso != null)
-    ? clamp(iso / 0.185, 0.35, 2.3)
-    : 1.0;
+    ? clamp(iso / 0.185, 0.35, 2.0) : 1.0;
 
   const hardHitScore = (hard_hit_pct != null)
-    ? clamp(hard_hit_pct / 42.0, 0.40, 1.8)
-    : 1.0;
+    ? clamp(hard_hit_pct / 42.0, 0.40, 1.6) : 1.0;
 
-  const powerProfile =
-    (barrelScore  * 0.45) +
-    (pullAirScore * 0.25) +
-    (isoScore     * 0.20) +
-    (hardHitScore * 0.10);
+  // Pull-Air% is strongest HR predictor — gets more weight when available
+  const hasPullAir = pull_air_pct != null;
+  const powerProfile = hasPullAir
+    ? (barrelScore * 0.35) + (pullAirScore * 0.35) + (isoScore * 0.20) + (hardHitScore * 0.10)
+    : (barrelScore * 0.55) + (isoScore * 0.30) + (hardHitScore * 0.15);
 
   // ── FINAL BLEND ──────────────────────────────────────────────
 
@@ -1438,6 +1434,85 @@ function statToHData(st, hand){
   };
 }
 
+function normName(v){
+  return String(v||'')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .replace(/[^a-z ]/g,'')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+// ==================================================================
+//  MAIN LOAD FLOW
+// ==================================================================
+let gamesCache=[];
+
+async function loadSlate(){
+  document.getElementById('date-lbl').textContent=dlbl();
+  document.getElementById('header-date').textContent=ds();
+  document.getElementById('hitter-list').innerHTML='<div class="spinner"><div class="spin"></div>Loading schedule…</div>';
+  document.getElementById('game-chips').innerHTML='';
+  document.getElementById('wx-area').innerHTML='';
+
+  gamesCache=[];
+  try {
+    gamesCache = await getGames();
+  } catch(e) {
+    document.getElementById('hitter-list').innerHTML=
+      `<div class="empty" style="text-align:left;padding:16px">
+        <div style="color:var(--red);font-weight:700;margin-bottom:8px">Failed to load games</div>
+        <div style="font-size:.72rem;color:var(--t4);margin-bottom:6px">URL: ${MLB}/schedule?sportId=1&date=${ds()}</div>
+        <div style="font-size:.7rem;background:var(--bg3);padding:8px;border-radius:6px;word-break:break-all;color:var(--t3)">${e.message}</div>
+      </div>`;
+    console.error('getGames failed:', e);
+    return;
+  }
+
+  if(!gamesCache.length){
+    document.getElementById('game-chips').innerHTML=
+      `<div style="color:var(--t4);font-size:.78rem;padding:8px 0">No games scheduled for ${ds()}</div>`;
+    document.getElementById('hitter-list').innerHTML='';
+    return;
+  }
+
+  // Debug: log what we got
+  console.log(`Loaded ${gamesCache.length} games:`, gamesCache.map(g=>`${g.away}@${g.home}`).join(', '));
+
+  renderGameChips();
+  document.getElementById('hitter-list').innerHTML=
+    `<div style="color:var(--t4);font-size:.82rem;text-align:center;padding:30px 16px">
+      ☝️ Tap a game chip above to load players<br>
+      <span style="font-size:.7rem;color:var(--t4)">${gamesCache.length} games today</span>
+    </div>`;
+}
+
+function renderGameChips(){
+  const el=document.getElementById('game-chips');
+  if(!gamesCache.length){el.innerHTML='';return;}
+  el.innerHTML=gamesCache.map(g=>{
+    const active=S.selPks.has(g.pk);
+    const loaded=!!S.cache[`${g.pk}_away`];
+    return`<div class="chip${active?' active':''}${loaded&&!active?' loaded':''}"
+      onclick="toggleGame('${g.pk}')">${loaded?'✅ ':''}${g.away}@${g.home}</div>`;
+  }).join('');
+}
+
+async function toggleGame(pk){
+  if(S.selPks.has(pk)){S.selPks.delete(pk);}
+  else{S.selPks.add(pk);}
+  renderGameChips();
+  if(!S.selPks.size){
+    document.getElementById('hitter-list').innerHTML='<div class="empty">Tap a game above to load players</div>';
+    document.getElementById('wx-area').innerHTML='';
+    S.allRows=[];return;
+  }
+  await loadSelectedGames();
+}
+
+// Bulk leaderboard data — load once per session via Worker proxy
+let _savB=null,_fgB=null,_savP=null,_fgP=null;
 async function loadSelectedGames(){
   const el=document.getElementById('hitter-list');
   el.innerHTML='<div class="spinner"><div class="spin"></div>Loading leaderboard data…</div>';
@@ -2618,13 +2693,4 @@ populateABSelect();
 loadSlate();
 </script>
 </body>
-</html  const barrelScore   = barrel_pct   != null ? clamp(barrel_pct   / 10.0, 0.35, 2.2) : 1.0;
-  const pullAirScore  = pull_air_pct != null ? clamp(pull_air_pct / 12.5, 0.35, 2.2) : 1.0;
-  const isoScore      = iso           != null ? clamp(iso          / 0.185, 0.35, 2.0) : 1.0;
-  const hardHitScore  = hard_hit_pct  != null ? clamp(hard_hit_pct / 42.0, 0.40, 1.6) : 1.0;
-
-  // Pull-Air% is strongest HR predictor — gets more weight when available
-  const hasPullAir = pull_air_pct != null;
-  const powerProfile = hasPullAir
-    ? (barrelScore * 0.35) + (pullAirScore * 0.35) + (isoScore * 0.20) + (hardHitScore * 0.10)
-    : (barrelScore * 0.55) + (isoScore * 0.30) + (hardHitScore * 0.15);>
+</html>
