@@ -389,43 +389,48 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       </div>
     </div>
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">🏷️ Tag Guide — (+) = positive signal · (-) = fade signal</div>
-      ${[
-        ['⭐','Elite Spot (+)','4+ positive categories aligned — highest conviction play'],
-        ['🌟','Prime Spot (+)','Platoon + power + recent form all pointing same direction'],
-        ['🎯','Platoon King (+)','R vs L or best cross-hand matchup (1.20x+)'],
-        ['✅','Platoon Edge (+)','Favorable handedness (1.10–1.20x)'],
-        ['🔵','R vs R (-)','Slight platoon disadvantage (0.88x)'],
-        ['⚠️','Same-Hand Fade (-)','Worst matchup — L vs L or R vs R suppresses HRs 25-30%'],
-        ['🔥','On Fire (+)','2+ HRs in last 3 games'],
-        ['📈','HR Week (+)','3+ HRs in last 7 days'],
-        ['⚡','L7 Pace Surge (+)','L7 HR rate 1.8x above season rate'],
-        ['🧊','HR Drought (-)','0 HRs in 15G despite solid season rate'],
-        ['💥','N HR Due (+)','xHR model implies N more HRs than actual — buy low'],
-        ['📊','HR Count Low (+)','Slight xHR positive regression due'],
-        ['📉','HR Count Hot (-)','Actual HRs exceeding power profile — regression risk'],
-        ['🛢️','Barrel King/Monster/Threat (+)','Barrel% tier (20/15/11%+)'],
-        ['🎯','Pull-Air King/Elite/Edge (+)','Pulled airballs tier (22/18/15%+)'],
-        ['🚀','HR Machine / Fly Ball Power (+)','HR/FB conversion rate (28/22%+)'],
-        ['🔨','Iron Fists / Hard Contact (+)','Hard hit rate (56/50%+)'],
-        ['⚡','Nuclear / Elite EV (+)','Avg exit velocity (95/92 mph+)'],
-        ['💣','Power Freak / Elite Power (+)','ISO tier (.300/.240+)'],
-        ['🎵','Crushes [Pitch] (+)','Batter ISO vs SP primary pitch 1.5x+ league avg'],
-        ['🎵','Weak vs [Pitch] (-)','Batter ISO vs SP primary pitch 0.60x or below'],
-        ['🧨','Dinger Machine (+)','SP 3.0+ HR/9 recent — gopher ball alert'],
-        ['🚀','Serving Dingers (+)','SP 2.2–3.0 HR/9 recent'],
-        ['📤','HR-Prone SP (+)','SP 1.7–2.2 HR/9 recent — above lg avg (1.35)'],
-        ['🧱','Shutdown SP (-)','SP under 0.8 HR/9 — elite suppressor'],
-        ['🏔️','Coors Field (+)','Mile High — ball travels ~10% farther'],
-        ['🏟️','HR Park (+)','Park factor 1.08x+'],
-        ['💨','Wind Out (+)','12+ mph blowing toward power alley'],
-        ['💰','+N% FD Value (+)','Our probability beats FD implied by 5%+'],
-        ['🚫','Overpriced (-)','Book implied beats our probability by 5%+'],
-      ].map(([icon,name,desc])=>`<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3);align-items:flex-start">
-        <span style="font-size:1rem;flex-shrink:0;min-width:20px">${icon}</span>
-        <div><div style="font-size:.76rem;font-weight:700;color:${name.endsWith('(+)')?'var(--green)':'var(--red)'}">${name}</div>
-        <div style="font-size:.65rem;color:var(--t4)">${desc}</div></div>
-      </div>`).join('')}
+      <div class="slbl">🏷️ Tag Guide — <span style="color:var(--green)">(+) positive</span> · <span style="color:var(--red)">(-) fade</span></div>
+      <div id="tag-guide-content">
+        <!-- Combo -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">⭐</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Elite Spot (+)</div><div style="font-size:.65rem;color:var(--t4)">4+ positive categories aligned — highest conviction</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🌟</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Prime Spot (+)</div><div style="font-size:.65rem;color:var(--t4)">Platoon + power + form all pointing same direction</div></div></div>
+        <!-- Platoon -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🎯</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Platoon King (+)</div><div style="font-size:.65rem;color:var(--t4)">Best cross-hand matchup — R vs L or L vs R (1.20x+)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">✅</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Platoon Edge (+)</div><div style="font-size:.65rem;color:var(--t4)">Favorable handedness matchup (1.10–1.20x)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🔵</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">R vs R (-)</div><div style="font-size:.65rem;color:var(--t4)">Slight platoon disadvantage (0.88x)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">⚠️</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">Same-Hand Fade (-)</div><div style="font-size:.65rem;color:var(--t4)">L vs L or worst hand matchup — suppresses HRs 25-30%</div></div></div>
+        <!-- Streak -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🔥</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">On Fire / Back-to-Back (+)</div><div style="font-size:.65rem;color:var(--t4)">2+ HRs in last 3 games</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">⚡</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">L7 Pace Surge (+)</div><div style="font-size:.65rem;color:var(--t4)">L7 HR rate 1.8x above season rate</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🧊</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">HR Drought (-)</div><div style="font-size:.65rem;color:var(--t4)">0 HRs in 15G despite solid season rate</div></div></div>
+        <!-- xHR -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">💥</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">N HR Due (+)</div><div style="font-size:.65rem;color:var(--t4)">Power profile (barrel%+pull-air%) implies N more HRs than actual — buy low</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">📊</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">HR Count Low (+)</div><div style="font-size:.65rem;color:var(--t4)">Slight xHR positive regression due</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">📉</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">HR Count Hot (-)</div><div style="font-size:.65rem;color:var(--t4)">Actual HRs exceeding power profile — regression risk</div></div></div>
+        <!-- Power -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🛢️</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Barrel King / Monster / Threat (+)</div><div style="font-size:.65rem;color:var(--t4)">Barrel% tiers: 20% / 15% / 11%+ (lg avg 8%)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🎯</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Pull-Air King / Elite / Edge (+)</div><div style="font-size:.65rem;color:var(--t4)">Pulled airballs: 22% / 18% / 15%+ (lg avg 12.5%)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🚀</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">HR Machine / Fly Ball Power (+)</div><div style="font-size:.65rem;color:var(--t4)">HR/FB conversion: 28% / 22%+ (lg avg 13%)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🔨</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Iron Fists / Hard Contact (+)</div><div style="font-size:.65rem;color:var(--t4)">Hard hit rate 56% / 50%+ (lg avg 38%)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">⚡</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Nuclear / Elite EV (+)</div><div style="font-size:.65rem;color:var(--t4)">Avg exit velocity 95 / 92 mph+ (lg avg 88.5)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">💣</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Power Freak / Elite Power (+)</div><div style="font-size:.65rem;color:var(--t4)">ISO .300 / .240+ (lg avg .165)</div></div></div>
+        <!-- Arsenal -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🎵</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Crushes [Pitch] (+)</div><div style="font-size:.65rem;color:var(--t4)">Batter ISO vs SP's primary pitch is 1.5x+ league avg</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🎵</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">Weak vs [Pitch] (-)</div><div style="font-size:.65rem;color:var(--t4)">Batter ISO vs SP's primary pitch is 0.60x or below</div></div></div>
+        <!-- Pitcher -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🧨</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Dinger Machine (+)</div><div style="font-size:.65rem;color:var(--t4)">SP 3.0+ HR/9 recent — gopher ball alert (lg avg 1.35)</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🚀</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Serving Dingers (+)</div><div style="font-size:.65rem;color:var(--t4)">SP 2.2–3.0 HR/9 recent — very HR-prone</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">📤</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">HR-Prone SP (+)</div><div style="font-size:.65rem;color:var(--t4)">SP 1.7–2.2 HR/9 recent — above lg avg</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🧱</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">Shutdown SP (-)</div><div style="font-size:.65rem;color:var(--t4)">SP under 0.8 HR/9 — elite suppressor, fade</div></div></div>
+        <!-- Park/Wx -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🏔️</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Coors Field (+)</div><div style="font-size:.65rem;color:var(--t4)">Mile High — ball travels ~10% farther than sea level</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🏟️</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">HR Park (+)</div><div style="font-size:.65rem;color:var(--t4)">Park factor 1.08x+ — ball carries here</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">💨</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">Wind Out (+)</div><div style="font-size:.65rem;color:var(--t4)">12+ mph blowing toward power alley</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">🌀</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">Wind In (-)</div><div style="font-size:.65rem;color:var(--t4)">12+ mph headwind suppressing fly balls</div></div></div>
+        <!-- Value -->
+        <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--bg3)"><span style="min-width:22px">💰</span><div><div style="font-size:.76rem;font-weight:700;color:var(--green)">+N% FD Value (+)</div><div style="font-size:.65rem;color:var(--t4)">Our probability beats FD implied by 5%+</div></div></div>
+        <div style="display:flex;gap:10px;padding:6px 0"><span style="min-width:22px">🚫</span><div><div style="font-size:.76rem;font-weight:700;color:var(--red)">Overpriced (-)</div><div style="font-size:.65rem;color:var(--t4)">Book implied beats our probability by 5%+</div></div></div>
+      </div>
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">📊 Data Sources</div>
