@@ -2133,6 +2133,117 @@ function renderDetail(r){
       ${fbar('L15 Momentum',r.momentum,0.65,1.50)}
     </div>
 
+    ${(()=>{
+      const pit = r._pitcherStats||{};
+      const arsenal = pit.arsenal;
+      const PITCH_FULL = {FF:'4-Seam FB',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curveball',CH:'Changeup',FS:'Splitter',KC:'Knuckle-Curve',SV:'Slurve'};
+      const PITCH_CLR  = {FF:'#dc2626',SI:'#b91c1c',FC:'#ea580c',SL:'#2563eb',ST:'#1d4ed8',CU:'#7c3aed',CH:'#16a34a',FS:'#15803d',KC:'#6d28d9',SV:'#0891b2'};
+      const LG_ISO     = {FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130,KC:0.130,SV:0.150};
+
+      // Pitcher stat row — always show from pitcherStats
+      const hr9r  = pit.hr9_recent!=null  ? pit.hr9_recent.toFixed(2)  : '--';
+      const hr9s  = pit.hr9_season!=null  ? pit.hr9_season.toFixed(2)  : '--';
+      const k9r   = pit.recentK9!=null    ? pit.recentK9.toFixed(1)    : '--';
+      const k9s   = pit.seasonK9!=null    ? pit.seasonK9.toFixed(1)    : '--';
+      const starts= pit.totalStarts!=null ? pit.totalStarts            : '--';
+      const hr9Clr= pit.hr9_recent!=null  ? (pit.hr9_recent>=2.0?'var(--green)':pit.hr9_recent<=0.9?'var(--red)':'var(--amber)') : 'var(--t4)';
+
+      const statsRow = `<div class="stat-scroll" style="margin-bottom:12px">
+        <div class="stat-box"><span class="sb-val" style="color:${hr9Clr}">${hr9r}</span><span class="sb-lbl">HR/9 Recent</span></div>
+        <div class="stat-box"><span class="sb-val">${hr9s}</span><span class="sb-lbl">HR/9 Season</span></div>
+        <div class="stat-box"><span class="sb-val">${k9r}</span><span class="sb-lbl">K/9 Recent</span></div>
+        <div class="stat-box"><span class="sb-val">${k9s}</span><span class="sb-lbl">K/9 Season</span></div>
+        <div class="stat-box"><span class="sb-val">${starts}</span><span class="sb-lbl">GS 2026</span></div>
+      </div>`;
+
+      // Arsenal pitch rows with batter performance overlay
+      let arsenalHTML = '';
+      if(arsenal && Object.keys(arsenal.mix||{}).length){
+        const pitches = Object.entries(arsenal.mix).filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1]);
+        const bvp = r._bvp||{};
+        const isStrong = (pit._arsenalMult||1)>=1.10;
+        const isWeak   = (pit._arsenalMult||1)<=0.88;
+
+        const mixTag = isStrong
+          ? `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.3);color:var(--green);font-weight:700">✓ Favorable Mix</span>`
+          : isWeak
+          ? `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:rgba(224,80,74,.15);border:1px solid rgba(224,80,74,.3);color:var(--red);font-weight:700">✗ Unfavorable Mix</span>`
+          : `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:var(--bg3);border:1px solid var(--bdr);color:var(--t4)">Neutral Mix</span>`;
+
+        const spType = arsenal.isFastballHeavy?'⚡ Fastball-heavy':arsenal.isBreakingHeavy?'🌀 Breaking ball-heavy':arsenal.isOffspeedHeavy?'💧 Offspeed-heavy':'';
+
+        const pitchRows = pitches.map(([pt,pct])=>{
+          const name = PITCH_FULL[pt]||pt;
+          const clr  = PITCH_CLR[pt]||'#607080';
+          const bdata= bvp[pt];
+          const lgISO= LG_ISO[pt]||0.155;
+
+          // Batter vs this pitch
+          let bvpLine = '';
+          if(bdata && bdata.pa>=10){
+            const isoRatio = bdata.iso!=null ? bdata.iso/lgISO : 1;
+            const isoClr = bdata.iso!=null ? (bdata.iso>=0.220?'var(--green)':bdata.iso>=0.120?'var(--amber)':'var(--red)') : 'var(--t4)';
+            const wClr   = bdata.whiffPct!=null ? (bdata.whiffPct>=30?'var(--red)':bdata.whiffPct<=15?'var(--green)':'var(--t4)') : 'var(--t4)';
+            const badge  = isoRatio>=1.5 ? `<span style="font-size:.58rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green)">✓ rakes</span>`
+                         : isoRatio<=0.60 ? `<span style="font-size:.58rem;padding:1px 5px;border-radius:99px;background:rgba(224,80,74,.15);color:var(--red)">✗ weak</span>` : '';
+            bvpLine = `<div style="font-size:.63rem;color:var(--t4);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <span>${bdata.pa}PA${bdata.hr>0?` ${bdata.hr}HR`:''}</span>
+              ${bdata.iso!=null?`<span style="color:${isoClr}">ISO .${Math.round(bdata.iso*1000)}</span>`:''}
+              ${bdata.avgEV!=null?`<span style="color:var(--t3)">${bdata.avgEV}mph EV</span>`:''}
+              ${bdata.whiffPct!=null?`<span style="color:${wClr}">${bdata.whiffPct}% K</span>`:''}
+              ${badge}
+            </div>`;
+          } else if(bdata && bdata.pa>0){
+            bvpLine = `<div style="font-size:.6rem;color:var(--t4);margin-top:1px">${bdata.pa}PA (small sample)</div>`;
+          } else {
+            bvpLine = `<div style="font-size:.6rem;color:var(--t4);margin-top:1px">No data vs ${name}</div>`;
+          }
+
+          return `<div style="margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <span style="font-size:.74rem;font-weight:700;color:${clr};min-width:90px">${name}</span>
+              <div style="flex:1;background:var(--bg3);border-radius:3px;height:5px">
+                <div style="width:${Math.round(pct)}%;height:5px;background:${clr};border-radius:3px;opacity:.85"></div>
+              </div>
+              <span style="font-size:.68rem;color:var(--t4);min-width:30px;text-align:right">${pct.toFixed(0)}%</span>
+            </div>
+            ${bvpLine}
+          </div>`;
+        }).join('');
+
+        const adjLine = pit._arsenalMult!=null && pit._arsenalMult!==1.0
+          ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bg3);font-size:.68rem;color:var(--t4)">
+              Arsenal adjustment: <b style="color:${pit._arsenalMult>=1?'var(--green)':'var(--red)'}">${pit._arsenalMult>=1?'+':''}${((pit._arsenalMult-1)*100).toFixed(0)}%</b>
+              ${pit._arsenalDesc?`<span> — ${pit._arsenalDesc}</span>`:''}
+            </div>` : '';
+
+        arsenalHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          ${mixTag}${spType?`<span style="font-size:.68rem;color:var(--t4)">${spType}</span>`:''}
+        </div>
+        ${pitchRows}${adjLine}`;
+      } else {
+        // Arsenal not loaded yet — lazy fetch
+        arsenalHTML = `<div id="arsenal-loading-${r.id}" style="font-size:.72rem;color:var(--t4);padding:4px 0">Loading pitch mix…</div>`;
+        if(r._spId){
+          getPitcherArsenal(r._spId).then(a=>{
+            if(a&&Object.keys(a.mix||{}).length){
+              const el=document.getElementById(`arsenal-loading-${r.id}`);
+              if(el) el.textContent='Pitch mix loaded — tap player again to see details';
+            } else {
+              const el=document.getElementById(`arsenal-loading-${r.id}`);
+              if(el) el.textContent='Pitch mix not available for this SP.';
+            }
+          });
+        }
+      }
+
+      return `<div class="card" style="margin-bottom:10px">
+        <div class="slbl">🎵 Pitcher Matchup — ${r.spNm||'SP'}</div>
+        ${statsRow}
+        ${arsenalHTML}
+      </div>`;
+    })()}
+
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">Season Stats</div>
       <div class="stat-scroll">
