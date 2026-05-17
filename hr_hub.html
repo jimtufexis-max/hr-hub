@@ -1317,21 +1317,34 @@ function detectAngles(r){
     else if(r.iso>=0.200) a.push({icon:'💪',cat:'iso',tier:2,label:'Solid Power (+)',color:'#90c0ff',tip:`ISO .${Math.round(r.iso*1000)} — above average`});
   }
 
-  // Arsenal
+  // Arsenal — single unified signal based on primary pitch + overall mix
+  // Rule: if we have specific bvp data for primary pitch, use that.
+  // If overall mix (_arsenalMult) contradicts primary pitch signal, primary pitch wins.
   const bvpData=r._bvp||{};const spArsenal=(r._pitcherStats||{}).arsenal;
   if(spArsenal&&Object.keys(spArsenal.mix||{}).length){
     const primaryPT=spArsenal.primary;const bvpP=bvpData[primaryPT];
     const LG={FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130};
     const PF={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Changeup',FS:'Splitter'};
     if(bvpP&&bvpP.pa>=15&&bvpP.iso!=null){
-      const ratio=bvpP.iso/(LG[primaryPT]||0.155),nm=PF[primaryPT]||primaryPT,pct=(spArsenal.mix[primaryPT]||0).toFixed(0);
-      if(ratio>=1.5) a.push({icon:'🎵',cat:'arsenal',tier:1,label:`Crushes ${nm} (+)`,color:'var(--green)',tip:`ISO .${String(bvpP.iso).replace('0.','')} vs ${nm} (${bvpP.pa}PA). SP throws ${pct}%.`});
-      else if(ratio<=0.60) a.push({icon:'🎵',cat:'arsenal',tier:3,label:`Weak vs ${nm} (-)`,color:'var(--red)',tip:`ISO .${String(bvpP.iso).replace('0.','')} vs ${nm} (${bvpP.pa}PA) — SP primary weapon.`});
+      const ratio=bvpP.iso/(LG[primaryPT]||0.155);
+      const nm=PF[primaryPT]||primaryPT;
+      const pct=(spArsenal.mix[primaryPT]||0).toFixed(0);
+      if(ratio>=1.5)
+        a.push({icon:'🎵',cat:'arsenal',tier:1,label:`Crushes ${nm} (+)`,color:'var(--green)',
+          tip:`ISO .${String(bvpP.iso).replace('0.','')} vs ${nm} (${bvpP.pa}PA) — ${Math.round((ratio-1)*100)}% above lg avg. SP throws ${pct}%.`});
+      else if(ratio<=0.60)
+        a.push({icon:'🎵',cat:'arsenal',tier:3,label:`Weak vs ${nm} (-)`,color:'var(--red)',
+          tip:`ISO .${String(bvpP.iso).replace('0.','')} vs ${nm} (${bvpP.pa}PA) — struggles vs SP's primary weapon.`});
+      // else: neutral on primary pitch — don't show a tag
+    } else if(pit._arsenalMult!=null&&pit._arsenalMult!==1.0){
+      // No specific primary pitch data — fall back to overall mix signal
+      if(pit._arsenalMult>=1.10)
+        a.push({icon:'🎵',cat:'arsenal',tier:1,label:'Pitch Mix Advantage (+)',color:'var(--green)',tip:pit._arsenalDesc||'Batter profile favors this SP pitch mix'});
+      else if(pit._arsenalMult>=1.05)
+        a.push({icon:'🎵',cat:'arsenal',tier:2,label:'Favorable Mix (+)',color:'#90c0ff',tip:pit._arsenalDesc||'Slight pitch mix advantage'});
+      else if(pit._arsenalMult<=0.90)
+        a.push({icon:'🎵',cat:'arsenal',tier:3,label:'Unfavorable Mix (-)',color:'var(--red)',tip:pit._arsenalDesc||'Struggles vs this SP mix overall'});
     }
-  } else if(pit._arsenalMult!=null){
-    if(pit._arsenalMult>=1.12) a.push({icon:'🎵',cat:'arsenal',tier:1,label:'Pitch Mix Advantage (+)',color:'var(--green)',tip:pit._arsenalDesc||'Favorable pitch mix'});
-    else if(pit._arsenalMult>=1.06) a.push({icon:'🎵',cat:'arsenal',tier:2,label:'Favorable Mix (+)',color:'#90c0ff',tip:pit._arsenalDesc||'Slight advantage'});
-    else if(pit._arsenalMult<=0.88) a.push({icon:'🎵',cat:'arsenal',tier:3,label:'Unfavorable Mix (-)',color:'var(--red)',tip:pit._arsenalDesc||'Struggles vs SP mix'});
   }
 
   // Pitcher
@@ -1397,7 +1410,21 @@ function detectNegativeAngles(r){
   if(l15pa>20&&l15hr>=5&&(l15hr/l15pa)>(r.anchor||0.035)*2.8) neg.push({icon:'📉',label:'Hot Streak May Cool (-)',tip:`${l15hr} HRs in last 15G well above power profile rate.`});
   if(r.barrel_pct!=null&&r.barrel_pct<5) neg.push({icon:'🛢️',label:'Weak Barrel Rate (-)',tip:`${r.barrel_pct}% barrel — below lg avg 8%.`});
   if(r.pitcher<0.82) neg.push({icon:'🧱',label:'Pitcher Suppressing HRs (-)',tip:`Pitcher multiplier ${r.pitcher.toFixed(2)}x — SP limiting HRs vs lg avg.`});
-  if(pit._arsenalMult!=null&&pit._arsenalMult<=0.88&&pit._arsenalDesc) neg.push({icon:'🎵',label:'Unfavorable Pitch Mix (-)',tip:pit._arsenalDesc});
+  // Arsenal weakness — only fire if primary pitch data doesn't contradict it
+  if(pit._arsenalMult!=null&&pit._arsenalMult<=0.90&&pit._arsenalDesc){
+    // Don't show unfavorable mix if batter actually crushes the primary pitch
+    const bvp2=r._bvp||{};
+    const spA2=(pit.arsenal)||null;
+    const primaryPT2=spA2?.primary;
+    const bvpPrimary=primaryPT2?bvp2[primaryPT2]:null;
+    const LG2={FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130};
+    const primaryRatio=bvpPrimary&&bvpPrimary.pa>=15&&bvpPrimary.iso!=null
+      ? bvpPrimary.iso/(LG2[primaryPT2]||0.155) : null;
+    // Only show unfavorable if primary pitch data doesn't show batter is good vs it
+    if(primaryRatio==null||primaryRatio<1.3)
+      neg.push({icon:'🎵',label:'Unfavorable Pitch Mix (-)',
+        tip:`${pit._arsenalDesc} — overall batter profile struggles vs this SP arsenal.`});
+  }
   if(pit.recentK9!=null&&pit.seasonK9!=null&&pit.recentK9>pit.seasonK9*1.18&&pit.seasonK9>=6) neg.push({icon:'📈',label:'SP Gaining Ks (-)',tip:`K/9 up ${pit.seasonK9.toFixed(1)} to ${pit.recentK9.toFixed(1)}.`});
   if(r.parkwx<0.92){const why=r.pf<=0.94?'pitcher-friendly park':wx.wind>=8?`${Math.round(wx.wind)}mph headwind`:'cold conditions';neg.push({icon:'🏟️',label:'Conditions Against (-)',tip:`Park x weather ${r.parkwx.toFixed(2)}x — ${why}.`});}
   else if(wx.wind>=12&&r.parkwx<0.97) neg.push({icon:'🌀',label:'Wind Blowing In (-)',tip:`${windLabel(wx.wind,wx.wdir)} — headwind.`});
@@ -2210,11 +2237,24 @@ function renderDetail(r){
         const isStrong = (pit._arsenalMult||1)>=1.06;
         const isWeak   = (pit._arsenalMult||1)<=0.94;
 
-        const mixTag = isStrong
-          ? `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.3);color:var(--green);font-weight:700">✓ Favorable Mix</span>`
-          : isWeak
-          ? `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:rgba(224,80,74,.15);border:1px solid rgba(224,80,74,.3);color:var(--red);font-weight:700">✗ Unfavorable Mix</span>`
-          : `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:var(--bg3);border:1px solid var(--bdr);color:var(--t4)">Neutral Mix</span>`;
+        // Determine mix tag based on primary pitch data (consistent with slate card tag)
+        const primaryPT2 = spArsenal.primary;
+        const bvpPrimary2 = bvp[primaryPT2];
+        const LG2 = {FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130};
+        let mixLabel='Neutral Mix', mixGood=false, mixBad=false;
+        if(bvpPrimary2&&bvpPrimary2.pa>=15&&bvpPrimary2.iso!=null){
+          const r2=bvpPrimary2.iso/(LG2[primaryPT2]||0.155);
+          if(r2>=1.4){ mixLabel='✓ Favorable Mix'; mixGood=true; }
+          else if(r2<=0.65){ mixLabel='✗ Unfavorable Mix'; mixBad=true; }
+        } else {
+          if(isStrong){ mixLabel='✓ Favorable Mix'; mixGood=true; }
+          else if(isWeak){ mixLabel='✗ Unfavorable Mix'; mixBad=true; }
+        }
+        const mixTag = mixGood
+          ? `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.3);color:var(--green);font-weight:700">${mixLabel}</span>`
+          : mixBad
+          ? `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:rgba(224,80,74,.15);border:1px solid rgba(224,80,74,.3);color:var(--red);font-weight:700">${mixLabel}</span>`
+          : `<span style="font-size:.65rem;padding:2px 8px;border-radius:99px;background:var(--bg3);border:1px solid var(--bdr);color:var(--t4)">${mixLabel}</span>`;
 
         const spType = arsenal.isFastballHeavy?'⚡ Fastball-heavy':arsenal.isBreakingHeavy?'🌀 Breaking ball-heavy':arsenal.isOffspeedHeavy?'💧 Offspeed-heavy':'';
 
