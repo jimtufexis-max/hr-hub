@@ -1009,9 +1009,7 @@ function calcParkWxMult(pf, wx, batHand){
 }
 
 // ── MOMENTUM: L15 game performance ────────────────────────────────
-// Uses MLB game log (available without proxy)
-// Most reliable short-term signal for HR props
-function calcMomentumMult(recentGames){
+function calcMomentumMult(recentGames, playerBaseline){
   if(!recentGames || !recentGames.length) return 1.0;
 
   const n = Math.min(recentGames.length, 15);
@@ -1021,25 +1019,26 @@ function calcMomentumMult(recentGames){
   const totalPA = games.reduce((s,g)=>s+(g.pa||g.ab||0), 0);
   const recentRate = totalPA > 0 ? totalHR / totalPA : null;
 
-  // Hot/cold streak signal
-  // Last 3 games — immediate form
   const last3HR = games.slice(0,3).reduce((s,g)=>s+(g.hr||0),0);
-  const last3AB = games.slice(0,3).reduce((s,g)=>s+(g.ab||0),0);
 
+  // Tighter streak multipliers
   let streakMult = 1.0;
-  if(last3HR >= 2) streakMult = 1.20;       // scorching — 2+ HR last 3 games
-  else if(last3HR === 1) streakMult = 1.10;  // hot — 1 HR last 3 games
-  else if(totalHR === 0 && n >= 10) streakMult = 0.88; // cold — 0 HR last 10+ games
+  if(last3HR >= 2)             streakMult = 1.10; // hot (was 1.20)
+  else if(last3HR === 1)       streakMult = 1.05; // warm (was 1.10)
+  else if(totalHR===0 && n>=10)streakMult = 0.92; // cold (was 0.88)
 
-  // L15 HR rate vs expected
+  // Compare vs player's OWN baseline — elite hitters shouldn't get
+  // a big boost just for hitting HRs at their normal rate
+  const baseline = (playerBaseline && playerBaseline > MLB_AVG)
+    ? playerBaseline : MLB_AVG;
   let rateMult = 1.0;
   if(recentRate!=null && totalPA >= 15){
-    rateMult = clamp(recentRate / MLB_AVG, 0.5, 2.5);
-    // Regress toward mean — recent form is noisy
-    rateMult = 0.60 + 0.40 * rateMult;
+    const ratio = recentRate / baseline;
+    // Heavy regression — L15 is very noisy
+    rateMult = clamp(0.75 + 0.25 * ratio, 0.85, 1.18);
   }
 
-  return clamp(streakMult * rateMult, 0.65, 1.50);
+  return clamp(streakMult * rateMult, 0.72, 1.28); // tighter cap
 }
 
 // ── PROBABILITY v4: log-odds additive model ────────────────────────
@@ -1068,7 +1067,8 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   lo += logOddsAdj(parkwx) * 0.70;
 
   // MOMENTUM — noisiest signal
-  const momentum = calcMomentumMult(recentGames);
+  const playerBaseline = batterStats.szPA>=80 ? batterStats.szHR/batterStats.szPA : null;
+  const momentum = calcMomentumMult(recentGames, playerBaseline);
   lo += logOddsAdj(momentum) * 0.55;
 
   // HOME/AWAY
