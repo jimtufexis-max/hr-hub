@@ -3499,20 +3499,26 @@ function renderHRProjection(){
   if(!el || !S.allRows.length){ if(el) el.innerHTML=''; return; }
 
   const rows = S.allRows;
-  // Correct formula: prob × expectedPA = expected HRs per batter
-  // Per-PA prob × number of PAs = expected HR contributions
-  const perGameProbs = rows.map(r=>{
+
+  // Only count batters with a lineup position (confirmed starters)
+  // Bench/reserve players inflate the count if loaded
+  const starters = rows.filter(r=>r.lineupPos && r.lineupPos>=1 && r.lineupPos<=9);
+  const projRows = starters.length >= rows.length*0.5 ? starters : rows; // fallback if lineups not posted
+
+  const perGameProbs = projRows.map(r=>{
     const pos = r.lineupPos;
     const expPA = pos ? clamp(4.8-(pos-1)*0.15,3.5,4.8) : 4.1;
-    return r.prob * expPA; // expected HRs from this batter today
+    return r.prob * expPA;
   });
   const totalProb = perGameProbs.reduce((s,p)=>s+p, 0);
   const projectedHRs = Math.round(totalProb * 10) / 10;
 
-  const variance = rows.map(r=>r.prob*(1-r.prob)).reduce((s,p)=>s+p, 0);
+  const variance = projRows.map(r=>r.prob*(1-r.prob)).reduce((s,p)=>s+p, 0);
   const stdDev = Math.sqrt(variance);
   const lo = Math.max(0, Math.round((projectedHRs - stdDev) * 10) / 10);
   const hi = Math.round((projectedHRs + stdDev) * 10) / 10;
+  const meanProb = projRows.length ? totalProb / projRows.reduce((s,r)=>{
+    const pos=r.lineupPos; const expPA=pos?clamp(4.8-(pos-1)*0.15,3.5,4.8):4.1; return s+expPA;},0) : 0;
 
   // Top candidates
   const top3 = [...rows].sort((a,b)=>b.prob-a.prob).slice(0,3);
@@ -3525,7 +3531,7 @@ function renderHRProjection(){
         <div style="font-size:1.8rem;font-weight:900;color:var(--green);line-height:1.1">${projectedHRs}
           <span style="font-size:.75rem;font-weight:400;color:var(--t4)"> HRs</span>
         </div>
-        <div style="font-size:.65rem;color:var(--t4);margin-top:2px">Range: ${lo}–${hi} · ${rows.length} batters</div>
+        <div style="font-size:.65rem;color:var(--t4);margin-top:2px">Range: ${lo}–${hi} · ${projRows.length} starters · avg ${(meanProb*100).toFixed(1)}%/PA</div>
       </div>
       <div style="text-align:right">
         <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px">Top Candidates</div>
