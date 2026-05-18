@@ -948,7 +948,9 @@ function calcPitcherMult(pitcherStats){
   } else if(pitcherStats.whiffPct!=null){
     whiffMod = clamp(1.0 - (pitcherStats.whiffPct - 24) * 0.006, 0.88, 1.08);
   }
-  return clamp(quality*arsenalMod*restMod*whiffMod,0.50,2.00);
+  // Batted ball profile: GB-heavy = fewer HRs; FB-heavy = more
+  const bbMod = pitcherStats.battedBall?.battedBallMult ?? 1.0;
+  return clamp(quality*arsenalMod*restMod*whiffMod*bbMod,0.50,2.00);
 }
 
 function calcParkWxMult(pf, wx, batHand){
@@ -1545,6 +1547,16 @@ function detectAngles(r){
         tip:`SP ${pit.whiffPct}% whiff — fewer strikeouts, more balls in play.`});
   }
 
+  // SP batted ball profile
+  if(pit.battedBall){
+    if(pit.battedBall.gbRate>52)
+      a.push({icon:'⬇️',cat:'spBB',tier:3,label:'Ground Ball SP (-)',color:'var(--red)',
+        tip:`SP ${pit.battedBall.gbRate}% GB rate — suppresses fly balls. Fewer HR chances even with good batters.`});
+    else if(pit.battedBall.fbRate>44)
+      a.push({icon:'⬆️',cat:'spBB',tier:2,label:'Fly Ball SP (+)',color:'var(--green)',
+        tip:`SP ${pit.battedBall.fbRate}% FB rate — generates fly balls. More HR opportunities vs power hitters.`});
+  }
+
   // SP days rest
   const spRest = pit.daysRest;
   if(spRest){
@@ -1579,7 +1591,9 @@ function detectAngles(r){
   if(wx.wind>=12&&r.parkwx>=1.08) a.push({icon:'💨',cat:'wind',tier:1,label:'Wind Out (+)',color:'var(--green)',tip:`${windLabel(wx.wind,wx.wdir)} toward power alley`});
   else if(wx.wind>=8&&r.parkwx>=1.04) a.push({icon:'🌬️',cat:'wind',tier:2,label:'Wind Assist (+)',color:'#90c0ff',tip:`${windLabel(wx.wind,wx.wdir)}`});
   else if(wx.wind>=12&&r.parkwx<=0.92) a.push({icon:'🌀',cat:'wind',tier:3,label:'Wind In (-)',color:'var(--red)',tip:`${windLabel(wx.wind,wx.wdir)} — headwind`});
-  if(wx.rain>=60) a.push({icon:'🌧️',cat:'rain',tier:3,label:'Rain Risk (-)',color:'var(--red)',tip:`${Math.round(wx.rain)}% rain`});
+  const ppRisk = calcPostponementRisk(wx);
+  if(ppRisk>=0.45) a.push({icon:'🚫',cat:'rain',tier:3,label:`Postponement Risk (${Math.round(ppRisk*100)}%) (-)`,color:'var(--red)',tip:`${Math.round(ppRisk*100)}% chance of postponement based on rain/wind forecast. Prop bets void if postponed.`});
+  else if(wx.rain>=60) a.push({icon:'🌧️',cat:'rain',tier:3,label:'Rain Risk (-)',color:'var(--red)',tip:`${Math.round(wx.rain)}% rain`});
 
   // Value
   const fdOdds=getFDOdds(r.name);
@@ -2945,6 +2959,125 @@ function renderModelPerf(el){
 }
 
 
+// ==================================================================
+//  LINEUP CONFIRMATION — check if official lineup is posted
+//  MLB posts lineups ~3.5 hours before game time
+//  If not confirmed, probabilities assume projected lineup = risk
+// ==================================================================
+async function checkLineupConfirmed(gamePk){
+  const key = `lineup_confirmed_${gamePk}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    const d = await fetchJSON(`${MLB}/game/${gamePk}/linescore`);
+    // If game has a linescore, it's in progress or finished
+    const status = d.currentInning!=null || d.innings?.length>0;
+    // Also check boxscore batting order
+    const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
+    const awayOrder = box?.teams?.away?.battingOrder||[];
+    const homeOrder = box?.teams?.home?.battingOrder||[];
+    const confirmed = awayOrder.length>=8 && homeOrder.length>=8;
+    _playerCache[key] = confirmed;
+    return confirmed;
+  }catch(e){
+    _playerCache[key] = false;
+    return false;
+  }
+}
+
+// ==================================================================
+//  SP FLY BALL / GROUND BALL RATES — from FanGraphs or MLB API
+//  GB-heavy SP = fewer HRs regardless of HR/9
+//  FB-heavy SP = more HR risk even with low HR/9
+// ==================================================================
+async function getSPBattedBallProfile(spId){
+  const key = `spbb_${spId}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    // MLB pitching stats include GO/AO ratio (ground out / air out)
+    const d = await fetchJSON(`${MLB}/people/${spId}/stats?stats=season&group=pitching&season=${SEASON}&gameType=R`);
+    const st = d.stats?.[0]?.splits?.[0]?.stat;
+    if(!st){ _playerCache[key]=null; return null; }
+    // groundOuts/airOuts ratio — > 1.4 is heavy GB, < 0.8 is heavy FB
+    const go = parseInt(st.groundOuts)||0;
+    const ao = parseInt(st.airOuts)||0;
+    const total = go+ao;
+    if(total<30){ _playerCache[key]=null; return null; }
+    const gbRate = go/total;
+    const fbRate = ao/total;
+    // Fly ball SP is more HR-prone; GB SP less so
+    // Adjust HR risk: FB-heavy = +15% HR risk; GB-heavy = -18% HR risk
+    const battedBallMult = gbRate>0.55 ? 0.82 :  // heavy GB
+                           gbRate>0.47 ? 0.92 :  // moderate GB
+                           fbRate>0.45 ? 1.15 :  // heavy FB
+                           fbRate>0.38 ? 1.07 :  // moderate FB
+                           1.0;
+    const result = {gbRate:Math.round(gbRate*1000)/10, fbRate:Math.round(fbRate*1000)/10,
+                    goAoRatio:Math.round(go/ao*100)/100, battedBallMult};
+    _playerCache[key] = result; return result;
+  }catch(e){ _playerCache[key]=null; return null; }
+}
+
+// ==================================================================
+//  GAME TOTAL — from The Odds API or implied from moneyline
+//  High total game (9.5+) = more HR opportunities for everyone
+// ==================================================================
+function getGameTotalMult(gameTotal){
+  if(!gameTotal) return 1.0;
+  // League avg total ~8.5 runs
+  // Each run above avg = ~2.5% more HR probability
+  if(gameTotal >= 10.0) return 1.08;
+  if(gameTotal >= 9.5)  return 1.05;
+  if(gameTotal >= 9.0)  return 1.03;
+  if(gameTotal <= 7.0)  return 0.93;
+  if(gameTotal <= 7.5)  return 0.96;
+  return 1.0;
+}
+
+// ==================================================================
+//  POSTPONEMENT RISK — high rain + wind = game might not happen
+//  Flag prominently, suppress from Best Bet
+// ==================================================================
+function calcPostponementRisk(wx){
+  if(!wx) return 0;
+  let risk = 0;
+  if(wx.rain >= 80) risk = 0.85;
+  else if(wx.rain >= 60) risk = 0.45;
+  else if(wx.rain >= 40) risk = 0.20;
+  // Add wind factor (very high wind sometimes causes postponement)
+  if(wx.wind >= 35) risk = Math.max(risk, 0.30);
+  return risk;
+}
+
+// ==================================================================
+//  MULTI-BOOK ODDS — fetch from multiple books via The Odds API
+//  Shows best available line + line divergence (sharp signal)
+// ==================================================================
+async function getMultiBookOdds(playerName, gameDate){
+  // Uses same Odds API key, but requests multiple bookmakers
+  // Returns best odds + spread between books (big spread = soft line)
+  if(!ODDS_API_KEY||ODDS_API_KEY.length<10) return null;
+  try{
+    const url=`https://api.the-odds-api.com/v4/sports/baseball_mlb/events?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&oddsFormat=american&dateFormat=iso&date=${gameDate||ds()}`;
+    const r=await fetch(url);
+    if(!r.ok) return null;
+    const events=await r.json();
+    // Find player across all events
+    for(const event of events){
+      for(const book of (event.bookmakers||[])){
+        for(const mkt of (book.markets||[])){
+          for(const outcome of (mkt.outcomes||[])){
+            if(normName(outcome.name||'')===normName(playerName)){
+              return {book:book.title, odds:outcome.price};
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }catch(e){ return null; }
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -2982,7 +3115,7 @@ async function loadGame(g){
   console.log(`[loadGame] hands: aw=${awHand} hm=${hmHand}`);
 
   // Fetch pitcher game logs for HR/9 (last 4 starts)
-  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR] = await Promise.all([
+  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR,awBB,hmBB,lineupConfirmed] = await Promise.all([
     getPitcherGameLog(g.awaySpId),  getPitcherGameLog(g.homeSpId),
     getPitcherArsenal(g.awaySpId),  getPitcherArsenal(g.homeSpId),
     getLineup(g.pk, g.awayId||0),  getLineup(g.pk, g.homeId||0),
@@ -2990,6 +3123,8 @@ async function loadGame(g){
     getPitcherWorkload(g.awaySpId), getPitcherWorkload(g.homeSpId),
     getSPDaysRest(g.awaySpId),     getSPDaysRest(g.homeSpId),
     getTeamHRContext(g.away),      getTeamHRContext(g.home),
+    getSPBattedBallProfile(g.awaySpId), getSPBattedBallProfile(g.homeSpId),
+    checkLineupConfirmed(g.pk),
   ]);
 
   const wx  = await getWeather(g.venue);
@@ -3266,7 +3401,9 @@ function renderSlate(){
   const multiGame=S.selPks.size>1;
 
   // Best bet of the day — highest composite score
-  const scoredRows=[...rows].sort((a,b)=>calcCompositeBetScore(b)-calcCompositeBetScore(a));
+  // Suppress unconfirmed/postponement risk plays from Best Bet
+  const eligibleRows=rows.filter(r=>r.lineupConfirmed!==false&&(r.postponeRisk||0)<0.40);
+  const scoredRows=[...(eligibleRows.length?eligibleRows:rows)].sort((a,b)=>calcCompositeBetScore(b)-calcCompositeBetScore(a));
   const bestBet=scoredRows[0];
   const bestBetHTML=bestBet?(()=>{
     const dc=calcDataConfidence(bestBet);
@@ -3343,7 +3480,7 @@ function renderHitterCard(r,showGame){
           if(already) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(90,160,255,.15);color:var(--blue);margin-left:4px">⏳ tracking</span>`;
           return '';
         })()}</div>
-        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <span style="color:var(--amber)">#${r.lineupPos}</span>`:''} ${gameTag}</div>
+        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <span style="color:var(--amber)">#${r.lineupPos}</span>`:''} ${gameTag}${!r.lineupConfirmed?` <span style="color:var(--red);font-size:.60rem">⚠️ lineup unconfirmed</span>`:''} ${r.postponeRisk>=0.45?`<span style="color:var(--red);font-size:.60rem">🌧️ ppd risk ${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
       </div>
       <div class="prob-circle" style="border-color:${gc};color:${gc}">
         <span class="pct">${pct}%</span>
@@ -3491,6 +3628,8 @@ function renderDetail(r){
         ${pit.whiffPct!=null?`<div class="stat-box"><span class="sb-val" style="color:${whiffClr}">${pit.whiffPct}%</span><span class="sb-lbl">Whiff%</span></div>`:''}
         ${pit.runValue!=null?`<div class="stat-box"><span class="sb-val" style="color:${rvClr}">${pit.runValue>0?'+':''}${pit.runValue}</span><span class="sb-lbl">Run Val/100</span></div>`:''}
         ${pit.daysRest!=null?`<div class="stat-box"><span class="sb-val">${daysRestStr}</span><span class="sb-lbl">Days Rest</span></div>`:''}
+        ${pit.battedBall!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.battedBall.gbRate>50?'var(--red)':pit.battedBall.fbRate>42?'var(--green)':'var(--t3)'}">${pit.battedBall.gbRate}%</span><span class="sb-lbl">GB Rate</span></div>`:''}
+        ${pit.battedBall?.fbRate!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.battedBall.fbRate>45?'var(--green)':'var(--t3)'}"> ${pit.battedBall.fbRate}%</span><span class="sb-lbl">FB Rate</span></div>`:''}
       </div>`;
 
       // Arsenal pitch rows with batter performance overlay
