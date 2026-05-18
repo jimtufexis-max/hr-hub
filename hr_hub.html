@@ -311,7 +311,15 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <input id="search-input" type="text" placeholder="Search player..." oninput="renderSlate()">
       </div>
     </div>
+    <div id="hr-projection-strip"></div>
     <div id="hitter-list"></div>
+  </div>
+
+  <!-- BEST BETS PAGE -->
+  <div id="page-picks" class="page" style="padding:12px;overflow-y:auto">
+    <div id="picks-content">
+      <div class="empty">Load games on the Slate tab first</div>
+    </div>
   </div>
 
   <!-- DETAIL PAGE -->
@@ -461,6 +469,10 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
     AB Log
   </button>
+  <button class="nav-btn" onclick="showPage('picks')" id="nav-picks">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+    Best Bets
+  </button>
   <button class="nav-btn" onclick="showPage('info')" id="nav-info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Info</button>
 </nav>
 
@@ -520,6 +532,7 @@ function showPage(name){
   document.getElementById(`nav-${name}`)?.classList.add('active');
   if(name==='ab') populateABSelect();
   if(name==='parlay') renderParlay();
+  if(name==='picks') renderBestBets();
   if(name==='info'){
     const el=document.getElementById('model-perf-card');
     if(el){
@@ -3475,6 +3488,241 @@ function setSort(key,el){
   renderSlate();
 }
 
+// ==================================================================
+//  PROJECTED HR TOTAL — sum of all player probabilities
+//  Expected value of total HRs today
+// ==================================================================
+function renderHRProjection(){
+  const el = document.getElementById('hr-projection-strip');
+  if(!el || !S.allRows.length){ if(el) el.innerHTML=''; return; }
+
+  const rows = S.allRows;
+  const totalProb = rows.reduce((s,r)=>s+r.prob, 0);
+  const projectedHRs = Math.round(totalProb * 10) / 10;
+
+  // Distribution: likely range
+  const variance = rows.reduce((s,r)=>s+r.prob*(1-r.prob), 0);
+  const stdDev = Math.sqrt(variance);
+  const lo = Math.max(0, Math.round((projectedHRs - stdDev) * 10) / 10);
+  const hi = Math.round((projectedHRs + stdDev) * 10) / 10;
+
+  // Top candidates
+  const top3 = [...rows].sort((a,b)=>b.prob-a.prob).slice(0,3);
+
+  el.innerHTML = `<div style="background:linear-gradient(135deg,rgba(34,201,94,.08),rgba(90,160,255,.08));
+    border:1px solid rgba(34,201,94,.2);border-radius:12px;padding:12px 14px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div>
+        <div style="font-size:.62rem;color:var(--t4);letter-spacing:.06em;text-transform:uppercase">Projected HRs Today</div>
+        <div style="font-size:1.8rem;font-weight:900;color:var(--green);line-height:1.1">${projectedHRs}
+          <span style="font-size:.75rem;font-weight:400;color:var(--t4)"> HRs</span>
+        </div>
+        <div style="font-size:.65rem;color:var(--t4);margin-top:2px">Range: ${lo}–${hi} · ${rows.length} batters</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px">Top Candidates</div>
+        ${top3.map(r=>`<div style="font-size:.68rem;color:var(--t2);margin-bottom:2px">
+          ${r.name.split(' ').pop()} <span style="color:var(--green)">${(r.prob*100).toFixed(1)}%</span>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ==================================================================
+//  BEST BETS — composite scoring using ALL signals
+//  Not just HR probability — weights conviction, data quality,
+//  angle alignment, value vs book, and signal consistency
+// ==================================================================
+function calcBetScore(r){
+  if(!r||!r.prob) return 0;
+
+  const dc = calcDataConfidence(r);
+  const confMult = {A:1.0, B:0.82, C:0.60}[dc.grade] || 0.70;
+
+  // Base: probability (core signal)
+  let score = r.prob * 100;
+
+  // Positive signal alignment bonus
+  const angles = detectAngles(r);
+  const posAngles = angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)'));
+  const negAngles = detectNegativeAngles(r);
+  score += posAngles.length * 0.8;
+  score -= negAngles.length * 1.2; // negative signals penalize harder
+
+  // Specific high-value signals
+  const hasPlatoonEdge = r.platoon >= 1.10;
+  const hasHRProneSP   = r.pitcher >= 1.15;
+  const hasPowerBase   = (r.barrel_pct||0)>=10 || (r.pull_air_pct||0)>=15 || (r.iso||0)>=0.220;
+  const hasPark        = r.parkwx >= 1.06;
+  const hasHot         = r.momentum >= 1.08;
+  const hasGoodHvH     = r.hvhMult >= 1.15;
+  const hasEliminated  = r.platoon <= 0.75 || r.pitcher <= 0.75 || (r.postponeRisk||0) >= 0.40;
+
+  if(hasPlatoonEdge) score += 2.0;
+  if(hasHRProneSP)   score += 2.5;
+  if(hasPowerBase)   score += 1.5;
+  if(hasPark)        score += 1.0;
+  if(hasHot)         score += 1.0;
+  if(hasGoodHvH)     score += 1.5;
+  if(hasEliminated)  return -1; // disqualify
+
+  // Signal CONSISTENCY bonus — all pointing same direction
+  const allPositive = hasPlatoonEdge && hasHRProneSP && hasPowerBase;
+  if(allPositive) score += 3.0;
+
+  // FD value bonus
+  const fdOdds = getFDOdds(r.name);
+  if(fdOdds!=null){
+    const ed = calcEdge(r.prob, fdOdds);
+    if(ed && ed.edge >= 5)  score += 4.0;
+    else if(ed && ed.edge >= 2) score += 2.0;
+    else if(ed && ed.edge < -5) return -1; // overpriced = disqualify
+  }
+
+  // Lineup must be confirmed
+  if(r.lineupConfirmed === false) score -= 3.0;
+
+  // Data confidence multiplier
+  score *= confMult;
+
+  // Minimum prob gate — don't recommend low-prob plays regardless of signals
+  if(r.prob < 0.045) score *= 0.5;
+
+  return Math.max(score, 0);
+}
+
+function renderBestBets(){
+  const el = document.getElementById('picks-content');
+  if(!el) return;
+
+  if(!S.allRows.length){
+    el.innerHTML = '<div class="empty" style="padding:40px 0">Load games on the Slate tab first</div>';
+    return;
+  }
+
+  // Score all players
+  const scored = S.allRows
+    .map(r=>({r, score:calcBetScore(r)}))
+    .filter(({score})=>score>0)
+    .sort((a,b)=>b.score-a.score);
+
+  const topPicks = scored.slice(0, 5);
+  if(!topPicks.length){
+    el.innerHTML = '<div class="empty" style="padding:40px 0">No strong picks today</div>';
+    return;
+  }
+
+  const medals = ['🥇','🥈','🥉','4️⃣','5️⃣'];
+
+  el.innerHTML = `
+    <div style="margin-bottom:16px">
+      <div style="font-size:.65rem;color:var(--t4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Best Bets Today</div>
+      <div style="font-size:.75rem;color:var(--t3)">Ranked by composite conviction: probability + matchup + data confidence + signal alignment</div>
+    </div>
+
+    ${topPicks.map(({r, score}, i)=>{
+      const dc = calcDataConfidence(r);
+      const angles = detectAngles(r);
+      const posAngles = angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)'));
+      const neg = detectNegativeAngles(r);
+      const fdOdds = getFDOdds(r.name);
+      const ed = fdOdds!=null ? calcEdge(r.prob, fdOdds) : null;
+      const [,gc] = probGrade(r.prob);
+      const pct = (r.prob*100).toFixed(1);
+
+      // Why this pick — top 3 reasons
+      const reasons = [];
+      if(r.platoon>=1.20) reasons.push('Platoon King matchup');
+      else if(r.platoon>=1.10) reasons.push('Favorable platoon');
+      if(r.pitcher>=1.20) reasons.push('HR-prone SP');
+      else if(r.pitcher>=1.10) reasons.push('Hittable pitcher');
+      if(r.parkwx>=1.08) reasons.push('HR-friendly park/weather');
+      if(r.momentum>=1.08) reasons.push('Hot recent form');
+      if(r.hvhMult>=1.15) reasons.push('Strong career vs this SP');
+      if((r.barrel_pct||0)>=15) reasons.push('Elite barrel%');
+      if((r.pull_air_pct||0)>=18) reasons.push('Pull-air elite');
+      if((r.iso||0)>=0.260) reasons.push('Elite raw power');
+      if(ed&&ed.edge>=5) reasons.push(`+${ed.edge}% FD value`);
+
+      // Score breakdown
+      const scoreBreakdown = `${pct}% prob · ${posAngles.length} positive signals · ${dc.grade} data`;
+      if(neg.length>0 && reasons.length < 2) reasons.push(`Note: ${neg.length} negative angle${neg.length>1?'s':''}`);
+
+      return `<div class="card" style="margin-bottom:12px;border-color:${i===0?'rgba(255,215,0,.4)':i<=1?'rgba(34,201,94,.2)':'var(--bdr)'}">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="font-size:1.6rem;flex-shrink:0;margin-top:2px">${medals[i]}</div>
+          <div style="flex:1;min-width:0">
+            <!-- Header -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <div>
+                <div style="font-size:.95rem;font-weight:800;color:var(--t1)">${r.name}</div>
+                <div style="font-size:.66rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · #${r.lineupPos}`:''}</div>
+                <div style="font-size:.64rem;color:var(--t4)">vs ${r.spNm||'SP'} · ${r.game||''}</div>
+              </div>
+              <div style="text-align:center;flex-shrink:0">
+                <div style="font-size:1.4rem;font-weight:900;color:${gc}">${pct}%</div>
+                <div style="font-size:.58rem;color:${dc.color};font-weight:700">${dc.grade} data</div>
+                ${ed&&ed.edge>=3?`<div style="font-size:.60rem;color:var(--green);font-weight:700">+${ed.edge}% edge</div>`:''}
+              </div>
+            </div>
+
+            <!-- Why this pick -->
+            <div style="margin-bottom:8px">
+              ${reasons.slice(0,3).map(r2=>`<div style="display:flex;align-items:center;gap:6px;font-size:.70rem;color:var(--t2);padding:2px 0">
+                <span style="color:var(--green)">✓</span> ${r2}
+              </div>`).join('')}
+            </div>
+
+            <!-- Positive angle tags -->
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+              ${posAngles.slice(0,4).map(a=>`<span style="font-size:.60rem;padding:2px 7px;border-radius:99px;
+                background:${a.color}22;border:1px solid ${a.color}44;color:${a.color}">
+                ${a.icon} ${a.label}</span>`).join('')}
+            </div>
+
+            <!-- Negative angles warning if any -->
+            ${neg.length?`<div style="font-size:.63rem;color:var(--red);margin-bottom:6px">
+              ⚠️ ${neg.slice(0,2).map(n=>n.label).join(' · ')}
+            </div>`:''}
+
+            <!-- Score + tap to detail -->
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:.63rem;color:var(--t4)">${scoreBreakdown}</div>
+              <button onclick="showDetail('${r.id}')"
+                style="font-size:.65rem;padding:5px 12px;border-radius:8px;border:none;
+                background:var(--bg3);color:var(--t2);cursor:pointer">
+                View Detail →
+              </button>
+            </div>
+
+            ${ed&&ed.edge>=3?`<div style="margin-top:8px;padding:7px 10px;border-radius:8px;
+              background:rgba(34,201,94,.08);border:1px solid rgba(34,201,94,.2);
+              font-size:.68rem;color:var(--green)">
+              💰 FD ${fdOdds>0?'+':''}${fdOdds} · Fair odds: ${probToAmerican(r.prob)} · Edge: +${ed.edge}%
+            </div>`:''}
+          </div>
+        </div>
+      </div>`;
+    }).join('')}
+
+    <!-- Honorable mentions -->
+    ${scored.length>5?`<div style="margin-top:8px">
+      <div style="font-size:.65rem;color:var(--t4);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Also worth watching</div>
+      ${scored.slice(5,8).map(({r})=>{
+        const [,gc]=probGrade(r.prob);
+        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3);cursor:pointer" onclick="showDetail('${r.id}')">
+          <div style="flex:1;font-size:.78rem;color:var(--t2)">${r.name}
+            <span style="font-size:.65rem;color:var(--t4)"> · ${r.team} · ${r.batHand}HB vs ${r.oppHand}HP</span>
+          </div>
+          <span style="font-size:.78rem;font-weight:700;color:${gc}">${(r.prob*100).toFixed(1)}%</span>
+        </div>`;
+      }).join('')}
+    </div>`:''}
+  `;
+}
+
+
 function renderSlate(){
   if(!S.allRows.length){
     document.getElementById('hitter-list').innerHTML='<div class="empty">No players loaded</div>';
@@ -3537,6 +3785,9 @@ function renderSlate(){
   })():'';
 
   document.getElementById('hitter-list').innerHTML=bestBetHTML+rows.map(r=>renderHitterCard(r,multiGame)).join('');
+  renderHRProjection();
+  // Update best bets tab if open
+  if(document.getElementById('page-picks')?.classList.contains('active')) renderBestBets();
 }
 
 function renderHitterCard(r,showGame){
