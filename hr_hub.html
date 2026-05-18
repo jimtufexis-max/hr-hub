@@ -941,12 +941,16 @@ function calcPitcherMult(pitcherStats){
   const{hr9_recent,hr9_season,hrFb,barrel_pct_allowed,_arsenalMult,totalStarts}=pitcherStats;
   const shrinkHR9=(r,c)=>r*c+1.0*(1-c);
   const scores=[];
-  if(hr9_recent!=null) scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,0.40),0.55,1.80),0.45]);
-  if(hr9_season!=null){const conf=(totalStarts||0)>=10?0.60:0.40;scores.push([clamp(shrinkHR9(hr9_season/LG_HR9,conf),0.55,1.80),0.35]);}
-  if(hrFb!=null){const p=hrFb>1?hrFb/100:hrFb;scores.push([clamp(shrinkHR9(p/LG_HR_FB,0.50),0.55,1.80),0.20]);}
-  if(barrel_pct_allowed!=null) scores.push([clamp(shrinkHR9(barrel_pct_allowed/6.5,0.40),0.55,1.80),0.15]);
+  // Recent 4 starts: low confidence (40%), cap at 1.60 not 1.80
+  if(hr9_recent!=null) scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,0.40),0.60,1.60),0.40]);
+  // Season: higher confidence when enough starts, cap at 1.55
+  if(hr9_season!=null){const conf=(totalStarts||0)>=10?0.65:0.45;scores.push([clamp(shrinkHR9(hr9_season/LG_HR9,conf),0.60,1.55),0.40]);}
+  // HR/FB: additional confirmation, cap at 1.50
+  if(hrFb!=null){const p=hrFb>1?hrFb/100:hrFb;scores.push([clamp(shrinkHR9(p/LG_HR_FB,0.50),0.60,1.50),0.20]);}
   let quality=1.0;
-  if(scores.length){const tw=scores.reduce((s,[,w])=>s+w,0);quality=clamp(scores.reduce((s,[m,w])=>s+m*w,0)/tw,0.60,1.60);}
+  if(scores.length){const tw=scores.reduce((s,[,w])=>s+w,0);quality=clamp(scores.reduce((s,[m,w])=>s+m*w,0)/tw,0.65,1.50);}
+  // Final quality cap: max 1.50 before other mods (no SP is 50% above avg in isolation)
+  quality=clamp(quality,0.65,1.50);
   // Arsenal modifier: how well THIS batter hits THIS SP's pitches (fixes Brandon Lowe)
   const arsenalMod=(_arsenalMult!=null&&_arsenalMult!==1.0)?clamp(1.0+(_arsenalMult-1.0)*0.75,0.82,1.22):1.0;
   // Days rest modifier
@@ -961,7 +965,7 @@ function calcPitcherMult(pitcherStats){
   }
   // Batted ball profile: GB-heavy = fewer HRs; FB-heavy = more
   const bbMod = pitcherStats.battedBall?.battedBallMult ?? 1.0;
-  return clamp(quality*arsenalMod*restMod*whiffMod*bbMod,0.50,2.00);
+  return clamp(quality*arsenalMod*restMod*whiffMod*bbMod, 0.55, 1.65);
 }
 
 function calcParkWxMult(pf, wx, batHand){
