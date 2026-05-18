@@ -1061,8 +1061,17 @@ function calcMomentumMult(recentGames, playerBaseline){
 // ── PROBABILITY v4: log-odds additive model ────────────────────────
 // Each signal contributes log-odds — prevents multiplicative runaway
 function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
-  const anchor = calcAnchor(batterStats);
-  let lo = logit(anchor); // base log-odds
+  const anchorPerPA = calcAnchor(batterStats);
+
+  // Convert per-PA anchor to per-GAME probability
+  // P(at least 1 HR in game) = 1 - (1 - per_PA_rate)^expected_PA
+  const lineupPosForPA = batterStats.lineupPos;
+  const expectedPA = lineupPosForPA
+    ? clamp(4.8 - (lineupPosForPA - 1) * 0.15, 3.5, 4.8)
+    : 4.1;
+  const anchor = clamp(1 - Math.pow(1 - anchorPerPA, expectedPA), 0.01, 0.65);
+
+  let lo = logit(anchor); // base log-odds — now per-game
 
   const overallRate = batterStats.szPA>=50?batterStats.szHR/batterStats.szPA:anchor;
 
@@ -1075,20 +1084,20 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platRateGated = (batterStats.platSample>=50) ? batterStats.platRate : null;
   const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
     platRateGated, overallRate, arsenalPlatMod);
-  lo += logOddsAdj(platoon) * 0.70; // some overlap with split-adjusted anchor
+  lo += logOddsAdj(platoon) * 0.55; // per-game scale — smaller weight than per-PA model
 
   // PITCHER
   const pitcher = calcPitcherMult(pitcherStats);
-  lo += logOddsAdj(pitcher) * 0.80;
+  lo += logOddsAdj(pitcher) * 0.60;
 
   // PARK × WEATHER
   const parkwx = calcParkWxMult(pf, wx||{}, batterStats.batHand);
-  lo += logOddsAdj(parkwx) * 0.70;
+  lo += logOddsAdj(parkwx) * 0.55;
 
   // MOMENTUM — noisiest signal
   const playerBaseline = batterStats.szPA>=80 ? batterStats.szHR/batterStats.szPA : null;
   const momentum = calcMomentumMult(recentGames, playerBaseline);
-  lo += logOddsAdj(momentum) * 0.40; // reduced — season rate already reflects recent form
+  lo += logOddsAdj(momentum) * 0.30; // weak signal at per-game scale
 
   // HOME/AWAY
   let homeAwayMult=1.0;
@@ -1114,10 +1123,10 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     lo+=logOddsAdj(hvhMult)*0.35; // small sample, small weight
   }
 
-  // LINEUP POSITION
-  const lineupPos=batterStats.lineupPos;
-  const paMultiplier=lineupPos&&lineupPos<=9
-    ?clamp(1.0+(4.0-lineupPos)*0.008,0.97,1.04):1.0;
+  // LINEUP POSITION — residual effect beyond PA count (already in expectedPA)
+  const lineupPos = lineupPosForPA;
+  const paMultiplier = lineupPos&&lineupPos<=9
+    ? clamp(1.0+(4.0-lineupPos)*0.008,0.97,1.04) : 1.0;
   lo+=logOddsAdj(paMultiplier);
 
   // UMPIRE
@@ -1144,7 +1153,7 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platDiscMult = batterStats.platDiscMult??1.0;
   lo += logOddsAdj(platDiscMult) * 0.35;
 
-  const prob=clamp(sigmoid(lo),0.005,0.22); // max 22% — even Judge isn't more than this
+  const prob=clamp(sigmoid(lo),0.01,0.35); // per-game cap: even best day ~30-35%
   return{prob,anchor,platoon,pitcher,parkwx,momentum,
          homeAwayMult,paMultiplier,umpMult,hvhMult,teamMult};
 }
@@ -3864,6 +3873,7 @@ function renderHitterCard(r,showGame){
       ${statChip('HR/FB%',r.hr_fb_pct,8,28,'%')}
       ${r.swingSpeed!=null?statChip('Bat Spd',r.swingSpeed,65,78,' mph'):''}
       ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)} xwOBA</span></div>`:''}
+      <div class="stat-chip" title="Expected HRs in today's game · probability-based"><span>xHR</span><span class="val" style="color:${r.prob>=0.20?'var(--green)':r.prob>=0.12?'var(--amber)':'var(--t3)'}">${r.prob.toFixed(2)}</span></div>
     </div>
   </div>`;
 }
