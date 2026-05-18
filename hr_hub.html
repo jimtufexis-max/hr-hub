@@ -3582,8 +3582,9 @@ function renderDetail(r){
           <div class="detail-meta">vs ${r.spNm} (${r.oppHand}HP) · ${r.game}</div>
         </div>
       </div>
-      <div style="font-size:.72rem;color:var(--t4);font-family:'JetBrains Mono',monospace;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-top:4px">
-        ${(r.anchor*100).toFixed(2)}% × ${r.platoon.toFixed(2)} × ${r.pitcher.toFixed(2)} × ${r.parkwx.toFixed(2)} × ${r.momentum.toFixed(2)} = <b style="color:${gc}">${pct}%</b>
+      <div style="font-size:.70rem;color:var(--t4);font-family:'JetBrains Mono',monospace;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-top:4px;line-height:1.8">
+        <div>Anchor <b style="color:var(--t2)">${(r.anchor*100).toFixed(1)}%</b>${r.platoon!==1?` · Platoon <b style="color:${r.platoon>=1?'var(--green)':'var(--red)'}">${r.platoon>=1?'+':''}${((r.platoon-1)*100).toFixed(0)}%</b>`:''}${r.pitcher!==1?` · SP <b style="color:${r.pitcher>=1?'var(--green)':'var(--red)'}">${r.pitcher>=1?'+':''}${((r.pitcher-1)*100).toFixed(0)}%</b>`:''}${r.parkwx!==1?` · Park/Wx <b style="color:${r.parkwx>=1?'var(--green)':'var(--red)'}">${r.parkwx>=1?'+':''}${((r.parkwx-1)*100).toFixed(0)}%</b>`:''}${r.momentum!==1?` · Form <b style="color:${r.momentum>=1?'var(--green)':'var(--red)'}">${r.momentum>=1?'+':''}${((r.momentum-1)*100).toFixed(0)}%</b>`:''}</div>
+        <div>→ Final: <b style="color:${gc}">${pct}%</b> (log-odds model)</div>
       </div>
     </div>
 
