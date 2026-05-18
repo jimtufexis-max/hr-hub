@@ -834,11 +834,11 @@ function calcAnchor(stats){
   const l100Rate = shrink(l100Raw, l100pa||0, 200);
   const priorRate= priorSeasonRate?shrink(priorSeasonRate,350,400):null;
 
+  // Anchor = season rate + career stability + prior year (NO L100 — that's momentum's job)
+  // L100 overlaps with both szHR/szPA and momentum signal → double-counting
   let rateScore;
-  if(sznRate&&carRate&&l100Rate&&priorRate)
-    rateScore=(sznRate*0.45)+(carRate*0.20)+(l100Rate*0.15)+(priorRate*0.20);
-  else if(sznRate&&carRate&&l100Rate)
-    rateScore=(sznRate*0.55)+(carRate*0.25)+(l100Rate*0.20);
+  if(sznRate&&carRate&&priorRate)
+    rateScore=(sznRate*0.50)+(carRate*0.25)+(priorRate*0.25);
   else if(sznRate&&carRate)
     rateScore=(sznRate*0.70)+(carRate*0.30);
   else if(sznRate&&priorRate){
@@ -1062,7 +1062,7 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platRateGated = (batterStats.platSample>=50) ? batterStats.platRate : null;
   const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
     platRateGated, overallRate, arsenalPlatMod);
-  lo += logOddsAdj(platoon) * 0.75; // reliable but already in rate estimate
+  lo += logOddsAdj(platoon) * 0.70; // some overlap with split-adjusted anchor
 
   // PITCHER
   const pitcher = calcPitcherMult(pitcherStats);
@@ -1075,7 +1075,7 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   // MOMENTUM — noisiest signal
   const playerBaseline = batterStats.szPA>=80 ? batterStats.szHR/batterStats.szPA : null;
   const momentum = calcMomentumMult(recentGames, playerBaseline);
-  lo += logOddsAdj(momentum) * 0.55;
+  lo += logOddsAdj(momentum) * 0.40; // reduced — season rate already reflects recent form
 
   // HOME/AWAY
   let homeAwayMult=1.0;
@@ -1083,9 +1083,13 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   if(ha){
     const rel=batterStats.isHome?ha.homeRate:ha.awayRate;
     const relPA=batterStats.isHome?ha.homePA:ha.awayPA;
-    if(rel!=null&&relPA>=30){
-      homeAwayMult=clamp((rel/(overallRate||MLB_AVG))*0.40+1.0*0.60,0.85,1.25);
-      lo+=logOddsAdj(homeAwayMult)*0.45; // reduced weight
+    if(rel!=null&&relPA>=40){
+      // Season rate partially includes home/away — only use the MARGINAL effect
+      const overallForHA = overallRate||anchor||MLB_AVG;
+      const ratio = rel / overallForHA;
+      // 30% weight on actual split (rest already in rate), cap at 1.15/0.88
+      homeAwayMult = clamp(ratio*0.30 + 1.0*0.70, 0.88, 1.15);
+      lo += logOddsAdj(homeAwayMult) * 0.35; // low weight — mostly in anchor already
     }
   }
 
