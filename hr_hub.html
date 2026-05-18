@@ -300,6 +300,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <div id="filters-area">
       <div class="filter-row">
         <div class="filter-pill active" onclick="setSort('prob',this)">HR Prob</div>
+        <div class="filter-pill" id="pill-noise" onclick="S.noiseFilter=!S.noiseFilter;this.classList.toggle('active');renderSlate()">🎯 Sharp</div>
         <div class="filter-pill" onclick="setSort('anchor',this)">Anchor</div>
         <div class="filter-pill" onclick="setSort('platoon',this)">Platoon</div>
         <div class="filter-pill" onclick="setSort('momentum',this)">L15 Hot</div>
@@ -905,9 +906,16 @@ function calcAnchor(stats){
 
   // Pull-Air% is strongest HR predictor — gets more weight when available
   const hasPullAir = pull_air_pct != null;
-  const powerProfile = hasPullAir
+  const hasSavant  = barrel_pct != null && hard_hit_pct != null;
+  const rawPowerProfile = hasPullAir
     ? (barrelScore * 0.35) + (pullAirScore * 0.35) + (isoScore * 0.20) + (hardHitScore * 0.10)
     : (barrelScore * 0.55) + (isoScore * 0.30) + (hardHitScore * 0.15);
+
+  // Data quality gate: if we don't have Statcast, cap power inflation
+  // Prevents small-sample ISO spikes from inflating low-PA players
+  const powerDataConf = hasSavant ? (hasPullAir ? 1.0 : 0.85) : 0.65;
+  // Regress power profile toward 1.0 based on data confidence
+  const powerProfile = rawPowerProfile * powerDataConf + 1.0 * (1 - powerDataConf);
 
   // ── FINAL BLEND ──────────────────────────────────────────────
 
@@ -1085,6 +1093,7 @@ function calcMomentumMult(recentGames){
 
 // ── FINAL PROBABILITY ─────────────────────────────────────────────
 function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
+  const stats = batterStats; // alias for PA gate
   const anchor   = calcAnchor(batterStats);
   const overallRate = batterStats.szPA>=50 ? batterStats.szHR/batterStats.szPA : anchor;
   const arsenalPlatMod = calcArsenalPlatoonMod(
@@ -1127,11 +1136,26 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
 
   const teamMult = batterStats.teamHRMult ?? 1.0;
 
-  const prob = clamp(
-    anchor * platoon * pitcher * parkwx * momentum
-    * homeAwayMult * paMultiplier * umpMult * hvhMult * teamMult,
-    0.005, 0.50
-  );
+  // Stack multipliers but apply diminishing returns
+  // Raw stack can be 1.22 × 1.10 × 1.15 × 1.08 × 1.06 = 1.79× on weak anchor
+  // Cap: individual mult can be strong, but combined can't exceed ~1.60×
+  const rawMult = platoon * pitcher * parkwx * momentum
+                * homeAwayMult * paMultiplier * umpMult * hvhMult * teamMult;
+
+  // Diminishing returns: compress extremes
+  // 1.0× stays 1.0×, 2.0× becomes ~1.65×, 0.5× becomes ~0.62×
+  const adjMult = rawMult >= 1.0
+    ? 1.0 + (rawMult - 1.0) * 0.70   // compress upside
+    : 1.0 - (1.0 - rawMult) * 0.75;  // compress downside slightly less
+
+  // PA minimum gate: very small samples get regressed hard
+  const paGate = (stats?.szPA||0) < 30
+    ? 0.70   // <30 PA: heavy regression
+    : (stats?.szPA||0) < 60
+    ? 0.85   // 30-60 PA: moderate regression
+    : 1.0;   // 60+ PA: full prob
+
+  const prob = clamp(anchor * adjMult * paGate, 0.005, 0.50);
 
   return { prob, anchor, platoon, pitcher, parkwx, momentum,
            homeAwayMult, paMultiplier, umpMult, hvhMult, teamMult };
@@ -1365,7 +1389,9 @@ function calcEdge(ourProb, bookOdds){
 function detectAngles(r){
   const a=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||{};
 
-  if(r.platoon>=1.20) a.push({icon:'🎯',cat:'platoon',tier:1,label:'Platoon King (+)',color:'#ffd700',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — best cross-hand matchup. +${Math.round((r.platoon-1)*100)}% HR prob`});
+  // Platoon King needs either good power base OR real sample size
+  const platKingOk=(r.szPA||0)>=60||(r.barrel_pct!=null&&r.barrel_pct>=8)||(r.iso!=null&&r.iso>=0.170);
+  if(r.platoon>=1.20&&platKingOk) a.push({icon:'🎯',cat:'platoon',tier:1,label:'Platoon King (+)',color:'#ffd700',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — best cross-hand matchup. +${Math.round((r.platoon-1)*100)}% HR prob`});
   else if(r.platoon>=1.10) a.push({icon:'✅',cat:'platoon',tier:2,label:'Platoon Edge (+)',color:'var(--green)',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — favorable matchup`});
   else if(r.batHand==='R'&&r.oppHand==='R') a.push({icon:'🔵',cat:'platoon',tier:3,label:'R vs R (-)',color:'var(--t4)',tip:'RHB vs RHP — slight platoon disadvantage (0.88x)'});
   else if(r.platoon<=0.74) a.push({icon:'⚠️',cat:'platoon',tier:3,label:'Same-Hand Fade (-)',color:'var(--red)',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — worst matchup. -${Math.round((1-r.platoon)*100)}% HR prob`});
@@ -1604,8 +1630,9 @@ function detectAngles(r){
   }
 
   if(pit.recentK9!=null&&pit.seasonK9!=null){
-    if(pit.recentK9<pit.seasonK9*0.80&&pit.seasonK9>=7) a.push({icon:'📉',cat:'spStuff',tier:2,label:'SP Losing Stuff (+)',color:'var(--green)',tip:`K/9 dropped ${pit.seasonK9.toFixed(1)} to ${pit.recentK9.toFixed(1)}`});
-    else if(pit.recentK9>pit.seasonK9*1.18&&pit.seasonK9>=7) a.push({icon:'📈',cat:'spStuff',tier:3,label:'SP Gaining Ks (-)',color:'var(--red)',tip:`K/9 up ${pit.seasonK9.toFixed(1)} to ${pit.recentK9.toFixed(1)}`});
+    if(pit.recentK9<pit.seasonK9*0.80&&pit.seasonK9>=7)
+      a.push({icon:'📉',cat:'spStuff',tier:2,label:'SP Losing Stuff (+)',color:'var(--green)',tip:`K/9 dropped ${pit.seasonK9.toFixed(1)} to ${pit.recentK9.toFixed(1)} — often precedes HR spike`});
+    // SP Gaining Ks is negative-only — handled in detectNegativeAngles
   }
 
   // Park/weather
@@ -1627,8 +1654,12 @@ function detectAngles(r){
 
   // Combo
   const posCats=[...new Set(a.filter(x=>x.tier<=2&&!x.label.endsWith('(-)')).map(x=>x.cat).filter(c=>c!=='combo'))];
-  if(posCats.length>=4) a.unshift({icon:'⭐',cat:'combo',tier:1,label:'Elite Spot (+)',color:'#ffd700',tip:`${posCats.length} positive categories: ${posCats.join(', ')}`});
-  else if(posCats.length>=3&&r.platoon>=1.10&&(l3hr>=1||(r.barrel_pct!=null&&r.barrel_pct>=12))) a.unshift({icon:'🌟',cat:'combo',tier:1,label:'Prime Spot (+)',color:'#ffd700',tip:'Platoon + power + form aligned'});
+  const anchorAboveAvg=(r.anchor||0)>MLB_AVG*1.10;
+  const hasPowerBase=(r.barrel_pct!=null&&r.barrel_pct>=9)||(r.pull_air_pct!=null&&r.pull_air_pct>=13)||(r.iso!=null&&r.iso>=0.185);
+  if(posCats.length>=4&&anchorAboveAvg&&hasPowerBase)
+    a.unshift({icon:'⭐',cat:'combo',tier:1,label:'Elite Spot (+)',color:'#ffd700',tip:`${posCats.length} positive categories with above-avg power base: ${posCats.join(', ')}`});
+  else if(posCats.length>=3&&r.platoon>=1.10&&anchorAboveAvg&&(l3hr>=1||(r.barrel_pct!=null&&r.barrel_pct>=12)))
+    a.unshift({icon:'🌟',cat:'combo',tier:1,label:'Prime Spot (+)',color:'#ffd700',tip:'Platoon + power + form — real talent backing the angle'});
 
   const best={};
   for(const x of a){if(!best[x.cat]||x.tier<best[x.cat].tier)best[x.cat]=x;}
@@ -3277,6 +3308,21 @@ function renderSlate(){
   }[S.sortKey]||((a,b)=>b.prob-a.prob);
 
   let rows=[...S.allRows];
+
+  // Sharp filter: hide noise — low PA, weak power profile, no Statcast
+  if(S.noiseFilter){
+    rows=rows.filter(r=>{
+      const pa=(r.szPA||0);
+      if(pa<40) return false; // too small a sample
+      const hasRealPower=(r.barrel_pct!=null&&r.barrel_pct>=8)
+        ||(r.pull_air_pct!=null&&r.pull_air_pct>=13)
+        ||(r.iso!=null&&r.iso>=0.170);
+      if(!hasRealPower) return false;
+      // Must have meaningful probability (not just platoon/park bump)
+      if(r.prob<0.04) return false;
+      return true;
+    });
+  }
   if(q)rows=rows.filter(r=>r.name.toLowerCase().includes(q)||r.team.toLowerCase().includes(q));
   rows.sort(sortFn);
 
@@ -3333,17 +3379,19 @@ function renderHitterCard(r,showGame){
       >${edgeData.edge>=0?'+':''}${edgeData.edge}% edge</span>`
     : '';
 
-  // Angles
+  // Angles — card shows ONLY positive signals (tier 1-2, no (-) labels)
+  // Negative signals shown on detail page only
   const angles = detectAngles(r);
-  const angleRow = angles.length
+  const cardAngles = angles.filter(a => a.tier <= 2 && !a.label.endsWith('(-)'));
+  const angleRow = cardAngles.length
     ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
-        ${angles.map(a=>{
-          const opacity = a.tier===1?'22':a.tier===2?'18':'12';
-          const sz = a.tier===1?'.68rem':a.tier===2?'.64rem':'.60rem';
+        ${cardAngles.map(a=>{
+          const opacity = a.tier===1?'22':'18';
+          const sz = a.tier===1?'.68rem':'.64rem';
           const fw = a.tier===1?'700':'600';
           return `<span style="font-size:${sz};font-weight:${fw};padding:2px 7px;border-radius:99px;
             background:${a.color}${opacity};border:1px solid ${a.color}${a.tier===1?'66':'33'};
-            color:${a.color};white-space:nowrap;opacity:${a.tier===3?'0.7':'1'}"
+            color:${a.color};white-space:nowrap"
             title="${a.tip}">${a.icon} ${a.label}</span>`;
         }).join('')}
        </div>` : '';
@@ -3351,7 +3399,13 @@ function renderHitterCard(r,showGame){
   return`<div class="hitter-card grade-${gCls}" onclick="showDetail('${r.id}')">
     <div class="hc-row1">
       <div style="flex:1;min-width:0">
-        <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}</div>
+        <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}${(()=>{
+          const today=ds();const stored=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+          const already=stored.find(x=>x.id===r.id&&x.date===today);
+          if(already&&already.actual!==undefined) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.2);color:var(--green);margin-left:4px">${already.actual>0?'✅ HR':'❌ No HR'}</span>`;
+          if(already) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(90,160,255,.15);color:var(--blue);margin-left:4px">⏳ tracking</span>`;
+          return '';
+        })()}</div>
         <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <span style="color:var(--amber)">#${r.lineupPos}</span>`:''} ${gameTag}</div>
       </div>
       <div class="prob-circle" style="border-color:${gc};color:${gc}">
@@ -3405,6 +3459,8 @@ function renderWeather(wx,homeTeam){
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
+  // Queue for auto-tracking when tapped (user showed interest)
+  queueForAutoTrack([r]);
   showPage('detail');
   renderDetail(r);
 }
@@ -3651,20 +3707,44 @@ function renderDetail(r){
       </div>
       <div id="det-ev-result"></div>
     </div>
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">📝 Record Result (after game)</div>
-      <div style="display:flex;gap:8px;margin-top:4px">
-        <button onclick="recordResult('${r.id}','${r.name}',${r.prob},1)" 
-          style="flex:1;padding:10px;border-radius:10px;border:none;background:rgba(34,201,94,.2);color:var(--green);font-size:.82rem;font-weight:700;cursor:pointer">
-          ✅ Hit HR
-        </button>
-        <button onclick="recordResult('${r.id}','${r.name}',${r.prob},0)"
-          style="flex:1;padding:10px;border-radius:10px;border:none;background:rgba(224,80,74,.2);color:var(--red);font-size:.82rem;font-weight:700;cursor:pointer">
-          ❌ No HR
-        </button>
-      </div>
-      <div style="font-size:.62rem;color:var(--t4);margin-top:6px;text-align:center">Results saved locally to track model accuracy</div>
-    </div>`;
+    ${(()=>{
+      const today=ds();
+      const stored=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+      const existing=stored.find(x=>x.id===r.id&&x.date===today);
+      const statusHtml = existing && existing.actual!==undefined
+        ? `<div style="text-align:center;padding:10px;border-radius:10px;background:${existing.actual>0?'rgba(34,201,94,.15)':'rgba(224,80,74,.15)'}">
+            <div style="font-size:1rem;font-weight:800;color:${existing.actual>0?'var(--green)':'var(--red)'}">
+              ${existing.actual>0?'✅ Hit HR':'❌ No HR'}
+            </div>
+            <div style="font-size:.62rem;color:var(--t4);margin-top:2px">
+              ${existing.autoTracked?'Auto-tracked':'Manually recorded'} · Prob was ${(r.prob*100).toFixed(1)}%
+            </div>
+            <div style="font-size:.62rem;color:var(--t4);margin-top:6px">Change result:</div>
+            <div style="display:flex;gap:6px;margin-top:4px">
+              <button onclick="recordResult('${r.id}','${r.name}',${r.prob},1)" style="flex:1;padding:6px;border-radius:8px;border:none;background:rgba(34,201,94,.2);color:var(--green);font-size:.72rem;cursor:pointer">✅ HR</button>
+              <button onclick="recordResult('${r.id}','${r.name}',${r.prob},0)" style="flex:1;padding:6px;border-radius:8px;border:none;background:rgba(224,80,74,.2);color:var(--red);font-size:.72rem;cursor:pointer">❌ No HR</button>
+            </div>
+          </div>`
+        : existing
+        ? `<div style="text-align:center;padding:8px;border-radius:10px;background:rgba(90,160,255,.1);color:var(--blue);font-size:.75rem">
+            ⏳ Queued for auto-tracking after game ends
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <button onclick="recordResult('${r.id}','${r.name}',${r.prob},1)" style="flex:1;padding:8px;border-radius:8px;border:none;background:rgba(34,201,94,.2);color:var(--green);font-size:.8rem;font-weight:700;cursor:pointer">✅ Hit HR</button>
+              <button onclick="recordResult('${r.id}','${r.name}',${r.prob},0)" style="flex:1;padding:8px;border-radius:8px;border:none;background:rgba(224,80,74,.2);color:var(--red);font-size:.8rem;font-weight:700;cursor:pointer">❌ No HR</button>
+            </div>
+          </div>`
+        : `<div style="display:flex;gap:8px">
+            <button onclick="recordResult('${r.id}','${r.name}',${r.prob},1)" style="flex:1;padding:10px;border-radius:10px;border:none;background:rgba(34,201,94,.2);color:var(--green);font-size:.82rem;font-weight:700;cursor:pointer">✅ Hit HR</button>
+            <button onclick="recordResult('${r.id}','${r.name}',${r.prob},0)" style="flex:1;padding:10px;border-radius:10px;border:none;background:rgba(224,80,74,.2);color:var(--red);font-size:.82rem;font-weight:700;cursor:pointer">❌ No HR</button>
+          </div>`;
+      return `<div class="card" style="margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div class="slbl" style="margin:0">📝 Result</div>
+          ${!existing?`<span style="font-size:.62rem;color:var(--blue)">Auto-tracks after game</span>`:''}
+        </div>
+        ${statusHtml}
+      </div>`;
+    })()}`;
   } catch(e) {
     console.error('[renderDetail] ERROR:', e.message, e.stack?.split('\n')[1]);
     document.getElementById('detail-content').innerHTML=`<div class="card" style="color:var(--red);padding:12px">Error loading player detail: ${e.message}</div>`;
