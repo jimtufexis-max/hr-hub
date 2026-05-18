@@ -804,6 +804,12 @@ const LG_FB_PCT  = 0.365;   // league avg FB rate
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
 
+// Math helpers for log-odds model
+function logit(p){ p=clamp(p,0.001,0.999); return Math.log(p/(1-p)); }
+function sigmoid(x){ return 1/(1+Math.exp(-x)); }
+function logOddsAdj(mult){ return Math.log(Math.max(mult,0.01)); }
+
+
 // ── ANCHOR v3: stabilized HR probability engine ─────────────────
 // Philosophy:
 //   - Real HR conversion skill is primary
@@ -812,128 +818,60 @@ function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
 //   - Larger recent sample reduces volatility
 
 function calcAnchor(stats){
-  const {
-    l100hr,
-    l100pa,
-    szHR,
-    szPA,
-    careerHR,
-    careerPA,
-    barrel_pct,
-    hard_hit_pct,
-    iso,
-    pull_air_pct
-  } = stats;
+  const{l100hr,l100pa,szHR,szPA,careerHR,careerPA,barrel_pct,hard_hit_pct,
+        iso,pull_air_pct,xwobaDiff,priorSeasonRate,rollingXwoba,xwoba}=stats;
 
-  // ── REAL HR RATES ─────────────────────────────────────────────
-
-  // Bayesian shrinkage: low sample → regress toward MLB_AVG
-  // Prevents Drew Romo (2 HR in 30 PA) from outranking established power hitters
-  const shrink = (rate, pa, targetPA) => {
-    if(rate == null) return null;
-    const conf = Math.min(pa / targetPA, 1.0);
-    return (rate * conf) + (MLB_AVG * (1.0 - conf));
+  const shrink=(rate,pa,target)=>{
+    if(rate==null)return null;
+    return rate*Math.min(pa/target,1.0)+MLB_AVG*(1-Math.min(pa/target,1.0));
   };
 
-  const l100RateRaw = (l100pa >= 80)  ? l100hr / l100pa   : null;
-  const sznRateRaw  = (szPA   >= 100) ? szHR   / szPA     : null;
-  const carRateRaw  = (careerPA >= 200) ? careerHR / careerPA : null;
+  const sznRaw = szPA>=80?szHR/szPA:null;
+  const carRaw = careerPA>=200?careerHR/careerPA:null;
+  const l100Raw= l100pa>=60?l100hr/l100pa:null;
+  const sznRate  = shrink(sznRaw,  szPA||0, 300);
+  const carRate  = shrink(carRaw,  careerPA||0, 400);
+  const l100Rate = shrink(l100Raw, l100pa||0, 200);
+  const priorRate= priorSeasonRate?shrink(priorSeasonRate,350,400):null;
 
-  const l100Rate = shrink(l100RateRaw, l100pa||0, 200);
-  const sznRate  = shrink(sznRateRaw,  szPA||0,   300);
-  const carRate  = shrink(carRateRaw,  careerPA||0, 400);
-
-  // Rolling L30 xwOBA — if batter is genuinely hot on quality metrics
-  // a rising rolling xwOBA vs season xwOBA signals real form improvement
-  if(stats.rollingXwoba!=null && stats.xwoba!=null && stats.rollingXwoba>stats.xwoba+0.030){
-    // batter is meaningfully hotter in recent 30 days than season avg
-    // blend this into rateScore below via a small boost flag
-  }
-
-  // Also use prior season rate — helps early-season small samples
-  const priorRate = stats.priorSeasonRate; // passed in from loadGame
-  const priorShrunk = priorRate!=null ? priorRate : null;
-
-  let rateScore = null;
-  if(sznRate!=null && carRate!=null && l100Rate!=null && priorShrunk!=null){
-    rateScore = (sznRate*0.45)+(carRate*0.20)+(l100Rate*0.15)+(priorShrunk*0.20);
-  } else if(sznRate!=null && carRate!=null && l100Rate!=null){
-    rateScore = (sznRate*0.50)+(carRate*0.30)+(l100Rate*0.20);
-  } else if(sznRate!=null && l100Rate!=null){
-    rateScore = (sznRate*0.60)+(l100Rate*0.40);
-  } else if(sznRate!=null && carRate!=null){
-    rateScore = (sznRate*0.70)+(carRate*0.30);
-  } else if(sznRate!=null && priorShrunk!=null){
-    // Early season: blend current with prior
+  let rateScore;
+  if(sznRate&&carRate&&l100Rate&&priorRate)
+    rateScore=(sznRate*0.45)+(carRate*0.20)+(l100Rate*0.15)+(priorRate*0.20);
+  else if(sznRate&&carRate&&l100Rate)
+    rateScore=(sznRate*0.55)+(carRate*0.25)+(l100Rate*0.20);
+  else if(sznRate&&carRate)
+    rateScore=(sznRate*0.70)+(carRate*0.30);
+  else if(sznRate&&priorRate){
     const conf=Math.min((szPA||0)/150,1.0);
-    rateScore = (sznRateRaw*conf)+(priorShrunk*(1-conf)*0.6)+(MLB_AVG*(1-conf)*0.4);
-  } else if(sznRate!=null){
-    const conf=Math.min((szPA||0)/300,1.0);
-    rateScore = (sznRateRaw*conf)+(MLB_AVG*(1.0-conf));
-  } else if(priorShrunk!=null){
-    rateScore = (priorShrunk*0.5)+(MLB_AVG*0.5); // prior heavily regressed
-  } else if(carRate!=null){
-    rateScore = carRate;
+    rateScore=(sznRaw||MLB_AVG)*conf+priorRate*(1-conf)*0.6+MLB_AVG*(1-conf)*0.4;
   }
+  else if(sznRate) rateScore=sznRate;
+  else if(priorRate) rateScore=priorRate*0.5+MLB_AVG*0.5;
+  else if(carRate) rateScore=carRate;
+  else rateScore=MLB_AVG;
 
-  // ── POWER PROFILE ────────────────────────────────────────────
+  // Power profile as log-odds adjustment — refines rate without dominating it
+  let powerLogAdj=0;
+  if(barrel_pct!=null)     powerLogAdj+=clamp((barrel_pct-8.0)*0.025,   -0.50, 0.80);
+  if(pull_air_pct!=null)   powerLogAdj+=clamp((pull_air_pct-12.5)*0.020,-0.40, 0.70);
+  if(iso!=null)            powerLogAdj+=clamp((iso-0.165)*2.0,          -0.40, 0.60);
+  if(hard_hit_pct!=null)   powerLogAdj+=clamp((hard_hit_pct-40.0)*0.008,-0.20, 0.35);
+  if(xwobaDiff!=null&&xwobaDiff>0.020) powerLogAdj+=clamp(xwobaDiff*1.5,0,0.25);
+  if(rollingXwoba!=null&&xwoba!=null&&rollingXwoba>xwoba+0.030) powerLogAdj+=0.10;
 
-  // xwOBA regression signal — if xwOBA > wOBA batter is unlucky (boost)
-  const xwobaBoost = (stats.xwobaDiff!=null && stats.xwobaDiff>0.020)
-    ? clamp(1.0 + stats.xwobaDiff * 2.0, 1.0, 1.12) : 1.0;
+  // Compress power adjustment based on data quality
+  const hasSavant=barrel_pct!=null&&hard_hit_pct!=null;
+  powerLogAdj*=hasSavant?(pull_air_pct!=null?1.0:0.80):0.50;
 
-  // Chase rate adjustment: low chase rate = patient hitter = better counts = more HR
-  // League avg chase ~29%. Lower = more disciplined. >35% = free swinger = fewer HR
-  const chaseAdj = stats.chaseRate!=null
-    ? clamp(1.0 + (29-stats.chaseRate)*0.004, 0.94, 1.06) : 1.0;
+  const anchor=clamp(sigmoid(logit(clamp(rateScore,0.005,0.45))+clamp(powerLogAdj,-0.80,1.20)),0.005,0.45);
 
-  // Sweet spot %: more balls at optimal 8-32° LA = more HR potential
-  // League avg ~35%. Above 38% is elite.
-  const sweetSpotAdj = stats.sweetSpot!=null
-    ? clamp(stats.sweetSpot/35.0, 0.85, 1.15) : 1.0;
-
-  const barrelScore = (barrel_pct != null)
-    ? clamp(barrel_pct / 10.0, 0.35, 2.2) * xwobaBoost * chaseAdj * sweetSpotAdj : 1.0;
-
-  const pullAirScore = (pull_air_pct != null)
-    ? clamp(pull_air_pct / 12.5, 0.35, 2.2) : 1.0;
-
-  const isoScore = (iso != null)
-    ? clamp(iso / 0.185, 0.35, 2.0) : 1.0;
-
-  const hardHitScore = (hard_hit_pct != null)
-    ? clamp(hard_hit_pct / 42.0, 0.40, 1.6) : 1.0;
-
-  // Pull-Air% is strongest HR predictor — gets more weight when available
-  const hasPullAir = pull_air_pct != null;
-  const hasSavant  = barrel_pct != null && hard_hit_pct != null;
-  const rawPowerProfile = hasPullAir
-    ? (barrelScore * 0.35) + (pullAirScore * 0.35) + (isoScore * 0.20) + (hardHitScore * 0.10)
-    : (barrelScore * 0.55) + (isoScore * 0.30) + (hardHitScore * 0.15);
-
-  // Data quality gate: if we don't have Statcast, cap power inflation
-  // Prevents small-sample ISO spikes from inflating low-PA players
-  const powerDataConf = hasSavant ? (hasPullAir ? 1.0 : 0.85) : 0.65;
-  // Regress power profile toward 1.0 based on data confidence
-  const powerProfile = rawPowerProfile * powerDataConf + 1.0 * (1 - powerDataConf);
-
-  // ── FINAL BLEND ──────────────────────────────────────────────
-
-  let base;
-
-  if(rateScore != null){
-    // Real HR skill remains dominant
-    base =
-      (rateScore * 0.85) +
-      ((MLB_AVG * powerProfile) * 0.15);
-  }
-  else {
-    // Statcast fallback only
-    base = MLB_AVG * powerProfile;
-  }
-
-  return clamp(base, 0.005, 0.38);
+  // PA gate
+  const pa=szPA||0;
+  if(pa<30) return clamp(anchor*0.70+MLB_AVG*0.30,0.005,0.45);
+  if(pa<60) return clamp(anchor*0.85+MLB_AVG*0.15,0.005,0.45);
+  return anchor;
 }
+
 
 // ── PLATOON: batter handedness vs pitcher handedness ───────────────
 function calcPlatoonMult(batHand, pitHand, platRate, overallRate){
@@ -1091,75 +1029,74 @@ function calcMomentumMult(recentGames){
   return clamp(streakMult * rateMult, 0.65, 1.50);
 }
 
-// ── FINAL PROBABILITY ─────────────────────────────────────────────
+// ── PROBABILITY v4: log-odds additive model ────────────────────────
+// Each signal contributes log-odds — prevents multiplicative runaway
 function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
-  const stats = batterStats; // alias for PA gate
-  const anchor   = calcAnchor(batterStats);
-  const overallRate = batterStats.szPA>=50 ? batterStats.szHR/batterStats.szPA : anchor;
+  const anchor = calcAnchor(batterStats);
+  let lo = logit(anchor); // base log-odds
+
+  const overallRate = batterStats.szPA>=50?batterStats.szHR/batterStats.szPA:anchor;
+
+  // PLATOON — strongest single signal
   const arsenalPlatMod = calcArsenalPlatoonMod(
     pitcherStats?.arsenal, batterStats.batVsPitch,
     batterStats.batHand, pitcherStats?.pitHand||'R'
   );
-  const platoon  = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
-                     batterStats.platRate, overallRate, arsenalPlatMod);
-  const pitcher  = calcPitcherMult(pitcherStats);
-  const parkwx   = calcParkWxMult(pf, wx||{}, batterStats.batHand);
-  const momentum = calcMomentumMult(recentGames);
+  const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
+    batterStats.platRate, overallRate, arsenalPlatMod);
+  lo += logOddsAdj(platoon) * 0.85;
 
-  // Home/away split adjustment
-  let homeAwayMult = 1.0;
-  const ha = batterStats.homeAwaySplits;
+  // PITCHER — second strongest
+  const pitcher = calcPitcherMult(pitcherStats);
+  lo += logOddsAdj(pitcher) * 0.90;
+
+  // PARK × WEATHER
+  const parkwx = calcParkWxMult(pf, wx||{}, batterStats.batHand);
+  lo += logOddsAdj(parkwx) * 0.80;
+
+  // MOMENTUM — noisiest, lowest weight
+  const momentum = calcMomentumMult(recentGames);
+  lo += logOddsAdj(momentum) * 0.65;
+
+  // HOME/AWAY
+  let homeAwayMult=1.0;
+  const ha=batterStats.homeAwaySplits;
   if(ha){
-    const isHome = batterStats.isHome;
-    const relevantRate = isHome ? ha.homeRate : ha.awayRate;
-    const relevantPA   = isHome ? ha.homePA   : ha.awayPA;
-    if(relevantRate!=null && relevantPA>=30){
-      const ratio = relevantRate / (overallRate||anchor||MLB_AVG);
-      homeAwayMult = clamp(ratio*0.50 + 1.0*0.50, 0.75, 1.35);
+    const rel=batterStats.isHome?ha.homeRate:ha.awayRate;
+    const relPA=batterStats.isHome?ha.homePA:ha.awayPA;
+    if(rel!=null&&relPA>=30){
+      homeAwayMult=clamp((rel/(overallRate||MLB_AVG))*0.45+1.0*0.55,0.80,1.30);
+      lo+=logOddsAdj(homeAwayMult)*0.60;
     }
   }
 
-  const lineupPos = batterStats.lineupPos;
-  const paMultiplier = lineupPos && lineupPos<=9
-    ? clamp(1.0 + (4.0 - lineupPos) * 0.012, 0.95, 1.06)
-    : 1.0;
-
-  const umpMult = clamp(batterStats.umpMult||1.0, 0.85, 1.20);
-
-  let hvhMult = 1.0;
-  const hvh = batterStats.careerVsSP;
-  if(hvh && hvh.pa>=15){
-    const hvhRate = hvh.hr / hvh.pa;
-    const ratio = hvhRate / (overallRate||anchor||MLB_AVG);
-    hvhMult = clamp(ratio*0.35 + 1.0*0.65, 0.75, 1.40);
+  // CAREER vs THIS SP — direct evidence, small weight due to sample
+  let hvhMult=1.0;
+  const hvh=batterStats.careerVsSP;
+  if(hvh&&hvh.pa>=20){
+    hvhMult=clamp((hvh.hr/hvh.pa/(overallRate||MLB_AVG))*0.30+0.70,0.80,1.35);
+    lo+=logOddsAdj(hvhMult)*0.50;
   }
 
-  const teamMult = batterStats.teamHRMult ?? 1.0;
+  // LINEUP POSITION — real PA difference, linear not log-odds
+  const lineupPos=batterStats.lineupPos;
+  const paMultiplier=lineupPos&&lineupPos<=9
+    ?clamp(1.0+(4.0-lineupPos)*0.010,0.96,1.05):1.0;
+  lo+=logOddsAdj(paMultiplier);
 
-  // Stack multipliers but apply diminishing returns
-  // Raw stack can be 1.22 × 1.10 × 1.15 × 1.08 × 1.06 = 1.79× on weak anchor
-  // Cap: individual mult can be strong, but combined can't exceed ~1.60×
-  const rawMult = platoon * pitcher * parkwx * momentum
-                * homeAwayMult * paMultiplier * umpMult * hvhMult * teamMult;
+  // UMPIRE
+  const umpMult=clamp(batterStats.umpMult||1.0,0.88,1.15);
+  lo+=logOddsAdj(umpMult)*0.65;
 
-  // Diminishing returns: compress extremes
-  // 1.0× stays 1.0×, 2.0× becomes ~1.65×, 0.5× becomes ~0.62×
-  const adjMult = rawMult >= 1.0
-    ? 1.0 + (rawMult - 1.0) * 0.70   // compress upside
-    : 1.0 - (1.0 - rawMult) * 0.75;  // compress downside slightly less
+  // TEAM HR CONTEXT — weakest signal
+  const teamMult=batterStats.teamHRMult??1.0;
+  lo+=logOddsAdj(teamMult)*0.35;
 
-  // PA minimum gate: very small samples get regressed hard
-  const paGate = (stats?.szPA||0) < 30
-    ? 0.70   // <30 PA: heavy regression
-    : (stats?.szPA||0) < 60
-    ? 0.85   // 30-60 PA: moderate regression
-    : 1.0;   // 60+ PA: full prob
-
-  const prob = clamp(anchor * adjMult * paGate, 0.005, 0.50);
-
-  return { prob, anchor, platoon, pitcher, parkwx, momentum,
-           homeAwayMult, paMultiplier, umpMult, hvhMult, teamMult };
+  const prob=clamp(sigmoid(lo),0.005,0.50);
+  return{prob,anchor,platoon,pitcher,parkwx,momentum,
+         homeAwayMult,paMultiplier,umpMult,hvhMult,teamMult};
 }
+
 
 // ── GRADES ────────────────────────────────────────────────────────
 function probGrade(p){
