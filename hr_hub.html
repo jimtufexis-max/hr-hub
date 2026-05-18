@@ -3499,17 +3499,17 @@ function renderHRProjection(){
   if(!el || !S.allRows.length){ if(el) el.innerHTML=''; return; }
 
   const rows = S.allRows;
-  // Convert per-PA probs to per-game for projection
-  // P(at least 1 HR in game) = 1-(1-perPA)^expectedPA
+  // Correct formula: prob × expectedPA = expected HRs per batter
+  // Per-PA prob × number of PAs = expected HR contributions
   const perGameProbs = rows.map(r=>{
     const pos = r.lineupPos;
     const expPA = pos ? clamp(4.8-(pos-1)*0.15,3.5,4.8) : 4.1;
-    return 1-Math.pow(1-r.prob, expPA);
+    return r.prob * expPA; // expected HRs from this batter today
   });
   const totalProb = perGameProbs.reduce((s,p)=>s+p, 0);
   const projectedHRs = Math.round(totalProb * 10) / 10;
 
-  const variance = perGameProbs.reduce((s,p)=>s+p*(1-p), 0);
+  const variance = rows.map(r=>r.prob*(1-r.prob)).reduce((s,p)=>s+p, 0);
   const stdDev = Math.sqrt(variance);
   const lo = Math.max(0, Math.round((projectedHRs - stdDev) * 10) / 10);
   const hi = Math.round((projectedHRs + stdDev) * 10) / 10;
@@ -3872,7 +3872,7 @@ function renderHitterCard(r,showGame){
       ${statChip('HR/FB%',r.hr_fb_pct,8,28,'%')}
       ${r.swingSpeed!=null?statChip('Bat Spd',r.swingSpeed,65,78,' mph'):''}
       ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)} xwOBA</span></div>`:''}
-      <div class="stat-chip" title="Expected HRs this game (probability × 1 game)"><span>xHR</span><span class="val" style="color:${r.prob>=0.12?'var(--green)':r.prob>=0.07?'var(--amber)':'var(--t3)'}">${r.prob.toFixed(2)}</span></div>
+      ${(()=>{ const pos=r.lineupPos; const expPA=pos?Math.max(3.5,Math.min(4.8,4.8-(pos-1)*0.15)):4.1; const xhr=r.prob*expPA; const clr=xhr>=0.35?'var(--green)':xhr>=0.20?'var(--amber)':'var(--t3)'; return`<div class="stat-chip" title="Expected HRs today (per-PA prob × expected plate appearances)"><span>xHR</span><span class="val" style="color:${clr}">${xhr.toFixed(2)}</span></div>`; })()}
     </div>
   </div>`;
 }
