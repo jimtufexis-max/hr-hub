@@ -850,20 +850,31 @@ function calcAnchor(stats){
   else if(carRate) rateScore=carRate;
   else rateScore=MLB_AVG;
 
-  // Power profile as log-odds adjustment — refines rate without dominating it
+  // Power profile as SMALL log-odds correction
+  // These correct for luck/sample variance, not talent (HR rate already captures talent)
+  // Kept small intentionally — overcounting is the enemy of calibration
   let powerLogAdj=0;
-  if(barrel_pct!=null)     powerLogAdj+=clamp((barrel_pct-8.0)*0.025,   -0.50, 0.80);
-  if(pull_air_pct!=null)   powerLogAdj+=clamp((pull_air_pct-12.5)*0.020,-0.40, 0.70);
-  if(iso!=null)            powerLogAdj+=clamp((iso-0.165)*2.0,          -0.40, 0.60);
-  if(hard_hit_pct!=null)   powerLogAdj+=clamp((hard_hit_pct-40.0)*0.008,-0.20, 0.35);
-  if(xwobaDiff!=null&&xwobaDiff>0.020) powerLogAdj+=clamp(xwobaDiff*1.5,0,0.25);
-  if(rollingXwoba!=null&&xwoba!=null&&rollingXwoba>xwoba+0.030) powerLogAdj+=0.10;
+  // Barrel%: small correction only for elite/poor outliers
+  if(barrel_pct!=null)     powerLogAdj+=clamp((barrel_pct-8.0)*0.008,   -0.20, 0.25);
+  // Pull-air%: directional HR shape
+  if(pull_air_pct!=null)   powerLogAdj+=clamp((pull_air_pct-12.5)*0.007,-0.15, 0.20);
+  // ISO: power confirmation, small weight
+  if(iso!=null)            powerLogAdj+=clamp((iso-0.165)*0.80,         -0.15, 0.20);
+  // Hard hit%: smallest signal (already in barrel/EV)
+  if(hard_hit_pct!=null)   powerLogAdj+=clamp((hard_hit_pct-40.0)*0.003,-0.08, 0.12);
+  // xwOBA luck: only boost when clearly unlucky (>30pts gap)
+  if(xwobaDiff!=null&&xwobaDiff>0.030) powerLogAdj+=clamp(xwobaDiff*0.8,0,0.12);
+  // Rolling hot: tiny boost
+  if(rollingXwoba!=null&&xwoba!=null&&rollingXwoba>xwoba+0.030) powerLogAdj+=0.05;
 
-  // Compress power adjustment based on data quality
+  // Total power adj capped tightly — max ±0.25 log-odds
+  powerLogAdj = clamp(powerLogAdj, -0.20, 0.25);
+
+  // Compress when data is thin
   const hasSavant=barrel_pct!=null&&hard_hit_pct!=null;
   powerLogAdj*=hasSavant?(pull_air_pct!=null?1.0:0.80):0.50;
 
-  const anchor=clamp(sigmoid(logit(clamp(rateScore,0.005,0.45))+clamp(powerLogAdj,-0.80,1.20)),0.005,0.45);
+  const anchor=clamp(sigmoid(logit(clamp(rateScore,0.005,0.45))+clamp(powerLogAdj,-0.20,0.25)),0.005,0.40);
 
   // PA gate
   const pa=szPA||0;
@@ -1046,19 +1057,19 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   );
   const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
     batterStats.platRate, overallRate, arsenalPlatMod);
-  lo += logOddsAdj(platoon) * 0.85;
+  lo += logOddsAdj(platoon) * 0.75; // reliable but already in rate estimate
 
-  // PITCHER — second strongest
+  // PITCHER
   const pitcher = calcPitcherMult(pitcherStats);
-  lo += logOddsAdj(pitcher) * 0.90;
+  lo += logOddsAdj(pitcher) * 0.80;
 
   // PARK × WEATHER
   const parkwx = calcParkWxMult(pf, wx||{}, batterStats.batHand);
-  lo += logOddsAdj(parkwx) * 0.80;
+  lo += logOddsAdj(parkwx) * 0.70;
 
-  // MOMENTUM — noisiest, lowest weight
+  // MOMENTUM — noisiest signal
   const momentum = calcMomentumMult(recentGames);
-  lo += logOddsAdj(momentum) * 0.65;
+  lo += logOddsAdj(momentum) * 0.55;
 
   // HOME/AWAY
   let homeAwayMult=1.0;
@@ -1067,34 +1078,34 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     const rel=batterStats.isHome?ha.homeRate:ha.awayRate;
     const relPA=batterStats.isHome?ha.homePA:ha.awayPA;
     if(rel!=null&&relPA>=30){
-      homeAwayMult=clamp((rel/(overallRate||MLB_AVG))*0.45+1.0*0.55,0.80,1.30);
-      lo+=logOddsAdj(homeAwayMult)*0.60;
+      homeAwayMult=clamp((rel/(overallRate||MLB_AVG))*0.40+1.0*0.60,0.85,1.25);
+      lo+=logOddsAdj(homeAwayMult)*0.45; // reduced weight
     }
   }
 
-  // CAREER vs THIS SP — direct evidence, small weight due to sample
+  // CAREER vs THIS SP
   let hvhMult=1.0;
   const hvh=batterStats.careerVsSP;
   if(hvh&&hvh.pa>=20){
-    hvhMult=clamp((hvh.hr/hvh.pa/(overallRate||MLB_AVG))*0.30+0.70,0.80,1.35);
-    lo+=logOddsAdj(hvhMult)*0.50;
+    hvhMult=clamp((hvh.hr/hvh.pa/(overallRate||MLB_AVG))*0.25+0.75,0.85,1.30);
+    lo+=logOddsAdj(hvhMult)*0.35; // small sample, small weight
   }
 
-  // LINEUP POSITION — real PA difference, linear not log-odds
+  // LINEUP POSITION
   const lineupPos=batterStats.lineupPos;
   const paMultiplier=lineupPos&&lineupPos<=9
-    ?clamp(1.0+(4.0-lineupPos)*0.010,0.96,1.05):1.0;
+    ?clamp(1.0+(4.0-lineupPos)*0.008,0.97,1.04):1.0;
   lo+=logOddsAdj(paMultiplier);
 
   // UMPIRE
-  const umpMult=clamp(batterStats.umpMult||1.0,0.88,1.15);
-  lo+=logOddsAdj(umpMult)*0.65;
+  const umpMult=clamp(batterStats.umpMult||1.0,0.90,1.12);
+  lo+=logOddsAdj(umpMult)*0.50;
 
-  // TEAM HR CONTEXT — weakest signal
+  // TEAM HR CONTEXT — weak signal
   const teamMult=batterStats.teamHRMult??1.0;
-  lo+=logOddsAdj(teamMult)*0.35;
+  lo+=logOddsAdj(teamMult)*0.25;
 
-  const prob=clamp(sigmoid(lo),0.005,0.50);
+  const prob=clamp(sigmoid(lo),0.005,0.22); // max 22% — even Judge isn't more than this
   return{prob,anchor,platoon,pitcher,parkwx,momentum,
          homeAwayMult,paMultiplier,umpMult,hvhMult,teamMult};
 }
