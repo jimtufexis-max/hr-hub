@@ -523,19 +523,9 @@ function showPage(name){
     const el=document.getElementById('model-perf-card');
     if(el){
       const stats=getModelStats();
-      if(stats&&stats.total>=5){
-        el.innerHTML=`<div class="card" style="margin-bottom:10px">
-          <div class="slbl">📈 Model Performance (Your Results)</div>
-          <div class="stat-scroll">
-            <div class="stat-box"><span class="sb-val">${stats.total}</span><span class="sb-lbl">Tracked</span></div>
-            <div class="stat-box"><span class="sb-val" style="color:var(--green)">${stats.hrRate}%</span><span class="sb-lbl">Actual HR%</span></div>
-            ${stats.highConfTotal>=5?`<div class="stat-box"><span class="sb-val" style="color:var(--amber)">${stats.highConfHitRate}%</span><span class="sb-lbl">High Conf HR%</span></div>`:''}
-          </div>
-          <div style="font-size:.68rem;color:var(--t4);margin-top:6px">Record results on each player detail page to track model accuracy.</div>
-        </div>`;
-      } else {
-        el.innerHTML='';
-      }
+      renderModelPerf(el);
+      // Also try to refresh pending results
+      autoTrackResults().then(()=>renderModelPerf(el));
     }
   }
 }
@@ -1802,6 +1792,8 @@ async function loadSlate(){
   console.log(`Loaded ${gamesCache.length} games:`, gamesCache.map(g=>`${g.away}@${g.home}`).join(', '));
 
   renderGameChips();
+  // Auto-track results in background (checks yesterday's completed games)
+  setTimeout(()=>autoTrackResults(), 3000);
   document.getElementById('hitter-list').innerHTML=
     `<div style="color:var(--t4);font-size:.82rem;text-align:center;padding:30px 16px">
       ☝️ Tap a game chip above to load players<br>
@@ -2757,12 +2749,12 @@ function recordResult(playerId, playerName, prob, actualHR){
   try{
     const key = 'hr_hub_results';
     const stored = JSON.parse(localStorage.getItem(key)||'[]');
-    // Avoid duplicate for same player same day
+    // Avoid duplicate for same player same day — manual override always wins
     const today = ds();
     const existing = stored.findIndex(r=>r.id===playerId&&r.date===today);
     const entry = { id:playerId, name:playerName, prob, actual:actualHR, date:today,
-      hit:(prob>=0.08&&actualHR>0)||(prob<0.08&&actualHR===0) };
-    if(existing>=0) stored[existing]=entry; // update if re-recording
+      hit:(prob>=0.08&&actualHR>0)||(prob<0.08&&actualHR===0), manualRecord:true };
+    if(existing>=0) stored[existing]=entry;
     else stored.push(entry);
     if(stored.length>500) stored.splice(0,stored.length-500);
     localStorage.setItem(key, JSON.stringify(stored));
@@ -2794,14 +2786,21 @@ function getModelStats(){
   try{
     const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
     if(!stored.length) return null;
-    const total = stored.length;
-    const hits = stored.filter(r=>r.hit).length;
-    const hrRate = stored.filter(r=>r.actual>0).length/total;
-    const highConf = stored.filter(r=>r.prob>=0.10);
+    // Split tracked (actual result) vs pending (auto-queued, no result yet)
+    const tracked = stored.filter(r=>r.actual!==undefined);
+    const pending = stored.filter(r=>r.actual===undefined).length;
+    if(!tracked.length) return { total:0, hrRate:null, pending, autoTracked:0 };
+    const total = tracked.length;
+    const hrs = tracked.filter(r=>r.actual>0).length;
+    const hrRate = Math.round(hrs/total*1000)/10;
+    const hits = tracked.filter(r=>r.hit).length;
+    const highConf = tracked.filter(r=>r.prob>=0.10);
     const highConfHit = highConf.filter(r=>r.actual>0).length;
+    const autoTracked = tracked.filter(r=>r.autoTracked).length;
     return{
-      total, hitRate: Math.round(hits/total*1000)/10,
-      hrRate: Math.round(hrRate*1000)/10,
+      total, pending, autoTracked,
+      hitRate: Math.round(hits/total*1000)/10,
+      hrRate,
       highConfHitRate: highConf.length ? Math.round(highConfHit/highConf.length*1000)/10 : null,
       highConfTotal: highConf.length,
     };
@@ -2825,6 +2824,156 @@ function altitudeEffect(venue, temp){
   const altBonus = (alt/5280) * 0.08;
   const heatBonus = temp > 80 ? (temp-80)*0.001 : 0;
   return altBonus + heatBonus;
+}
+
+
+// ==================================================================
+//  AUTO-TRACK HR RESULTS — checks completed games for actual HRs
+//  Runs automatically for any tracked players whose games finished
+// ==================================================================
+async function autoTrackResults(){
+  try{
+    const key = 'hr_hub_results';
+    const stored = JSON.parse(localStorage.getItem(key)||'[]');
+    // Find entries from today/yesterday with no actual result yet
+    const today = ds();
+    const yesterday = ds(new Date(Date.now()-864e5));
+    const pending = stored.filter(r=>
+      (r.date===today||r.date===yesterday) && r.actual===undefined
+    );
+    if(!pending.length) return;
+
+    console.log(`[autoTrack] checking ${pending.length} pending results`);
+
+    // Get game results for relevant dates
+    for(const dateStr of [today, yesterday]){
+      const datePending = pending.filter(r=>r.date===dateStr);
+      if(!datePending.length) continue;
+
+      const d = await fetchJSON(`${MLB}/schedule?sportId=1&date=${dateStr}&hydrate=linescore,probablePitcher`).catch(()=>null);
+      if(!d) continue;
+
+      // Get all completed games
+      const games = (d.dates||[]).flatMap(dt=>(dt.games||[]).filter(g=>
+        g.status?.abstractGameState==='Final'||g.status?.codedGameState==='F'
+      ));
+      if(!games.length) continue;
+
+      // For each completed game, fetch box score to get HR stats
+      for(const game of games){
+        try{
+          const box = await fetchJSON(`${MLB}/game/${game.gamePk}/boxscore`).catch(()=>null);
+          if(!box) continue;
+
+          // Build map of player -> HR count from box score
+          const hrMap = {};
+          for(const side of ['away','home']){
+            const batters = box.teams?.[side]?.players || {};
+            for(const [,player] of Object.entries(batters)){
+              const pid = String(player.person?.id||'');
+              const hr = parseInt(player.stats?.batting?.homeRuns||0);
+              if(pid) hrMap[pid] = (hrMap[pid]||0) + hr;
+            }
+          }
+
+          // Update pending results for players in this game
+          for(const entry of datePending){
+            if(hrMap.hasOwnProperty(entry.id)){
+              const actualHR = hrMap[entry.id] || 0;
+              const idx = stored.findIndex(r=>r.id===entry.id&&r.date===dateStr);
+              if(idx>=0){
+                stored[idx].actual = actualHR;
+                stored[idx].autoTracked = true;
+                stored[idx].hit = (entry.prob>=0.08&&actualHR>0)||(entry.prob<0.08&&actualHR===0);
+                console.log(`[autoTrack] ${entry.name}: ${actualHR} HR (prob was ${(entry.prob*100).toFixed(1)}%)`);
+              }
+            }
+          }
+        }catch(e){ console.warn('[autoTrack] box score error:', e.message); }
+      }
+    }
+
+    localStorage.setItem(key, JSON.stringify(stored));
+    console.log('[autoTrack] done');
+
+    // Refresh model performance display if on info tab
+    const infoPage = document.getElementById('page-info');
+    if(infoPage?.classList.contains('active')){
+      const el = document.getElementById('model-perf-card');
+      if(el) renderModelPerf(el);
+    }
+  }catch(e){ console.warn('[autoTrack] error:', e.message); }
+}
+
+// ==================================================================
+//  TRACK TODAY — queue a player to be auto-tracked after game ends
+//  Called when a game loads, silently adds all loaded players to pending
+// ==================================================================
+function queueForAutoTrack(rows){
+  try{
+    const key = 'hr_hub_results';
+    const today = ds();
+    const stored = JSON.parse(localStorage.getItem(key)||'[]');
+    let added = 0;
+    for(const r of rows){
+      const exists = stored.find(x=>x.id===r.id&&x.date===today);
+      if(!exists){
+        stored.push({
+          id: r.id, name: r.name, prob: r.prob,
+          actual: undefined, // undefined = pending auto-track
+          date: today,
+          grade: r.grade,
+          autoQueued: true,
+        });
+        added++;
+      }
+    }
+    if(added>0){
+      if(stored.length>2000) stored.splice(0,stored.length-2000);
+      localStorage.setItem(key, JSON.stringify(stored));
+      console.log(`[autoTrack] queued ${added} players for tracking`);
+    }
+  }catch(e){}
+}
+
+// Render model performance card
+function renderModelPerf(el){
+  const stats = getModelStats();
+  if(!stats||stats.total<1){ el.innerHTML=''; return; }
+  const pct = r => r!==null&&r!==undefined ? r+'%' : '--';
+  el.innerHTML=`<div class="card" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div class="slbl" style="margin:0">📈 Model Performance</div>
+      <button onclick="autoTrackResults().then(()=>{const el=document.getElementById('model-perf-card');if(el)renderModelPerf(el);})"
+        style="font-size:.62rem;padding:3px 8px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t3);cursor:pointer">
+        🔄 Refresh
+      </button>
+    </div>
+    <div class="stat-scroll">
+      <div class="stat-box">
+        <span class="sb-val">${stats.total}</span>
+        <span class="sb-lbl">Tracked</span>
+      </div>
+      <div class="stat-box">
+        <span class="sb-val" style="color:${stats.hrRate>=8?'var(--green)':'var(--red)'}">
+          ${pct(stats.hrRate)}
+        </span>
+        <span class="sb-lbl">Actual HR%</span>
+      </div>
+      ${stats.highConfTotal>=3?`<div class="stat-box">
+        <span class="sb-val" style="color:var(--amber)">${pct(stats.highConfHitRate)}</span>
+        <span class="sb-lbl">A-grade HR%</span>
+      </div>`:''}
+      <div class="stat-box">
+        <span class="sb-val">${stats.pending||0}</span>
+        <span class="sb-lbl">Pending</span>
+      </div>
+    </div>
+    <div style="font-size:.62rem;color:var(--t4);margin-top:6px">
+      Results auto-tracked after games finish. Tap 🔄 to refresh.
+      ${stats.autoTracked?`<span style="color:var(--green)"> ${stats.autoTracked} auto-tracked ✓</span>`:''}
+    </div>
+  </div>`;
 }
 
 
@@ -3087,6 +3236,8 @@ async function loadGame(g){
     console.log(`[loadGame] ${key}: ${rows.length} rows computed`);
     rows.sort((a,b)=>b.prob-a.prob);
     S.cache[key] = rows;
+    // Auto-queue all players for result tracking
+    queueForAutoTrack(rows);
   }
   console.log(`[loadGame] DONE ${g.away}@${g.home}`);
 
