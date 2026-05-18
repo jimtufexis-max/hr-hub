@@ -1058,8 +1058,10 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     pitcherStats?.arsenal, batterStats.batVsPitch,
     batterStats.batHand, pitcherStats?.pitHand||'R'
   );
+  // Only use platoon splits with 50+ PA — smaller samples unreliable
+  const platRateGated = (batterStats.platSample>=50) ? batterStats.platRate : null;
   const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
-    batterStats.platRate, overallRate, arsenalPlatMod);
+    platRateGated, overallRate, arsenalPlatMod);
   lo += logOddsAdj(platoon) * 0.75; // reliable but already in rate estimate
 
   // PITCHER
@@ -1108,6 +1110,22 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   // TEAM HR CONTEXT — weak signal
   const teamMult=batterStats.teamHRMult??1.0;
   lo+=logOddsAdj(teamMult)*0.25;
+
+  // BULLPEN EXPOSURE — weighted by expected innings
+  const bullpenMult = batterStats.bullpenMult??1.0;
+  const expIP = calcExpectedInnings(pitcherStats);
+  const bpExposure = bullpenExposure(expIP);
+  // Blend: SP quality carries more weight early, bullpen more weight for full game
+  const blendedBullpen = 1.0 + (bullpenMult - 1.0) * bpExposure;
+  lo += logOddsAdj(blendedBullpen) * 0.30;
+
+  // STADIUM DIMENSIONS — pull hitter advantage at specific parks
+  const stadiumMult = batterStats.stadiumMult??1.0;
+  lo += logOddsAdj(stadiumMult) * 0.40;
+
+  // PLATE DISCIPLINE — good counts = better pitches to hit
+  const platDiscMult = batterStats.platDiscMult??1.0;
+  lo += logOddsAdj(platDiscMult) * 0.35;
 
   const prob=clamp(sigmoid(lo),0.005,0.22); // max 22% — even Judge isn't more than this
   return{prob,anchor,platoon,pitcher,parkwx,momentum,
@@ -1478,6 +1496,14 @@ function detectAngles(r){
   else if(r.teamMult<=0.82)
     a.push({icon:'❄️',cat:'teamCtx',tier:3,label:'Lineup Cold (-)',color:'var(--t4)',
       tip:`${r.team} batting through a cold stretch — fewer HR opportunities in low-scoring lineup context`});
+
+  // Bullpen quality
+  if(r.bullpenMult!=null&&r.bullpenMult>=1.12)
+    a.push({icon:'🔧',cat:'bullpen',tier:2,label:'Weak Bullpen (+)',color:'var(--green)',
+      tip:`Opposing bullpen ${r.bullpenMult>=1?'above':'below'} avg HR rate — ${Math.round((r.bullpenMult-1)*100)}% more HR risk from relievers`});
+  else if(r.bullpenMult!=null&&r.bullpenMult<=0.88)
+    a.push({icon:'🔧',cat:'bullpen',tier:3,label:'Elite Bullpen (-)',color:'var(--red)',
+      tip:`Opposing bullpen strong — fewer HR opportunities in late innings`});
 
   // Lineup position
   if(r.lineupPos){
@@ -3093,6 +3119,70 @@ async function getMultiBookOdds(playerName, gameDate){
 }
 
 
+// ==================================================================
+//  STADIUM DIMENSIONS — pull hitter advantage at specific parks
+// ==================================================================
+const STADIUM_DIMS = {
+  'NYY':[318,408,314, 8, 9],'BOS':[310,420,302,37, 3],'CHC':[355,400,353, 8, 8],
+  'PHI':[329,401,325, 6, 8],'CIN':[328,404,325, 9, 9],'COL':[347,415,350, 8, 8],
+  'TEX':[334,407,326,14,14],'HOU':[315,435,326,19, 7],'MIN':[339,404,328, 8, 8],
+  'ARI':[330,407,335, 7, 7],'ATL':[335,400,325, 6, 6],'MIL':[344,400,345,10, 8],
+  'STL':[336,400,335,14,11],'PIT':[325,399,320, 6,21],'SF' :[339,399,309, 8,24],
+  'SD' :[334,396,322,12,11],'LAD':[330,395,330, 8, 8],'MIA':[344,418,335, 8,18],
+  'TB' :[315,404,322, 7, 7],'BAL':[333,410,318, 7, 7],'DET':[345,422,330, 8, 8],
+  'KC' :[330,410,330, 8, 8],'CLE':[325,405,325,19,11],'CHW':[330,400,335, 8, 8],
+  'OAK':[330,400,330, 8, 8],'SEA':[331,405,326, 8, 8],'LAA':[330,404,330, 8, 8],
+  'TOR':[328,400,328,12,10],'NYM':[335,408,330, 8, 8],'WSH':[336,402,335, 8, 8],
+};
+function getStadiumDimMult(homeTeam, batHand){
+  const d=STADIUM_DIMS[homeTeam]; if(!d) return 1.0;
+  const [lf,,rf,lfWall,rfWall]=d;
+  if(batHand==='L') return clamp(1.0+clamp((330-rf)*0.003+(12-rfWall)*0.008,-0.08,0.12),0.92,1.12);
+  return clamp(1.0+clamp((335-lf)*0.003+(12-lfWall)*0.008,-0.08,0.12),0.92,1.12);
+}
+
+// ==================================================================
+//  PLATE DISCIPLINE — zone contact + chase rate → count quality
+// ==================================================================
+let _plateDiscMap = null;
+async function ensurePlateDiscMap(){
+  if(_plateDiscMap!==null) return; _plateDiscMap={};
+  try{
+    const url=`https://baseballsavant.mlb.com/leaderboard/custom?year=${SEASON}&type=batter&filter=&sort=4&sortDir=desc&min=50&selections=z_contact_percent,oz_swing_percent,bb_percent,k_percent&chart=false&csv=true`;
+    const r=await fetch(PROXY+encodeURIComponent(url));
+    if(!r.ok) throw new Error(`plate-disc ${r.status}`);
+    const rows=parseCSVText(await r.text());
+    const s=rows[0]||{};
+    const idC=['player_id','batter','id'].find(c=>s[c]!=null);
+    for(const row of rows){
+      const pid=String(row[idC]||'').replace(/\.0$/,'');if(!pid)continue;
+      const zC=parseFloat(row.z_contact_percent||0)||null;
+      const ch=parseFloat(row.oz_swing_percent||0)||null;
+      if(zC||ch) _plateDiscMap[pid]={zContact:zC,chase:ch,bb:parseFloat(row.bb_percent||0)||null};
+    }
+    console.log('[PlateDisc] loaded',Object.keys(_plateDiscMap).length,'players');
+  }catch(e){console.warn('[PlateDisc]:',e.message);_plateDiscMap={};}
+}
+function calcPlateDiscMult(pid){
+  const d=(_plateDiscMap||{})[String(pid)]; if(!d) return 1.0;
+  let adj=0;
+  if(d.zContact!=null) adj+=clamp((d.zContact-80)*0.003,-0.06,0.08);
+  if(d.chase!=null)    adj+=clamp((25-d.chase)*0.004,-0.06,0.08);
+  if(d.bb!=null)       adj+=clamp((d.bb-8)*0.003,-0.04,0.06);
+  return clamp(1.0+adj,0.90,1.15);
+}
+
+// Expected SP innings + bullpen exposure
+function calcExpectedInnings(pitcherStats){
+  if(!pitcherStats) return 6.0;
+  const w=pitcherStats.workload; if(!w) return 6.0;
+  return clamp((w.avgIP||5.5)+(w.ipTrend||0)*0.5,3.0,8.0);
+}
+function bullpenExposure(expectedIP){
+  return clamp((9-expectedIP)/9,0.10,0.75);
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -3130,7 +3220,7 @@ async function loadGame(g){
   console.log(`[loadGame] hands: aw=${awHand} hm=${hmHand}`);
 
   // Fetch pitcher game logs for HR/9 (last 4 starts)
-  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR,awBB,hmBB,lineupConfirmed] = await Promise.all([
+  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR,awBB,hmBB,lineupConfirmed,awBullpen,hmBullpen] = await Promise.all([
     getPitcherGameLog(g.awaySpId),  getPitcherGameLog(g.homeSpId),
     getPitcherArsenal(g.awaySpId),  getPitcherArsenal(g.homeSpId),
     getLineup(g.pk, g.awayId||0),  getLineup(g.pk, g.homeId||0),
@@ -3140,6 +3230,7 @@ async function loadGame(g){
     getTeamHRContext(g.away),      getTeamHRContext(g.home),
     getSPBattedBallProfile(g.awaySpId), getSPBattedBallProfile(g.homeSpId),
     checkLineupConfirmed(g.pk),
+    getBullpenQuality(g.away),     getBullpenQuality(g.home),
   ]);
 
   const wx  = await getWeather(g.venue);
