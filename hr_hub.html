@@ -312,8 +312,14 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       </div>
     </div>
     <div id="hr-projection-strip"></div>
-    <div id="sleepers-due-strip"></div>
     <div id="hitter-list"></div>
+  </div>
+
+  <!-- DISCOVER PAGE — Sleepers & Due -->
+  <div id="page-discover" class="page" style="padding:12px;overflow-y:auto">
+    <div id="discover-content">
+      <div class="empty">Load games on the Slate tab first</div>
+    </div>
   </div>
 
   <!-- BEST BETS PAGE -->
@@ -472,6 +478,10 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
     AB Log
   </button>
+  <button class="nav-btn" onclick="showPage('discover')" id="nav-discover">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    Discover
+  </button>
   <button class="nav-btn" onclick="showPage('picks')" id="nav-picks">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
     Best Bets
@@ -536,6 +546,7 @@ function showPage(name){
   if(name==='ab') populateABSelect();
   if(name==='parlay') renderParlay();
   if(name==='picks') renderBestBets();
+  if(name==='discover') renderDiscover();
   if(name==='info'){
     const el=document.getElementById('model-perf-card');
     if(el){
@@ -3568,11 +3579,19 @@ function detectDue(r){
 //  RENDER SLEEPERS & DUE section
 // ==================================================================
 function renderSleepersDue(){
-  const el = document.getElementById('sleepers-due-strip');
-  if(!el||!S.allRows.length){ if(el) el.innerHTML=''; return; }
+  // Now renders into the Discover tab instead of slate strip
+  renderDiscover();
+}
+
+function renderDiscover(){
+  const el = document.getElementById('discover-content');
+  if(!el) return;
+  if(!S.allRows.length){
+    el.innerHTML='<div class="empty" style="padding:40px 0">Load games on the Slate tab first</div>';
+    return;
+  }
 
   try{
-    // Find sleepers
     const sleepers = S.allRows
       .map(r=>({r, s:detectSleeper(r)}))
       .filter(({s})=>s!=null)
@@ -3614,29 +3633,29 @@ function renderSleepersDue(){
     let html = '';
 
     if(sleepers.length){
-      html+=`<div style="font-size:.60rem;color:var(--t4);letter-spacing:.07em;
-        text-transform:uppercase;margin-bottom:6px">💤 Sleepers — Under the Radar</div>`;
-      html+=`<div style="display:flex;gap:8px;margin-bottom:10px">`;
-      html+=sleepers.map(({r,s})=>renderCard(
-        r, s.reasons, '#a78bfa', '💤',
-        `showDetail('${r.id}')`
-      )).join('');
+      html+=`<div style="font-size:.62rem;color:var(--t4);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">💤 Sleepers — Under the Radar</div>
+      <div style="font-size:.70rem;color:var(--t3);margin-bottom:10px">Players the public is ignoring with genuine HR upside today</div>`;
+      html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">`;
+      html+=sleepers.map(({r,s})=>renderCard(r, s.reasons, '#a78bfa', '💤', `showDetail('${r.id}')`)).join('');
       html+=`</div>`;
     }
 
     if(due.length){
-      html+=`<div style="font-size:.60rem;color:var(--t4);letter-spacing:.07em;
-        text-transform:uppercase;margin-bottom:6px">⏰ Due — Positive Regression Pending</div>`;
-      html+=`<div style="display:flex;gap:8px;margin-bottom:10px">`;
-      html+=due.map(({r,d})=>renderCard(
-        r, d.reasons, 'var(--amber)', '⏰',
-        `showDetail('${r.id}')`
-      )).join('');
+      html+=`<div style="font-size:.62rem;color:var(--t4);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">⏰ Due — Positive Regression Pending</div>
+      <div style="font-size:.70rem;color:var(--t3);margin-bottom:10px">Hitting ball hard but HRs haven't fallen — expect positive regression</div>`;
+      html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">`;
+      html+=due.map(({r,d})=>renderCard(r, d.reasons, 'var(--amber)', '⏰', `showDetail('${r.id}')`)).join('');
       html+=`</div>`;
     }
 
-    el.innerHTML=`<div style="border:1px solid var(--bdr);border-radius:12px;
-      padding:12px 14px;margin-bottom:10px;background:var(--bg2)">${html}</div>`;
+    // Build full discover page
+    const noSleepers = !sleepers.length;
+    const noDue = !due.length;
+    if(noSleepers && noDue){
+      el.innerHTML='<div class="empty" style="padding:40px 0">No sleepers or due players found today</div>';
+      return;
+    }
+    el.innerHTML=html;
 
   }catch(e){
     console.error('[renderSleepersDue]',e.message);
@@ -4266,7 +4285,8 @@ function renderSlate(){
 
   document.getElementById('hitter-list').innerHTML=bestBetHTML+rows.map(r=>renderHitterCard(r,multiGame)).join('');
   renderHRProjection();
-  renderSleepersDue();
+  // Update discover tab if open
+  if(document.getElementById('page-discover')?.classList.contains('active')) renderDiscover();
   // Update best bets tab if open
   if(document.getElementById('page-picks')?.classList.contains('active')) renderBestBets();
 }
@@ -4962,13 +4982,12 @@ async function populatePitchTypeFilter(pid,arm,selected){
         `</optgroup>`
       : allTypes.map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join(''));
 
-    // Auto-select SP's primary pitch if no selection
-    if(!cur && spPitchTypes.length && historyTypes.includes(spPitchTypes[0])){
-      sel.value=spPitchTypes[0];
-      // Trigger reload with primary pitch pre-selected
-      setTimeout(()=>loadABLog(),0);
-    } else if(cur && allTypes.includes(cur)){
+    // Don't auto-select — just populate the dropdown with SP pitches highlighted
+    // User can filter manually; default shows all pitch types
+    if(cur && allTypes.includes(cur)){
       sel.value=cur;
+    } else {
+      sel.value=''; // default: All Pitches
     }
   }catch(e){
     console.warn('populate pitch types failed:',e.message);
@@ -5001,7 +5020,24 @@ async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
         if(arm) filtered = filtered.filter(r => r.p_throws===arm);
         if(pitchType) filtered = filtered.filter(r => String(r.pitch_type||'').toUpperCase()===pitchType);
         filtered.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
-        const out = filtered.slice(0, forOptions?200:n).map(r=>mapStatcastABRow(r));
+        const subset = filtered.slice(0, forOptions?200:n);
+
+        // Batch resolve pitcher IDs → names
+        // Statcast CSV: `pitcher` col = MLBAM ID, no name column
+        const pitcherNameMap={};
+        const pitcherIds=[...new Set(subset.map(r=>String(r.pitcher||'').replace(/\.0$/,'')).filter(id=>id&&/^\d+$/.test(id)))];
+        if(pitcherIds.length){
+          await Promise.allSettled(pitcherIds.slice(0,40).map(async id=>{
+            if(_playerCache[`person_${id}`]){ pitcherNameMap[id]=_playerCache[`person_${id}`]; return; }
+            try{
+              const d=await fetchJSON(`${MLB}/people/${id}`);
+              const name=d.people?.[0]?.fullName||null;
+              if(name){ pitcherNameMap[id]=name; _playerCache[`person_${id}`]=name; }
+            }catch{}
+          }));
+        }
+
+        const out = subset.map(r=>mapStatcastABRow(r, pitcherNameMap));
         if(out.length>0){
           console.log(`[AB] Got ${out.length} PA rows`);
           return out;
@@ -5069,7 +5105,7 @@ async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
 }
 
 
-function mapStatcastABRow(row){
+function mapStatcastABRow(row, pitcherNameMap={}){
   const ev=parseFloat(row.launch_speed);
   const la=parseFloat(row.launch_angle);
   const dist=parseFloat(row.hit_distance_sc);
@@ -5084,14 +5120,18 @@ function mapStatcastABRow(row){
     if(la>=mn&&la<=mx) isBrl=true;
   }
 
+  // Resolve pitcher: try name map first (ID→name), then name columns
+  const pitcherId=String(row.pitcher||'').replace(/\.0$/,'');
+  const pitcherName = pitcherNameMap[pitcherId]
+    || row.pitcher_name
+    || (row.player_name && !/^\d+$/.test(row.player_name) && row.player_name!==row.batter ? row.player_name : null)
+    || (pitcherId && !/^\d+$/.test(pitcherId) ? pitcherId : null)
+    || '--';
+
   return {
     rawDate:row.game_date||'',
     date:row.game_date||'--',
-    // In batter-type Statcast CSV: player_name = batter, pitcher = pitcher's name
-    // pitcher column is "last_name, first_name" format or "pitcher_name"
-    pitcher: row.pitcher_name || row.pitcher ||
-             (row.last_name&&row.first_name ? `${row.last_name}, ${row.first_name}` : null) ||
-             row.matchup_pitcher_name || '--',
+    pitcher: pitcherName,
     arm:row.p_throws||row.pitcher_throws||'',
     pt:ptCode,
     ptNm:PITCH_NAMES[ptCode]||ptCode||'--',
