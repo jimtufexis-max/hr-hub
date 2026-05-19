@@ -2178,9 +2178,9 @@ function scoreArsenalMatchup(arsenal,batVsPitch){
 }
 
 async function getBatterVsPitchType(batId){
-  // Disabled — too slow (full Statcast CSV per batter = 26 downloads/game)
-  // Arsenal matchup via leaderboard data handles pitch-type edges faster
-  return _playerCache[`bvp_${batId}`] ?? null;
+  // Lazy load — only called when player detail is opened, not during slate load
+  if(!batId) return null;
+  return getBatterVsPitches(batId);
 }
 
 async function getBatterVsPitches(pid){
@@ -4188,27 +4188,11 @@ async function loadGame(g){
 
     lap(`after batter batch ${team}`);
 
-    // Fire BvP + HvH in background — don't block row computation
-    // vsPitchMap and hvhMap start empty, get populated as CSVs arrive
+    // BvP loaded lazily on detail open — not upfront (too slow for 26 batters)
     const vsPitchMap = {};
     const hvhMap = {};
-    const bvpEnrichPromise = Promise.allSettled(
-      hitters.map(async h=>{
-        try{
-          const cached = _playerCache[`bvp_${h.id}`];
-          const v = cached !== undefined ? cached : await getBatterVsPitchType(String(h.id));
-          if(v) vsPitchMap[String(h.id)] = v;
-        }catch{}
-      })
-    );
-    const hvhEnrichPromise = Promise.allSettled(
-      hitters.map(async h=>{
-        try{
-          const v = await getCareerVsSP(String(h.id), String(spId));
-          if(v) hvhMap[String(h.id)] = v;
-        }catch{}
-      })
-    );
+    const bvpEnrichPromise = Promise.resolve(); // no-op
+    const hvhEnrichPromise = Promise.resolve(); // no-op
 
     const rows = [];
     console.log(`[loadGame] ${key}: processing ${hitters.length} hitters`);
@@ -4892,6 +4876,20 @@ function showDetail(id){
   queueForAutoTrack([r]);
   showPage('detail');
   renderDetail(r);
+
+  // Lazy-load BvP data for this player — single CSV download only when needed
+  if(!r._bvp && batPid){
+    getBatterVsPitchType(batPid).then(bvp=>{
+      if(bvp){
+        r._bvp = bvp;
+        // Re-render detail to show pitch data if still on this player's page
+        const cur = S.allRows.find(x=>x.id===id);
+        if(cur && document.getElementById('page-detail')?.classList.contains('active')){
+          renderDetail(cur);
+        }
+      }
+    }).catch(()=>{});
+  }
 }
 
 function renderDetail(r){
