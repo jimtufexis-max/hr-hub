@@ -2129,9 +2129,9 @@ function scoreArsenalMatchup(arsenal,batVsPitch){
 }
 
 async function getBatterVsPitchType(batId){
-  // Skip if already cached
-  if(_playerCache[`bvp_${batId}`]!==undefined) return _playerCache[`bvp_${batId}`];
-  return getBatterVsPitches(batId);
+  // Disabled — too slow (full Statcast CSV per batter = 26 downloads/game)
+  // Arsenal matchup via leaderboard data handles pitch-type edges faster
+  return _playerCache[`bvp_${batId}`] ?? null;
 }
 
 async function getBatterVsPitches(pid){
@@ -2222,6 +2222,9 @@ async function getHomAwaySplits(pid){
 //  CAREER vs THIS SP — MLB head-to-head stats
 // ==================================================================
 async function getCareerVsSP(batId, spId){
+  // Disabled — 26 extra API calls per game for a tiny-sample C-grade signal
+  // Re-enable if performance is acceptable after other fixes
+  return null;
   if(!batId||!spId) return null;
   const key = `hvh_${batId}_${spId}`;
   if(_playerCache[key] !== undefined) return _playerCache[key];
@@ -4019,33 +4022,44 @@ async function getBatterRecentGames(pid){
 
 async function loadGame(g){
   const pk = g.pk;
+  const t0 = Date.now();
+  const lap = (label) => console.log(`[loadGame ${g.away}@${g.home}] ${label}: +${Date.now()-t0}ms`);
   console.log(`[loadGame] START ${g.away}@${g.home} pk=${pk}`);
   const el = document.getElementById('hitter-list');
 
   try{
 
   // Fetch pitcher hands + season stats
+  lap('before pitcher hands');
   const [awHand, hmHand] = await Promise.all([
     getPitcherHand(g.awaySpId),
     getPitcherHand(g.homeSpId),
   ]);
-  console.log(`[loadGame] hands: aw=${awHand} hm=${hmHand}`);
+  lap('after pitcher hands');
 
-  // Fetch pitcher game logs for HR/9 (last 4 starts)
-  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,awWorkload,hmWorkload,awRest,hmRest,awTeamHR,hmTeamHR,awBB,hmBB,lineupConfirmed,awBullpen,hmBullpen] = await Promise.all([
+  // CRITICAL PATH only — pitcher logs, arsenal, lineups, umpire
+  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,lineupConfirmed] = await Promise.all([
     getPitcherGameLog(g.awaySpId),  getPitcherGameLog(g.homeSpId),
     getPitcherArsenal(g.awaySpId),  getPitcherArsenal(g.homeSpId),
     getLineup(g.pk, g.awayId||0),  getLineup(g.pk, g.homeId||0),
     getUmpire(g.pk),
+    checkLineupConfirmed(g.pk),
+  ]);
+  lap('after per-game fetches');
+
+  // SECONDARY — fire but don't await (B/C-grade signals, enrich later)
+  const awWorkload=null, hmWorkload=null, awRest=null, hmRest=null;
+  const awTeamHR=null, hmTeamHR=null, awBB=null, hmBB=null;
+  const awBullpen=null, hmBullpen=null;
+  Promise.all([
     getPitcherWorkload(g.awaySpId), getPitcherWorkload(g.homeSpId),
     getSPDaysRest(g.awaySpId),     getSPDaysRest(g.homeSpId),
-    Promise.resolve(null),         Promise.resolve(null), // team HR context removed (weak signal)
     getSPBattedBallProfile(g.awaySpId), getSPBattedBallProfile(g.homeSpId),
-    checkLineupConfirmed(g.pk),
     getBullpenQuality(g.away),     getBullpenQuality(g.home),
-  ]);
+  ]).catch(()=>{});
 
   const wx  = await getWeather(g.venue);
+  lap('after weather');
   const pf  = PARK[g.home] || 1.00;
 
   const sides = [
@@ -4055,7 +4069,9 @@ async function loadGame(g){
 
   for(const{key, team, oppHand, pitLog, spId, spNm} of sides){
     if(S.cache[key]) continue;
+    lap(`before roster ${team}`);
     const roster  = await getRoster(team);
+    lap(`after roster ${team} (${roster.length} players)`);
     const hitters = roster.filter(h=>h.pos!=='P'&&h.pos!=='');
     let _handDebugDone = false; // reset per team
 
@@ -4087,26 +4103,14 @@ async function loadGame(g){
       _arsenalWeaknesses: [],
     };
 
-    // Batch-fetch batter recent games + platoon splits in parallel
-    const BATCH = 12; // larger batch = more parallel = faster
+    // One batch for entire roster — max parallelism
+    const BATCH = 30;
     const recentGamesMap = {};
     const platoonMap = {};
-    const vsPitchMap = {};
     const homeAwayMap = {};
     const priorRateMap = {};
-    const hvhMap = {};
-    // Fire BvP for ALL hitters immediately (non-blocking heavy CSVs)
-    // Skip if already cached from a previous game load today
-    const allBvpPromises = {};
-    const allHvhPromises = {};
-    for(const h of hitters){
-      const cached = _playerCache[`bvp_${h.id}`];
-      allBvpPromises[h.id] = cached !== undefined
-        ? Promise.resolve(cached)
-        : getBatterVsPitchType(String(h.id));
-      allHvhPromises[h.id] = getCareerVsSP(String(h.id), String(spId));
-    }
 
+    lap(`before batter batch ${team}`);
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk = hitters.slice(i, i+BATCH);
       const [recResults, platResults, statResults, haResults, priorResults] = await Promise.all([
@@ -4116,18 +4120,37 @@ async function loadGame(g){
         Promise.allSettled(chunk.map(h=>getHomAwaySplits(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPriorSeasonRate(String(h.id)))),
       ]);
-      // BvP + HvH were already fired — await current chunk's results
-      const bvpSettled = await Promise.allSettled(chunk.map(h=>allBvpPromises[h.id]));
-      const hvhSettled = await Promise.allSettled(chunk.map(h=>allHvhPromises[h.id]));
       chunk.forEach((h,j)=>{
         if(recResults[j].status==='fulfilled')   recentGamesMap[String(h.id)] = recResults[j].value;
         if(platResults[j].status==='fulfilled')  platoonMap[String(h.id)]     = platResults[j].value;
-        if(bvpSettled[j].status==='fulfilled')   vsPitchMap[String(h.id)]     = bvpSettled[j].value;
         if(haResults[j].status==='fulfilled')    homeAwayMap[String(h.id)]    = haResults[j].value;
         if(priorResults[j].status==='fulfilled') priorRateMap[String(h.id)]   = priorResults[j].value;
-        if(hvhSettled[j].status==='fulfilled')   hvhMap[String(h.id)]         = hvhSettled[j].value;
       });
     }
+
+    lap(`after batter batch ${team}`);
+
+    // Fire BvP + HvH in background — don't block row computation
+    // vsPitchMap and hvhMap start empty, get populated as CSVs arrive
+    const vsPitchMap = {};
+    const hvhMap = {};
+    const bvpEnrichPromise = Promise.allSettled(
+      hitters.map(async h=>{
+        try{
+          const cached = _playerCache[`bvp_${h.id}`];
+          const v = cached !== undefined ? cached : await getBatterVsPitchType(String(h.id));
+          if(v) vsPitchMap[String(h.id)] = v;
+        }catch{}
+      })
+    );
+    const hvhEnrichPromise = Promise.allSettled(
+      hitters.map(async h=>{
+        try{
+          const v = await getCareerVsSP(String(h.id), String(spId));
+          if(v) hvhMap[String(h.id)] = v;
+        }catch{}
+      })
+    );
 
     const rows = [];
     console.log(`[loadGame] ${key}: processing ${hitters.length} hitters`);
