@@ -4996,6 +4996,30 @@ function renderWeather(wx,homeTeam){
 // ==================================================================
 //  PLAYER DETAIL
 // ==================================================================
+function switchMatchupTab(playerId, tab){
+  const arsenalPanel = document.getElementById(`panel-arsenal-${playerId}`);
+  const zonePanel    = document.getElementById(`panel-zone-${playerId}`);
+  const arsenalBtn   = document.getElementById(`tab-arsenal-${playerId}`);
+  const zoneBtn      = document.getElementById(`tab-zone-${playerId}`);
+  if(!arsenalPanel||!zonePanel) return;
+
+  if(tab==='zone'){
+    arsenalPanel.style.display='none';
+    zonePanel.style.display='block';
+    arsenalBtn.style.background='var(--bg3)';
+    arsenalBtn.style.color='var(--t3)';
+    zoneBtn.style.background='#ffd700';
+    zoneBtn.style.color='#000';
+  } else {
+    zonePanel.style.display='none';
+    arsenalPanel.style.display='block';
+    arsenalBtn.style.background='var(--green)';
+    arsenalBtn.style.color='#000';
+    zoneBtn.style.background='var(--bg3)';
+    zoneBtn.style.color='var(--t3)';
+  }
+}
+
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
@@ -5236,9 +5260,71 @@ function renderDetail(r){
       }
 
       return `<div class="card" style="margin-bottom:10px">
-        <div class="slbl">🎵 Pitcher Matchup — ${r.spNm||'SP'}</div>
+        <div class="slbl">🎵 Pitcher Matchup — ${r.spNm||'SP'} (${r.oppHand||'?'}HP)</div>
         ${statsRow}
-        ${arsenalHTML}
+
+        <!-- Tab selector -->
+        <div style="display:flex;gap:6px;margin-bottom:12px">
+          <button id="tab-arsenal-${r.id}" onclick="switchMatchupTab('${r.id}','arsenal')"
+            style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
+            font-size:.70rem;font-weight:700;background:var(--green);color:#000;transition:all .15s">
+            ⚾ Arsenal</button>
+          <button id="tab-zone-${r.id}" onclick="switchMatchupTab('${r.id}','zone')"
+            style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
+            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
+            🎯 Zone Match</button>
+        </div>
+
+        <!-- Arsenal panel -->
+        <div id="panel-arsenal-${r.id}">
+          ${arsenalHTML}
+        </div>
+
+        <!-- Zone Matchup panel (hidden by default) -->
+        <div id="panel-zone-${r.id}" style="display:none">
+          ${(()=>{
+            const zh = renderZoneHeatmap(r._batPid||r.id, r._spId, r.batHand, 32);
+            const zm = r._zoneMatch || calcZoneMatchup(r._batPid||r.id, r._spId, r.batHand);
+            if(!zh) return `<div style="font-size:.70rem;color:var(--t4);padding:16px 0;text-align:center">No zone data available</div>`;
+            const overlapLabel = zm&&zm.hotOverlap&&zm.hotOverlap.length>=2
+              ? `⭐ Zone Domination`
+              : zm&&zm.hotOverlap&&zm.hotOverlap.length===1
+              ? `📍 Zone Overlap`
+              : `No significant overlap`;
+            const overlapColor = zm&&zm.hotOverlap&&zm.hotOverlap.length>=2?'#ffd700'
+              : zm&&zm.hotOverlap&&zm.hotOverlap.length===1?'var(--green)':'var(--t4)';
+            return `
+              <div style="display:flex;align-items:flex-start;gap:14px">
+                ${zh}
+                <div style="flex:1;min-width:0">
+                  <!-- Result badge -->
+                  <div style="padding:8px;border-radius:8px;margin-bottom:10px;
+                    background:${zm&&zm.hotOverlap&&zm.hotOverlap.length>=1?'rgba(255,215,0,.08)':'var(--bg3)'};
+                    border:1px solid ${zm&&zm.hotOverlap&&zm.hotOverlap.length>=1?'rgba(255,215,0,.25)':'var(--bdr)'}">
+                    <div style="font-size:.72rem;font-weight:800;color:${overlapColor}">${overlapLabel}</div>
+                    ${zm&&zm.zoneNames&&zm.zoneNames.length?`<div style="font-size:.62rem;color:var(--t4);margin-top:2px">${zm.zoneNames.join(' · ')}</div>`:''}
+                  </div>
+                  <!-- Legend -->
+                  <div style="display:flex;flex-direction:column;gap:5px">
+                    <div style="display:flex;align-items:center;gap:7px;font-size:.63rem;color:var(--t4)">
+                      <span style="width:12px;height:12px;background:#ffd700;border-radius:2px;flex-shrink:0;display:inline-block"></span>HR zone overlap
+                    </div>
+                    <div style="display:flex;align-items:center;gap:7px;font-size:.63rem;color:var(--t4)">
+                      <span style="width:12px;height:12px;background:#22c95e;border-radius:2px;flex-shrink:0;display:inline-block"></span>Batter hot zone
+                    </div>
+                    <div style="display:flex;align-items:center;gap:7px;font-size:.63rem;color:var(--t4)">
+                      <span style="width:12px;height:12px;background:#ef4444;border-radius:2px;flex-shrink:0;display:inline-block"></span>SP locates here
+                    </div>
+                  </div>
+                  <div style="font-size:.58rem;color:var(--t4);margin-top:8px;line-height:1.5">
+                    Catcher's view<br>
+                    ${r.batHand==='L'?'LHB power zones = inner-left':'RHB power zones = inner-right'}
+                  </div>
+                </div>
+              </div>`;
+          })()}
+        </div>
+
       </div>`;
     })()}
 
