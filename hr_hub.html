@@ -4728,6 +4728,14 @@ function renderHitterCard(r,showGame){
       >${edgeData.edge>=0?'+':''}${edgeData.edge}% edge</span>`
     : '';
 
+  const zoneBadge = r._zoneMatch && r._zoneMatch.hotOverlap && r._zoneMatch.hotOverlap.length >= 1
+    ? `<span style="font-size:.55rem;padding:1px 5px;border-radius:4px;margin-left:3px;
+        background:${r._zoneMatch.hotOverlap.length>=2?'rgba(255,215,0,.3)':'rgba(34,201,94,.2)'};
+        color:${r._zoneMatch.hotOverlap.length>=2?'#ffd700':'var(--green)'}"
+        title="Zone overlap: ${(r._zoneMatch.zoneNames||[]).join(', ')}">
+        ${r._zoneMatch.hotOverlap.length>=2?'🎯 Zone Dom':'📍 Zone'}</span>`
+    : '';
+
   // Angles — card shows ONLY positive signals (tier 1-2, no (-) labels)
   // Negative signals shown on detail page only
   const angles = detectAngles(r);
