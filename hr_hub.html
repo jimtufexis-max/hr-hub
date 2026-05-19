@@ -3521,7 +3521,7 @@ function renderHRProjection(){
     const pos=r.lineupPos; const expPA=pos?clamp(4.8-(pos-1)*0.15,3.5,4.8):4.1; return s+expPA;},0) : 0;
 
   // Top candidates
-  const top3 = [...rows].sort((a,b)=>b.prob-a.prob).slice(0,3);
+  // top3 computed inside the template below
 
   el.innerHTML = `<div style="background:linear-gradient(135deg,rgba(34,201,94,.08),rgba(90,160,255,.08));
     border:1px solid rgba(34,201,94,.2);border-radius:12px;padding:12px 14px;margin-bottom:10px">
