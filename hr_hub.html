@@ -4026,10 +4026,12 @@ async function loadGame(g){
   const lap = (label) => console.log(`[loadGame ${g.away}@${g.home}] ${label}: +${Date.now()-t0}ms`);
   console.log(`[loadGame] START ${g.away}@${g.home} pk=${pk}`);
   const el = document.getElementById('hitter-list');
+  const status = (msg) => { el.innerHTML=`<div class="spinner"><div class="spin"></div>${msg}</div>`; };
 
   try{
 
   // Fetch pitcher hands + season stats
+  status('Fetching pitcher data…');
   lap('before pitcher hands');
   const [awHand, hmHand] = await Promise.all([
     getPitcherHand(g.awaySpId),
@@ -4069,9 +4071,15 @@ async function loadGame(g){
 
   for(const{key, team, oppHand, pitLog, spId, spNm} of sides){
     if(S.cache[key]) continue;
+    status(`Loading ${team} roster…`);
     lap(`before roster ${team}`);
     const roster  = await getRoster(team);
     lap(`after roster ${team} (${roster.length} players)`);
+    if(!roster.length){
+      console.error(`[loadGame] Empty roster for ${team}`);
+      el.innerHTML=`<div class="card" style="color:var(--red);padding:12px">No roster found for ${team} — check proxy/API</div>`;
+      return;
+    }
     const hitters = roster.filter(h=>h.pos!=='P'&&h.pos!=='');
     let _handDebugDone = false; // reset per team
 
@@ -4111,6 +4119,7 @@ async function loadGame(g){
     const priorRateMap = {};
 
     lap(`before batter batch ${team}`);
+    status(`Loading ${hitters.length} ${team} batters…`);
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk = hitters.slice(i, i+BATCH);
       const [recResults, platResults, statResults, haResults, priorResults] = await Promise.all([
