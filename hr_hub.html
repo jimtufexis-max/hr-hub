@@ -395,17 +395,53 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
   <!-- INFO / METHODOLOGY PAGE -->
   <div id="page-info" class="page" style="padding:12px;overflow-y:auto">
+
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">⚡ Probability Formula</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--amber);padding:8px;background:var(--bg3);border-radius:8px;margin-bottom:10px">Prob = Anchor × Platoon × Pitcher × Park/Wx × Momentum</div>
-      <div style="font-size:.75rem;color:var(--t3);line-height:1.8">
-        <b style="color:var(--t2)">Anchor</b> — Bayesian-blended HR rate: season 50% + career 30% + L100 20%. Small samples regress toward 3.5% MLB avg to prevent noise.<br>
-        <b style="color:var(--t2)">Platoon</b> — 3 layers: ① handedness prior ② player's actual split rate ③ arsenal skill modifier (batter ISO vs SP's pitch mix vs lg avg).<br>
-        <b style="color:var(--t2)">Pitcher</b> — 2 layers: ① SP HR/9 quality signal (Bayesian shrunk) ② arsenal matchup modifier (fixes Brandon Lowe problem).<br>
-        <b style="color:var(--t2)">Park/Wx</b> — Park factor × wind direction × temperature effect.<br>
-        <b style="color:var(--t2)">Momentum</b> — L15 HR rate + last-3G streak. Regressed to mean.
+      <div class="slbl">⚡ Probability Model</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--amber);padding:8px 10px;background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.9">
+        anchor = Bayesian blend(season, career, prior, barrel proxy, pull-air proxy)<br>
+        lo = logit(anchor)<br>
+        lo += platoon × 0.70 &nbsp;// handedness + splits + arsenal<br>
+        lo += pitcher × 0.80 &nbsp;// xFIP + barrel allowed + FB% + HR/FB<br>
+        lo += park/wx × 0.70 &nbsp;// park factor + wind + temp<br>
+        lo += momentum × 0.30 &nbsp;// L15 form (±6% max)<br>
+        lo += home/away × 0.35<br>
+        lo += lineup pos × 1.0 &nbsp;// PA multiplier<br>
+        lo += umpire × 0.50<br>
+        lo += stadium dims × 0.40 // pull hitter advantage<br>
+        lo += plate disc × 0.30 &nbsp;// zone contact + chase rate<br>
+        prob = clamp(sigmoid(lo), 0.5%, 22%)
+      </div>
+      <div style="font-size:.72rem;color:var(--t3);line-height:2.0">
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Anchor</b> — Bayesian blend of season HR rate, career rate, prior season, plus Statcast proxies (barrel% → HR at 35%, pull-air% → HR at 20%). Statcast proxies stabilize faster than actual HR rate — weighted more heavily for small samples (&lt;150 PA). Regresses to 3.5% MLB avg to prevent noise.</div>
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Platoon</b> — 3 layers: ① handedness prior (LHB vs RHP = +18%) ② player's actual split rate (50+ PA gate) ③ arsenal skill modifier (batter ISO vs SP's pitch mix vs league avg).</div>
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Pitcher</b> — Weighted blend: xFIP 35% (park+luck neutral) + Barrel% allowed 30% + FB rate 20% + HR/FB 15% + HR/9 10% (stabilization only). This centers the model on contact quality not noisy HR counts.</div>
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Park/Wx</b> — Handedness-adjusted park factor + wind direction/speed + temperature (every 10°F = ±2% HR rate). Wind out at 15+ mph is the single biggest weather signal.</div>
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Momentum</b> — L15 game log HR rate vs player's own baseline (not MLB avg). Capped at ±6% per expert recommendation — prevents chasing yesterday's HRs.</div>
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Zone Matchup</b> — Batter's top xwOBA zones (where they hit hardest) vs SP's most frequent zones × handedness-adjusted HR power zones. Gold = HR zone overlap = elite setup.</div>
+        <div><b style="color:var(--t2)">Model uses log-odds</b> — signals add in log-odds space preventing multiplicative runaway. Each signal weight reflects its empirical reliability. Total: 11 signals.</div>
       </div>
     </div>
+
+    <div class="card" style="margin-bottom:10px">
+      <div class="slbl">📊 Signal Quality Guide</div>
+      <div style="font-size:.68rem;line-height:2.0;color:var(--t3)">
+        <div><span style="color:var(--green);font-weight:700">A-grade (high confidence):</span> Season HR rate, Barrel%, Pull-air%, xwOBA diff, Platoon handedness, xFIP, Barrel% allowed, Park factor, Wind direction</div>
+        <div><span style="color:var(--amber);font-weight:700">B-grade (useful):</span> Arsenal platoon adj, Player split rate (50+ PA), SP HR/FB, SP FB%, Home/away splits, Lineup position, Temperature, Stadium dimensions, Zone matchup</div>
+        <div><span style="color:var(--t4);font-weight:700">C-grade (marginal):</span> L15 momentum (±6% max), Umpire tendency, Plate discipline, Career vs SP (tiny sample), Bullpen quality</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:10px">
+      <div class="slbl">💰 Betting Framework</div>
+      <div style="font-size:.70rem;color:var(--t3);line-height:1.9">
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Edge Tiers:</b> S (+8%+) Max Bet · A (+5-8%) Strong · B (+2-5%) Lean · C (±2%) Pass · F (negative) Fade</div>
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Kelly Sizing:</b> Quarter-Kelly (conservative). If edge = 6% at +450 odds → bet ~2.1 units. Never risk more than 3 units on a single HR prop.</div>
+        <div style="margin-bottom:6px"><b style="color:var(--t2)">Rules:</b> Only bet A/S tier · Wait for lineup confirmation (3:30pm ET) · Max 3 HR props/day · Never bet &gt;40% PPD risk games</div>
+        <div><b style="color:var(--t2)">CLV:</b> Track Closing Line Value — if your model consistently beats the closing line, you have real edge that compounds over a full season.</div>
+      </div>
+    </div>
+
     <div class="card" style="margin-bottom:10px">
       <div class="slbl" style="margin-bottom:8px">🏷️ Tag Guide</div>
       <div style="font-size:.60rem;color:var(--t4);margin-bottom:10px"><span style="color:var(--green)">●</span> green = positive · <span style="color:var(--red)">●</span> red = fade · hover tag for details</div>
