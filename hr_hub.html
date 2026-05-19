@@ -540,7 +540,7 @@ function showPage(name){
 //  DATA FETCHING
 // ==================================================================
 const _fetchCache = new Map();
-const _FETCH_TTL = 5 * 60 * 1000; // 5 minutes
+const _FETCH_TTL = 15 * 60 * 1000; // 15 minutes — reduces re-fetches on same day
 
 async function fetchJSON(url){
   const cached = _fetchCache.get(url);
@@ -1769,13 +1769,24 @@ function detectNegativeAngles(r){
 async function ensureLeaderboards(){
   if(_savB!==null) return; // already loaded
   console.log('Loading leaderboards via proxy...');
-  [_savB,_fgB,_savP,_fgP]=await Promise.all([
+  // Fire EVERYTHING in parallel — don't await individual maps sequentially
+  const [savB, fgB, savP, fgP] = await Promise.all([
     getSavantBatters(), getFGBatters(), getSavantPitchers(), getFGPitchers()
   ]);
+  [_savB,_fgB,_savP,_fgP] = [savB, fgB, savP, fgP];
   const nSav=Object.keys(_savB).length, nFG=Object.keys(_fgB).length;
   console.log(`Leaderboards ready — Savant:${nSav} FG:${nFG}`);
-  // If both failed, set empty so we can still use MLB API fallback
   if(!nSav && !nFG) console.warn('Both leaderboards empty — falling back to MLB API stats');
+
+  // Fire secondary leaderboards in background (don't block game loading)
+  Promise.all([
+    ensureFGPitcherMap(),
+    ensurePitcherWhiffMap(),
+    ensureBatterZoneMap(),
+    ensurePitcherZoneMap(),
+    ensurePlateDiscMap(),
+  ]).then(()=>console.log('Secondary leaderboards ready'))
+    .catch(e=>console.warn('Secondary leaderboards partial:',e.message));
 }
 
 // Fetch a single player's season hitting stats from MLB Stats API
@@ -4028,7 +4039,7 @@ async function loadGame(g){
     getUmpire(g.pk),
     getPitcherWorkload(g.awaySpId), getPitcherWorkload(g.homeSpId),
     getSPDaysRest(g.awaySpId),     getSPDaysRest(g.homeSpId),
-    getTeamHRContext(g.away),      getTeamHRContext(g.home),
+    Promise.resolve(null),         Promise.resolve(null), // team HR context removed (weak signal)
     getSPBattedBallProfile(g.awaySpId), getSPBattedBallProfile(g.homeSpId),
     checkLineupConfirmed(g.pk),
     getBullpenQuality(g.away),     getBullpenQuality(g.home),
@@ -4084,8 +4095,20 @@ async function loadGame(g){
     const homeAwayMap = {};
     const priorRateMap = {};
     const hvhMap = {};
+    // Fire BvP for ALL hitters immediately (non-blocking heavy CSVs)
+    // Skip if already cached from a previous game load today
+    const allBvpPromises = {};
+    const allHvhPromises = {};
+    for(const h of hitters){
+      const cached = _playerCache[`bvp_${h.id}`];
+      allBvpPromises[h.id] = cached !== undefined
+        ? Promise.resolve(cached)
+        : getBatterVsPitchType(String(h.id));
+      allHvhPromises[h.id] = getCareerVsSP(String(h.id), String(spId));
+    }
+
     for(let i=0; i<hitters.length; i+=BATCH){
-      const chunk   = hitters.slice(i, i+BATCH);
+      const chunk = hitters.slice(i, i+BATCH);
       const [recResults, platResults, statResults, haResults, priorResults] = await Promise.all([
         Promise.allSettled(chunk.map(h=>getBatterRecentGames(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPlayerPlatoonSplits(String(h.id)))),
@@ -4093,12 +4116,9 @@ async function loadGame(g){
         Promise.allSettled(chunk.map(h=>getHomAwaySplits(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPriorSeasonRate(String(h.id)))),
       ]);
-      // Fire BvP + careerVsSP in parallel (heavy Savant CSVs — non-blocking)
-      const bvpPromises = chunk.map(h=>getBatterVsPitchType(String(h.id)));
-      const hvhPromises = chunk.map(h=>getCareerVsSP(String(h.id), String(spId)));
-      // Await BvP and HvH now (they were fired non-blocking earlier)
-      const bvpSettled = await Promise.allSettled(bvpPromises);
-      const hvhSettled = await Promise.allSettled(hvhPromises);
+      // BvP + HvH were already fired — await current chunk's results
+      const bvpSettled = await Promise.allSettled(chunk.map(h=>allBvpPromises[h.id]));
+      const hvhSettled = await Promise.allSettled(chunk.map(h=>allHvhPromises[h.id]));
       chunk.forEach((h,j)=>{
         if(recResults[j].status==='fulfilled')   recentGamesMap[String(h.id)] = recResults[j].value;
         if(platResults[j].status==='fulfilled')  platoonMap[String(h.id)]     = platResults[j].value;
@@ -4111,6 +4131,7 @@ async function loadGame(g){
 
     const rows = [];
     console.log(`[loadGame] ${key}: processing ${hitters.length} hitters`);
+    el.innerHTML=`<div class="spinner"><div class="spin"></div>Computing ${hitters.length} ${team} batters…</div>`;
     for(const h of hitters){
       const pid    = String(h.id);
       const savH   = (_savB||{})[pid] || {};
