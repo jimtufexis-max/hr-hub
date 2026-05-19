@@ -5227,22 +5227,7 @@ function renderDetail(r){
         arsenalHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
           ${mixTag}${spType?`<span style="font-size:.68rem;color:var(--t4)">${spType}</span>`:''}
         </div>
-        ${pitchRows}${adjLine}
-        ${zoneHeatmap?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bg3)">
-          <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🎯 Zone Matchup</div>
-          <div style="display:flex;align-items:flex-start;gap:12px">
-            ${zoneHeatmap}
-            <div style="font-size:.60rem;color:var(--t4);line-height:2.0;padding-top:2px">
-              <div><span style="display:inline-block;width:10px;height:10px;background:#ffd700;border-radius:2px;margin-right:4px;vertical-align:middle"></span>HR zone overlap ★</div>
-              <div><span style="display:inline-block;width:10px;height:10px;background:#22c95e;border-radius:2px;margin-right:4px;vertical-align:middle"></span>Batter hot zone</div>
-              <div><span style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:2px;margin-right:4px;vertical-align:middle"></span>SP locates here</div>
-              ${zoneMatch?`<div style="margin-top:4px;font-weight:700;color:${zoneMatch.hotOverlap.length>=2?'#ffd700':'var(--green)'}">
-                ${zoneMatch.hotOverlap.length>=2?'⭐ Zone Domination':zoneMatch.hotOverlap.length===1?'📍 Zone Overlap':''}
-                ${zoneMatch.zoneNames?.length?'· '+zoneMatch.zoneNames.join(', '):''}
-              </div>`:''}
-            </div>
-          </div>
-        </div>`:''}`;
+        ${pitchRows}${adjLine}`;
       } else {
         // Arsenal not loaded yet — lazy fetch
         arsenalHTML = `<div id="arsenal-loading-${r.id}" style="font-size:.72rem;color:var(--t4);padding:4px 0">Loading pitch mix…</div>`;
