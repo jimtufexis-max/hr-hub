@@ -867,6 +867,8 @@ async function getSavantPitchers(){
         barrel_pct:  parseF(row.brl_percent ?? row.barrel_batted_rate),
         hard_hit_pct:parseF(row.ev95percent),
         avg_ev:      parseF(row.avg_hit_speed ?? row.avg_exit_velocity),
+        gb_percent:  parseF(row.groundballs_percent ?? row.gb_percent ?? row.ground_ball_rate),
+        fb_percent:  parseF(row.flyballs_percent ?? row.fb_percent ?? row.fly_ball_rate),
       };
     }
     console.log(`Savant pitchers: ${Object.keys(out).length} players`);
@@ -4084,24 +4086,29 @@ function calcZoneMatchup(batPid, spPid, batHand){
   let batZones = (_batterZoneMap||{})[String(batPid)];
   let spZones  = (_pitcherZoneMap||{})[String(spPid)];
 
-  // Fallback: estimate from leaderboard data when zone maps unavailable
+  // Fallback: estimate from available data when zone CSVs not loaded
   if(!batZones){
+    // Try _savB leaderboard first, then S.allRows for pull_air_pct
     const savH = (_savB||{})[String(batPid)];
-    if(savH){
-      const pp = savH.pull_air_pct||savH.pull_pct||0;
+    const batRow = (S.allRows||[]).find(r=>String(r._batPid||r.id)===String(batPid));
+    const pp = savH?.pull_air_pct || savH?.pull_pct || batRow?.pull_air_pct || 0;
+    if(pp>0 || batHand){
       batZones = batHand==='L'
         ? {7:0.350+pp*0.002,4:0.320,1:0.300+pp*0.001,5:0.330,8:0.280,9:0.220,6:0.260,2:0.250,3:0.200}
         : {9:0.350+pp*0.002,6:0.320,3:0.300+pp*0.001,5:0.330,8:0.280,7:0.220,4:0.260,2:0.250,1:0.200};
     }
   }
   if(!spZones){
+    // Try _savP leaderboard, then pitcherStats.battedBall from loadGame
     const savP = (_savP||{})[String(spPid)];
-    if(savP){
-      const gbp = savP.gb_percent||0;
-      spZones = gbp>50
-        ? {1:0.420,2:0.400,3:0.420,4:0.360,5:0.350,6:0.360,7:0.280,8:0.260,9:0.280}
-        : {7:0.420,8:0.400,9:0.420,4:0.360,5:0.350,6:0.360,1:0.280,2:0.260,3:0.280};
-    }
+    const spRow = (S.allRows||[]).find(r=>String(r._spId)===String(spPid));
+    const gbp = savP?.gb_percent || spRow?._pitcherStats?.battedBall?.gbRate || 0;
+    const fbp = savP?.fb_percent || spRow?._pitcherStats?.battedBall?.fbRate || 0;
+    spZones = gbp>50
+      ? {1:0.420,2:0.400,3:0.420,4:0.360,5:0.350,6:0.360,7:0.280,8:0.260,9:0.280}
+      : fbp>42
+      ? {7:0.440,8:0.420,9:0.440,4:0.370,5:0.360,6:0.370,1:0.270,2:0.250,3:0.270}
+      : {5:0.380,4:0.350,6:0.350,8:0.340,2:0.320,7:0.300,9:0.300,1:0.280,3:0.280};
   }
   if(!batZones || !spZones) return null;
 
@@ -4159,11 +4166,12 @@ function renderZoneHeatmap(batPid, spPid, batHand, size=28){
   let batZones = (_batterZoneMap||{})[String(batPid)];
   let spZones  = (_pitcherZoneMap||{})[String(spPid)];
 
-  // Fallback: estimate from leaderboard data (same logic as calcZoneMatchup)
+  // Fallback: use real data from allRows + leaderboards
   if(!batZones){
     const savH = (_savB||{})[String(batPid)];
-    if(savH){
-      const pp = savH.pull_air_pct||savH.pull_pct||0;
+    const batRow = (S.allRows||[]).find(r=>String(r._batPid||r.id)===String(batPid));
+    const pp = savH?.pull_air_pct || savH?.pull_pct || batRow?.pull_air_pct || 0;
+    if(pp>0 || batHand){
       batZones = batHand==='L'
         ? {7:0.350+pp*0.002,4:0.320,1:0.300+pp*0.001,5:0.330,8:0.280,9:0.220,6:0.260,2:0.250,3:0.200}
         : {9:0.350+pp*0.002,6:0.320,3:0.300+pp*0.001,5:0.330,8:0.280,7:0.220,4:0.260,2:0.250,1:0.200};
@@ -4171,12 +4179,14 @@ function renderZoneHeatmap(batPid, spPid, batHand, size=28){
   }
   if(!spZones){
     const savP = (_savP||{})[String(spPid)];
-    if(savP){
-      const gbp = savP.gb_percent||0;
-      spZones = gbp>50
-        ? {1:0.420,2:0.400,3:0.420,4:0.360,5:0.350,6:0.360,7:0.280,8:0.260,9:0.280}
-        : {7:0.420,8:0.400,9:0.420,4:0.360,5:0.350,6:0.360,1:0.280,2:0.260,3:0.280};
-    }
+    const spRow = (S.allRows||[]).find(r=>String(r._spId)===String(spPid));
+    const gbp = savP?.gb_percent || spRow?._pitcherStats?.battedBall?.gbRate || 0;
+    const fbp = savP?.fb_percent || spRow?._pitcherStats?.battedBall?.fbRate || 0;
+    spZones = gbp>50
+      ? {1:0.420,2:0.400,3:0.420,4:0.360,5:0.350,6:0.360,7:0.280,8:0.260,9:0.280}
+      : fbp>42
+      ? {7:0.440,8:0.420,9:0.440,4:0.370,5:0.360,6:0.370,1:0.270,2:0.250,3:0.270}
+      : {5:0.380,4:0.350,6:0.350,8:0.340,2:0.320,7:0.300,9:0.300,1:0.280,3:0.280};
   }
 
   if(!batZones && !spZones) return '';
@@ -4212,11 +4222,17 @@ function renderZoneHeatmap(batPid, spPid, batHand, size=28){
     }).join('')
   ).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
 
-  const isEstimated = !(_batterZoneMap||{})[String(batPid)] || !(_pitcherZoneMap||{})[String(spPid)];
+  // Only show est. if using pure defaults (no real data at all)
+  const hasRealBat = !!(_batterZoneMap||{})[String(batPid)];
+  const hasRealSP  = !!(_pitcherZoneMap||{})[String(spPid)];
+  const hasBatData = hasRealBat || !!((_savB||{})[String(batPid)]?.pull_air_pct);
+  const hasSPData  = hasRealSP  || !!((_savP||{})[String(spPid)]?.gb_percent) ||
+                     !!((S.allRows||[]).find(r=>String(r._spId)===String(spPid))?._pitcherStats?.battedBall);
+  const isEstimated = !hasRealBat || !hasRealSP;
 
   return `<div style="display:inline-block">
     <div style="display:flex;flex-direction:column;gap:2px">${cells}</div>
-    ${isEstimated?`<div style="font-size:.54rem;color:var(--t4);margin-top:3px;text-align:center">est.</div>`:''}
+    ${isEstimated?`<div style="font-size:.54rem;color:var(--t4);margin-top:3px;text-align:center">~est</div>`:''}
   </div>`;
 }
 
