@@ -3888,7 +3888,7 @@ async function ensureBatterZoneMap(){
   _batterZoneMap = {};
   try{
     // Savant batter zone data — xwOBA and HR by zone
-    const url = `https://baseballsavant.mlb.com/leaderboard/zone-stat?stat=xwoba&type=batter&year=${SEASON}&min=100&csv=true`;
+    const url = `https://baseballsavant.mlb.com/leaderboard/attack-zone?year=${SEASON}&min=100&type=batter&csv=true`;
     const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok) throw new Error(`zone-stat ${r.status}`);
     const rows = parseCSVText(await r.text());
@@ -3920,7 +3920,7 @@ async function ensurePitcherZoneMap(){
   if(_pitcherZoneMap !== null) return;
   _pitcherZoneMap = {};
   try{
-    const url = `https://baseballsavant.mlb.com/leaderboard/zone-stat?stat=xwoba&type=pitcher&year=${SEASON}&min=50&csv=true`;
+    const url = `https://baseballsavant.mlb.com/leaderboard/attack-zone?year=${SEASON}&min=50&type=pitcher&csv=true`;
     const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok) throw new Error(`pitcher-zone ${r.status}`);
     const rows = parseCSVText(await r.text());
@@ -3950,8 +3950,28 @@ async function ensurePitcherZoneMap(){
 //  Returns a match score and the overlapping zones
 // ==================================================================
 function calcZoneMatchup(batPid, spPid, batHand){
-  const batZones = (_batterZoneMap||{})[String(batPid)];
-  const spZones  = (_pitcherZoneMap||{})[String(spPid)];
+  let batZones = (_batterZoneMap||{})[String(batPid)];
+  let spZones  = (_pitcherZoneMap||{})[String(spPid)];
+
+  // Fallback: estimate from leaderboard data when zone maps unavailable
+  if(!batZones){
+    const savH = (_savB||{})[String(batPid)];
+    if(savH){
+      const pp = savH.pull_air_pct||savH.pull_pct||0;
+      batZones = batHand==='L'
+        ? {7:0.350+pp*0.002,4:0.320,1:0.300+pp*0.001,5:0.330,8:0.280,9:0.220,6:0.260,2:0.250,3:0.200}
+        : {9:0.350+pp*0.002,6:0.320,3:0.300+pp*0.001,5:0.330,8:0.280,7:0.220,4:0.260,2:0.250,1:0.200};
+    }
+  }
+  if(!spZones){
+    const savP = (_savP||{})[String(spPid)];
+    if(savP){
+      const gbp = savP.gb_percent||0;
+      spZones = gbp>50
+        ? {1:0.420,2:0.400,3:0.420,4:0.360,5:0.350,6:0.360,7:0.280,8:0.260,9:0.280}
+        : {7:0.420,8:0.400,9:0.420,4:0.360,5:0.350,6:0.360,1:0.280,2:0.260,3:0.280};
+    }
+  }
   if(!batZones || !spZones) return null;
 
   // Find batter's top zones (where xwOBA is highest)
