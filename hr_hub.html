@@ -840,14 +840,11 @@ function calcAnchor(stats){
 
   const sznRaw = szPA>=80?szHR/szPA:null;
   const carRaw = careerPA>=200?careerHR/careerPA:null;
-  const l100Raw= l100pa>=60?l100hr/l100pa:null;
   const sznRate  = shrink(sznRaw,  szPA||0, 300);
   const carRate  = shrink(carRaw,  careerPA||0, 400);
-  const l100Rate = shrink(l100Raw, l100pa||0, 200);
   const priorRate= priorSeasonRate?shrink(priorSeasonRate,350,400):null;
 
-  // Anchor = season rate + career stability + prior year (NO L100 — that's momentum's job)
-  // L100 overlaps with both szHR/szPA and momentum signal → double-counting
+  // Base rate blend: season + career + prior
   let rateScore;
   if(sznRate&&carRate&&priorRate)
     rateScore=(sznRate*0.50)+(carRate*0.25)+(priorRate*0.25);
@@ -862,36 +859,38 @@ function calcAnchor(stats){
   else if(carRate) rateScore=carRate;
   else rateScore=MLB_AVG;
 
-  // Power profile as SMALL log-odds correction
-  // These correct for luck/sample variance, not talent (HR rate already captures talent)
-  // Kept small intentionally — overcounting is the enemy of calibration
+  // EXPERT REC: blend in Statcast proxies when HR sample is small
+  // Barrel% → HR rate proxy (~35% of barrels become HRs)
+  // Pull-air% → HR rate proxy (~20% of pull airballs become HRs)
+  // These stabilize faster than actual HR rate (smaller sample needed)
+  if(barrel_pct!=null && pull_air_pct!=null && (szPA||0)>=40){
+    const barrelProxy  = shrink(barrel_pct/100*0.35, szPA||0, 150)||MLB_AVG;
+    const pullAirProxy = shrink(pull_air_pct/100*0.20, szPA||0, 150)||MLB_AVG;
+    const statcastProxy = barrelProxy*0.60 + pullAirProxy*0.40;
+    // Blend more toward statcast when HR sample is small (< 150 PA)
+    const hrConf = Math.min((szPA||0)/300, 1.0);
+    rateScore = rateScore*(0.50+hrConf*0.50) + statcastProxy*(0.50-hrConf*0.50);
+  }
+
+  // Small log-odds power shape correction (expert: keep these small)
   let powerLogAdj=0;
-  // Barrel%: small correction only for elite/poor outliers
-  if(barrel_pct!=null)     powerLogAdj+=clamp((barrel_pct-8.0)*0.008,   -0.20, 0.25);
-  // Pull-air%: directional HR shape
-  if(pull_air_pct!=null)   powerLogAdj+=clamp((pull_air_pct-12.5)*0.007,-0.15, 0.20);
-  // ISO: power confirmation, small weight
-  if(iso!=null)            powerLogAdj+=clamp((iso-0.165)*0.80,         -0.15, 0.20);
-  // Hard hit%: smallest signal (already in barrel/EV)
-  if(hard_hit_pct!=null)   powerLogAdj+=clamp((hard_hit_pct-40.0)*0.003,-0.08, 0.12);
-  // xwOBA luck: only boost when clearly unlucky (>30pts gap)
-  if(xwobaDiff!=null&&xwobaDiff>0.030) powerLogAdj+=clamp(xwobaDiff*0.8,0,0.12);
-  // Rolling hot: tiny boost
-  if(rollingXwoba!=null&&xwoba!=null&&rollingXwoba>xwoba+0.030) powerLogAdj+=0.05;
+  if(barrel_pct!=null)   powerLogAdj+=clamp((barrel_pct-8.0)*0.006,   -0.15,0.20);
+  if(pull_air_pct!=null) powerLogAdj+=clamp((pull_air_pct-12.5)*0.005,-0.12,0.16);
+  if(iso!=null)          powerLogAdj+=clamp((iso-0.165)*0.60,          -0.12,0.16);
+  if(hard_hit_pct!=null) powerLogAdj+=clamp((hard_hit_pct-40.0)*0.002, -0.06,0.10);
+  if(xwobaDiff!=null&&xwobaDiff>0.030) powerLogAdj+=clamp(xwobaDiff*0.6,0,0.10);
+  if(rollingXwoba!=null&&xwoba!=null&&rollingXwoba>xwoba+0.030) powerLogAdj+=0.04;
 
-  // Total power adj capped tightly — max ±0.25 log-odds
-  powerLogAdj = clamp(powerLogAdj, -0.20, 0.25);
-
-  // Compress when data is thin
+  powerLogAdj=clamp(powerLogAdj,-0.18,0.22);
   const hasSavant=barrel_pct!=null&&hard_hit_pct!=null;
   powerLogAdj*=hasSavant?(pull_air_pct!=null?1.0:0.80):0.50;
 
-  const anchor=clamp(sigmoid(logit(clamp(rateScore,0.005,0.45))+clamp(powerLogAdj,-0.20,0.25)),0.005,0.40);
+  const anchor=clamp(sigmoid(logit(clamp(rateScore,0.005,0.45))+powerLogAdj),0.005,0.40);
 
-  // PA gate
+  // PA confidence gate
   const pa=szPA||0;
-  if(pa<30) return clamp(anchor*0.70+MLB_AVG*0.30,0.005,0.45);
-  if(pa<60) return clamp(anchor*0.85+MLB_AVG*0.15,0.005,0.45);
+  if(pa<30) return clamp(anchor*0.70+MLB_AVG*0.30,0.005,0.40);
+  if(pa<60) return clamp(anchor*0.85+MLB_AVG*0.15,0.005,0.40);
   return anchor;
 }
 
@@ -954,24 +953,41 @@ function calcPitcherMult(pitcherStats){
   const shrinkHR9=(r,c)=>r*c+1.0*(1-c);
   const scores=[];
 
-  // xFIP — best single pitcher quality metric (park + luck neutral)
-  // League avg xFIP ~4.20. Lower = harder to hit HRs.
+  // EXPERT RECOMMENDATION: center pitcher model on Barrel/FB/pull-air, not HR/9
+  // HR/9 is too noisy (park-influenced, luck-dependent over 4 starts)
+  // Better: Barrel% allowed (0.30) + FB% (0.25) + HR/FB (0.20) + HR/9 (0.10) + xFIP (0.15)
+
   const fgStats=pitcherStats.fgStats;
+
+  // xFIP — luck-neutral, full season (highest reliability)
   if(fgStats?.xfip!=null){
-    const xfipRatio=fgStats.xfip/4.20;  // ratio vs league avg
-    const xfipMult=clamp(shrinkHR9(xfipRatio,0.75),0.65,1.50); // 75% confidence (full season)
-    scores.push([xfipMult,0.50]); // highest weight — most reliable metric
+    const xfipRatio=fgStats.xfip/4.20;
+    scores.push([clamp(shrinkHR9(xfipRatio,0.75),0.65,1.50),0.35]);
   } else if(fgStats?.fip!=null){
-    const fipRatio=fgStats.fip/4.20;
-    scores.push([clamp(shrinkHR9(fipRatio,0.70),0.65,1.50),0.45]);
+    scores.push([clamp(shrinkHR9(fgStats.fip/4.20,0.70),0.65,1.50),0.30]);
   }
 
-  // HR/9 recent (4 starts) — low confidence but captures recent form
-  if(hr9_recent!=null) scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,0.35),0.65,1.50),0.25]);
-  // Season HR/9 — moderate confidence
-  if(hr9_season!=null){const conf=(totalStarts||0)>=10?0.55:0.35;scores.push([clamp(shrinkHR9(hr9_season/LG_HR9,conf),0.65,1.50),0.25]);}
-  // HR/FB: confirmation signal
-  if(hrFb!=null){const p=hrFb>1?hrFb/100:hrFb;scores.push([clamp(shrinkHR9(p/LG_HR_FB,0.45),0.65,1.45),0.10]);}
+  // Barrel% allowed — best contact-quality signal (lg avg ~8%)
+  if(barrel_pct_allowed!=null){
+    const brl=barrel_pct_allowed>1?barrel_pct_allowed:barrel_pct_allowed*100;
+    scores.push([clamp(shrinkHR9(brl/8.0,0.60),0.65,1.55),0.30]);
+  }
+
+  // GB/FB profile — fly ball pitchers give up more HRs regardless of HR/9
+  const bbData = pitcherStats.battedBall;
+  if(bbData?.fbRate!=null){
+    // lg avg FB% ~38%. Higher FB% = more HR risk
+    const fbRatio = bbData.fbRate/38.0;
+    scores.push([clamp(shrinkHR9(fbRatio,0.65),0.70,1.40),0.20]);
+  }
+
+  // HR/FB — HR conversion rate on fly balls (lg avg ~13.2%)
+  if(hrFb!=null){const p=hrFb>1?hrFb/100:hrFb;scores.push([clamp(shrinkHR9(p/LG_HR_FB,0.50),0.65,1.45),0.15]);}
+
+  // HR/9 recent (4 starts) — noisy but captures recent form, low weight
+  if(hr9_recent!=null) scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,0.30),0.65,1.50),0.10]);
+  // Season HR/9 — confirmation only
+  if(hr9_season!=null){const conf=(totalStarts||0)>=10?0.45:0.25;scores.push([clamp(shrinkHR9(hr9_season/LG_HR9,conf),0.65,1.50),0.10]);}
 
   let quality=1.0;
   if(scores.length){const tw=scores.reduce((s,[,w])=>s+w,0);quality=clamp(scores.reduce((s,[m,w])=>s+m*w,0)/tw,0.65,1.50);}
@@ -1067,7 +1083,8 @@ function calcMomentumMult(recentGames, playerBaseline){
     rateMult = clamp(0.75 + 0.25 * ratio, 0.85, 1.18);
   }
 
-  return clamp(streakMult * rateMult, 0.72, 1.28); // tighter cap
+  // Expert: keep momentum small — ±6% max to avoid recency bias
+  return clamp(streakMult * rateMult, 0.94, 1.08);
 }
 
 // ── PROBABILITY v4: log-odds additive model ────────────────────────
@@ -5055,7 +5072,22 @@ function renderDetail(r){
         arsenalHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
           ${mixTag}${spType?`<span style="font-size:.68rem;color:var(--t4)">${spType}</span>`:''}
         </div>
-        ${pitchRows}${adjLine}`;
+        ${pitchRows}${adjLine}
+        ${zoneHeatmap?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bg3)">
+          <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">🎯 Zone Matchup</div>
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            ${zoneHeatmap}
+            <div style="font-size:.60rem;color:var(--t4);line-height:2.0;padding-top:2px">
+              <div><span style="display:inline-block;width:10px;height:10px;background:#ffd700;border-radius:2px;margin-right:4px;vertical-align:middle"></span>HR zone overlap ★</div>
+              <div><span style="display:inline-block;width:10px;height:10px;background:#22c95e;border-radius:2px;margin-right:4px;vertical-align:middle"></span>Batter hot zone</div>
+              <div><span style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:2px;margin-right:4px;vertical-align:middle"></span>SP locates here</div>
+              ${zoneMatch?`<div style="margin-top:4px;font-weight:700;color:${zoneMatch.hotOverlap.length>=2?'#ffd700':'var(--green)'}">
+                ${zoneMatch.hotOverlap.length>=2?'⭐ Zone Domination':zoneMatch.hotOverlap.length===1?'📍 Zone Overlap':''}
+                ${zoneMatch.zoneNames?.length?'· '+zoneMatch.zoneNames.join(', '):''}
+              </div>`:''}
+            </div>
+          </div>
+        </div>`:''}`;
       } else {
         // Arsenal not loaded yet — lazy fetch
         arsenalHTML = `<div id="arsenal-loading-${r.id}" style="font-size:.72rem;color:var(--t4);padding:4px 0">Loading pitch mix…</div>`;
