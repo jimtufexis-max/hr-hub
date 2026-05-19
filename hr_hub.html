@@ -312,6 +312,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       </div>
     </div>
     <div id="hr-projection-strip"></div>
+    <div id="sleepers-due-strip"></div>
     <div id="hitter-list"></div>
   </div>
 
@@ -1532,6 +1533,18 @@ function detectAngles(r){
   else if(r.teamMult<=0.82)
     a.push({icon:'❄️',cat:'teamCtx',tier:3,label:'Lineup Cold (-)',color:'var(--t4)',
       tip:`${r.team} batting through a cold stretch — fewer HR opportunities in low-scoring lineup context`});
+
+  // Sleeper flag — undervalued player with strong matchup today
+  const sleeperData = detectSleeper(r);
+  if(sleeperData&&sleeperData.score>=7)
+    a.push({icon:'💤',cat:'sleeper',tier:1,label:'Sleeper Pick (+)',color:'#a78bfa',
+      tip:`Under-the-radar play: ${sleeperData.reasons[0]}`});
+
+  // Due flag — positive regression pending
+  const dueData = detectDue(r);
+  if(dueData&&dueData.score>=4)
+    a.push({icon:'⏰',cat:'due',tier:2,label:'Regression Due (+)',color:'var(--amber)',
+      tip:`Overdue for HRs: ${dueData.reasons[0]}`});
 
   // Bullpen quality
   if(r.bullpenMult!=null&&r.bullpenMult>=1.12)
@@ -3397,6 +3410,247 @@ const MAX_KELLY_PCT = 3; // never bet more than 3% of bankroll per play
 //  MULTI-BOOK ODDS — fetch best available line across books
 //  Shows where to actually place the bet
 // ==================================================================
+// ==================================================================
+//  SLEEPER DETECTOR
+//  Finds undervalued players the public ignores but who have
+//  genuine HR upside today based on matchup + underlying metrics
+//
+//  Sleeper criteria (must hit multiple):
+//  1. Low name recognition (not a top-30 HR hitter by pace)
+//  2. Strong underlying power metrics (barrel%, pull-air%, ISO)
+//  3. Favorable matchup TODAY (platoon edge + hittable SP)
+//  4. NOT overpriced by books (they haven't noticed either)
+//  5. Reasonable park factor
+// ==================================================================
+function detectSleeper(r){
+  const reasons = [];
+  let score = 0;
+
+  // Must have some power base — no sleeper without it
+  const hasPower = (r.barrel_pct!=null&&r.barrel_pct>=9)
+    || (r.pull_air_pct!=null&&r.pull_air_pct>=14)
+    || (r.iso!=null&&r.iso>=0.185);
+  if(!hasPower) return null;
+
+  // Must NOT be a household name — if prob is very high they're already priced in
+  // Sleepers are mid-tier probability (4-9% per PA)
+  if(r.prob < 0.035 || r.prob > 0.09) return null;
+
+  // Check for favorable matchup TODAY
+  if(r.platoon>=1.12){
+    score+=2;
+    reasons.push(`Platoon edge vs ${r.oppHand}HP (${r.platoon.toFixed(2)}x)`);
+  }
+  if(r.pitcher>=1.10){
+    score+=2;
+    reasons.push(`Faces HR-prone SP (${r.pitcher.toFixed(2)}x)`);
+  }
+  if(r.parkwx>=1.06){
+    score+=1;
+    reasons.push(`HR-friendly park/weather (${r.parkwx.toFixed(2)}x)`);
+  }
+
+  // Power metrics that books undervalue
+  if(r.barrel_pct!=null&&r.barrel_pct>=12){
+    score+=1;
+    reasons.push(`${r.barrel_pct}% barrel rate (above avg 8%)`);
+  }
+  if(r.pull_air_pct!=null&&r.pull_air_pct>=16){
+    score+=1;
+    reasons.push(`${r.pull_air_pct}% pull-air rate`);
+  }
+  if(r.iso!=null&&r.iso>=0.210){
+    score+=1;
+    reasons.push(`ISO .${String(r.iso.toFixed(3)).replace('0.','')}`);
+  }
+
+  // xwOBA luck — genuinely unlucky lately
+  if(r.xwobaDiff!=null&&r.xwobaDiff>=0.025){
+    score+=2;
+    reasons.push(`${Math.round(r.xwobaDiff*1000)}pt xwOBA luck boost due`);
+  }
+
+  // Career vs this SP edge
+  if(r.hvhMult>=1.15){
+    score+=2;
+    reasons.push(`Strong career history vs this SP`);
+  }
+
+  // FD value — book hasn't caught on
+  const fdOdds = getFDOdds(r.name);
+  if(fdOdds!=null){
+    const tier = getEdgeTier(r.prob, fdOdds);
+    if(tier&&tier.edge>=4){
+      score+=3;
+      reasons.push(`Book underpricing by ${tier.edge.toFixed(1)}% (${fdOdds>0?'+':''}${fdOdds})`);
+    }
+  }
+
+  // Minimum score to qualify
+  if(score < 5) return null;
+  if(reasons.length < 2) return null;
+
+  return { score, reasons, fdOdds };
+}
+
+// ==================================================================
+//  "DUE" DETECTOR — players overdue based on recent hard contact
+//
+//  Logic: if a player has been hitting the ball HARD (high EV,
+//  high barrel%, good xwOBA) but HRs haven't fallen in yet,
+//  regression toward expected production is coming.
+//
+//  Key insight: xHR (expected HRs from Statcast) > actual HRs
+//  = player is "due" for positive regression
+// ==================================================================
+function detectDue(r){
+  const reasons = [];
+  let score = 0;
+
+  // Need meaningful PA sample
+  if((r.szPA||0) < 50) return null;
+
+  // Core "due" signal: xwOBA > wOBA (hitting ball well, results haven't come)
+  if(r.xwobaDiff!=null&&r.xwobaDiff>=0.025){
+    score+=3;
+    const pts=Math.round(r.xwobaDiff*1000);
+    reasons.push(`xwOBA ${r.xwoba?.toFixed(3)} vs actual wOBA ${r.woba?.toFixed(3)} (+${pts}pts overdue)`);
+  } else if(r.xwobaDiff==null||r.xwobaDiff<0.010){
+    // Not clearly unlucky — don't flag as "due"
+    return null;
+  }
+
+  // Recent game log analysis — hard contact without HRs
+  const recent = r._recentGames||[];
+  if(recent.length>=5){
+    const l10 = recent.slice(0,10);
+    const l10HR = l10.reduce((s,g)=>s+(g.hr||0),0);
+    const l10PA = l10.reduce((s,g)=>s+(g.pa||g.ab||0),0);
+    const szRate = (r.szPA||0)>=50 ? (r.szHR||0)/(r.szPA||1) : null;
+
+    if(l10PA>=25&&szRate!=null){
+      const expectedL10HR = szRate*l10PA;
+      const deficit = expectedL10HR - l10HR;
+      if(deficit>=1.5){
+        score+=2;
+        reasons.push(`Expected ${expectedL10HR.toFixed(1)} HRs last 10 games, hit only ${l10HR} (${deficit.toFixed(1)} below pace)`);
+      }
+    }
+
+    // L3 hard contact without result
+    const l3 = recent.slice(0,3);
+    const l3HR = l3.reduce((s,g)=>s+(g.hr||0),0);
+    const l3AB = l3.reduce((s,g)=>s+(g.ab||0),0);
+    if(l3HR===0&&l3AB>=8&&szRate!=null&&szRate>=0.040){
+      score+=1;
+      reasons.push(`0 HRs in last 3 games despite ${(szRate*100).toFixed(1)}% season rate`);
+    }
+  }
+
+  // Rolling L30 quality metrics — EV still high
+  if(r.rollingEV!=null&&r.avg_ev!=null&&r.rollingEV>=r.avg_ev-1.5){
+    score+=1;
+    reasons.push(`L30 EV ${r.rollingEV.toFixed(1)} mph — contact quality holding up`);
+  }
+
+  // Minimum score and reasons
+  if(score<3||reasons.length<1) return null;
+
+  // Must have some power base
+  const hasPower=(r.barrel_pct!=null&&r.barrel_pct>=8)
+    ||(r.pull_air_pct!=null&&r.pull_air_pct>=12)
+    ||(r.iso!=null&&r.iso>=0.175);
+  if(!hasPower) return null;
+
+  return { score, reasons };
+}
+
+// ==================================================================
+//  RENDER SLEEPERS & DUE section
+// ==================================================================
+function renderSleepersDue(){
+  const el = document.getElementById('sleepers-due-strip');
+  if(!el||!S.allRows.length){ if(el) el.innerHTML=''; return; }
+
+  try{
+    // Find sleepers
+    const sleepers = S.allRows
+      .map(r=>({r, s:detectSleeper(r)}))
+      .filter(({s})=>s!=null)
+      .sort((a,b)=>b.s.score-a.s.score)
+      .slice(0,3);
+
+    // Find "due" players
+    const due = S.allRows
+      .map(r=>({r, d:detectDue(r)}))
+      .filter(({d})=>d!=null)
+      .sort((a,b)=>b.d.score-a.d.score)
+      .slice(0,3);
+
+    if(!sleepers.length&&!due.length){ el.innerHTML=''; return; }
+
+    const renderCard = (r, reasons, accentColor, icon, label, onclick) => {
+      const [,gc]=probGrade(r.prob);
+      const fdO=getFDOdds(r.name);
+      const tier=fdO?getEdgeTier(r.prob,fdO):null;
+      return`<div style="flex:1;min-width:0;border:1px solid ${accentColor}44;border-radius:10px;
+        padding:10px;background:${accentColor}08;cursor:pointer" onclick="${onclick}">
+        <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
+          <span style="font-size:1.1rem">${icon}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.72rem;font-weight:800;color:var(--t1);white-space:nowrap;
+              overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+            <div style="font-size:.60rem;color:var(--t4)">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:.85rem;font-weight:900;color:${gc}">${(r.prob*100).toFixed(1)}%</div>
+            ${tier&&tier.edge>=3?`<div style="font-size:.58rem;color:${accentColor};font-weight:700">${tier.tier}: +${tier.edge.toFixed(0)}%</div>`:''}
+          </div>
+        </div>
+        <div style="font-size:.62rem;color:${accentColor};margin-bottom:2px;font-weight:700">${label}</div>
+        ${reasons.slice(0,2).map(reason=>`
+          <div style="font-size:.60rem;color:var(--t4);padding:1px 0;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis">· ${reason}</div>
+        `).join('')}
+      </div>`;
+    };
+
+    let html = '';
+
+    if(sleepers.length){
+      html+=`<div style="font-size:.60rem;color:var(--t4);letter-spacing:.07em;
+        text-transform:uppercase;margin-bottom:6px">💤 Sleepers — Under the Radar</div>`;
+      html+=`<div style="display:flex;gap:8px;margin-bottom:10px">`;
+      html+=sleepers.map(({r,s})=>renderCard(
+        r, s.reasons, '#a78bfa', '💤',
+        `${s.reasons.length} reasons to consider`,
+        `showDetail('${r.id}')`
+      )).join('');
+      html+=`</div>`;
+    }
+
+    if(due.length){
+      html+=`<div style="font-size:.60rem;color:var(--t4);letter-spacing:.07em;
+        text-transform:uppercase;margin-bottom:6px">⏰ Due — Positive Regression Pending</div>`;
+      html+=`<div style="display:flex;gap:8px;margin-bottom:10px">`;
+      html+=due.map(({r,d})=>renderCard(
+        r, d.reasons, 'var(--amber)', '⏰',
+        `${d.reasons.length} regression signal${d.reasons.length>1?'s':''}`,
+        `showDetail('${r.id}')`
+      )).join('');
+      html+=`</div>`;
+    }
+
+    el.innerHTML=`<div style="border:1px solid var(--bdr);border-radius:12px;
+      padding:12px 14px;margin-bottom:10px;background:var(--bg2)">${html}</div>`;
+
+  }catch(e){
+    console.error('[renderSleepersDue]',e.message);
+    el.innerHTML='';
+  }
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -4018,6 +4272,7 @@ function renderSlate(){
 
   document.getElementById('hitter-list').innerHTML=bestBetHTML+rows.map(r=>renderHitterCard(r,multiGame)).join('');
   renderHRProjection();
+  renderSleepersDue();
   // Update best bets tab if open
   if(document.getElementById('page-picks')?.classList.contains('active')) renderBestBets();
 }
