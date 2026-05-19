@@ -1769,24 +1769,33 @@ function detectNegativeAngles(r){
 async function ensureLeaderboards(){
   if(_savB!==null) return; // already loaded
   console.log('Loading leaderboards via proxy...');
-  // Fire EVERYTHING in parallel — don't await individual maps sequentially
   const [savB, fgB, savP, fgP] = await Promise.all([
     getSavantBatters(), getFGBatters(), getSavantPitchers(), getFGPitchers()
   ]);
   [_savB,_fgB,_savP,_fgP] = [savB, fgB, savP, fgP];
-  const nSav=Object.keys(_savB).length, nFG=Object.keys(_fgB).length;
+  const nSav=Object.keys(_savB||{}).length, nFG=Object.keys(_fgB||{}).length;
   console.log(`Leaderboards ready — Savant:${nSav} FG:${nFG}`);
-  if(!nSav && !nFG) console.warn('Both leaderboards empty — falling back to MLB API stats');
+}
 
-  // Fire secondary leaderboards in background (don't block game loading)
-  Promise.all([
-    ensureFGPitcherMap(),
-    ensurePitcherWhiffMap(),
-    ensureBatterZoneMap(),
-    ensurePitcherZoneMap(),
-    ensurePlateDiscMap(),
-  ]).then(()=>console.log('Secondary leaderboards ready'))
-    .catch(e=>console.warn('Secondary leaderboards partial:',e.message));
+// Called AFTER game is loaded — secondary enrichment maps
+function fireSecondaryMaps(){
+  if(window._secondaryMapsFired) return;
+  window._secondaryMapsFired = true;
+  setTimeout(()=>{
+    console.log('[secondary] firing background maps...');
+    Promise.allSettled([
+      ensureFGPitcherMap(),
+      ensurePitcherWhiffMap(),
+      ensurePlateDiscMap(),
+    ]).then(()=>console.log('[secondary] FG/whiff/disc maps ready'));
+    // Zone maps fire even later — large CSVs
+    setTimeout(()=>{
+      Promise.allSettled([
+        ensureBatterZoneMap(),
+        ensurePitcherZoneMap(),
+      ]).then(()=>console.log('[secondary] zone maps ready'));
+    }, 5000);
+  }, 2000); // wait 2s after game load before firing
 }
 
 // Fetch a single player's season hitting stats from MLB Stats API
@@ -1910,8 +1919,8 @@ async function loadSelectedGames(){
   el.innerHTML='<div class="spinner"><div class="spin"></div>Loading games…</div>';
   loadFanDuelOdds(); // fire and forget
 
-  // Fire ALL leaderboards immediately in parallel
-  const leaderboardReady = ensureLeaderboards();
+  // Ensure core leaderboards are ready before loading game data
+  await ensureLeaderboards();
 
   const toLoad=[];
   for(const pk of S.selPks){
@@ -1963,6 +1972,7 @@ async function loadSelectedGames(){
 
   renderSlate();
   populateABSelect();
+  fireSecondaryMaps(); // fire secondary enrichment maps after players shown
 }
 
 async function getPitcherGameLog(pid){
