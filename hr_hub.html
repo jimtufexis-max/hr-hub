@@ -1800,8 +1800,23 @@ function fireSecondaryMaps(){
       Promise.allSettled([
         ensureBatterZoneMap(),
         ensurePitcherZoneMap(),
-      ]).then(()=>console.log('[secondary] zone maps ready'));
-    }, 5000);
+      ]).then(()=>{
+        console.log('[secondary] zone maps ready — re-computing zone matchups');
+        // Re-compute zone matchup for all rows now that maps are loaded
+        let zoneHits = 0;
+        for(const r of S.allRows||[]){
+          const batPid = r._batPid||r.id;
+          const spId   = r._spId;
+          if(batPid && spId){
+            const zm = calcZoneMatchup(batPid, spId, r.batHand);
+            if(zm){ r._zoneMatch = zm; zoneHits++; }
+          }
+        }
+        console.log(`[zone] enriched ${zoneHits} rows`);
+        // Re-render slate to show zone badges
+        if(S.allRows.length) renderSlate();
+      });
+    }, 3000);
   }, 2000); // wait 2s after game load before firing
 }
 
@@ -4850,6 +4865,12 @@ function renderWeather(wx,homeTeam){
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
+  // Re-compute zone matchup now that maps may have loaded
+  const batPid = r._batPid||r.id;
+  const spId   = r._spId;
+  if(batPid && spId && (_batterZoneMap||{})[String(batPid)]){
+    r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
+  }
   // Queue for auto-tracking when tapped (user showed interest)
   queueForAutoTrack([r]);
   showPage('detail');
