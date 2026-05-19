@@ -396,57 +396,109 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   <!-- INFO / METHODOLOGY PAGE -->
   <div id="page-info" class="page" style="padding:12px;overflow-y:auto">
 
+    <!-- How It Works -->
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">⚡ Probability Model</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--amber);padding:8px 10px;background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.9">
-        anchor = Bayesian blend(season, career, prior, barrel proxy, pull-air proxy)<br>
-        lo = logit(anchor)<br>
-        lo += platoon × 0.70 &nbsp;// handedness + splits + arsenal<br>
-        lo += pitcher × 0.80 &nbsp;// xFIP + barrel allowed + FB% + HR/FB<br>
-        lo += park/wx × 0.70 &nbsp;// park factor + wind + temp<br>
-        lo += momentum × 0.30 &nbsp;// L15 form (±6% max)<br>
-        lo += home/away × 0.35<br>
-        lo += lineup pos × 1.0 &nbsp;// PA multiplier<br>
-        lo += umpire × 0.50<br>
-        lo += stadium dims × 0.40 // pull hitter advantage<br>
-        lo += plate disc × 0.30 &nbsp;// zone contact + chase rate<br>
-        prob = clamp(sigmoid(lo), 0.5%, 22%)
+      <div class="slbl">⚡ How It Works</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.67rem;color:var(--amber);padding:10px;background:var(--bg3);border-radius:8px;margin-bottom:12px;line-height:1.7">
+        prob = sigmoid(logit(anchor) + Σ signals)<br>
+        <span style="color:var(--t4)">// log-odds — signals can't runaway-stack</span>
       </div>
-      <div style="font-size:.72rem;color:var(--t3);line-height:2.0">
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Anchor</b> — Bayesian blend of season HR rate, career rate, prior season, plus Statcast proxies (barrel% → HR at 35%, pull-air% → HR at 20%). Statcast proxies stabilize faster than actual HR rate — weighted more heavily for small samples (&lt;150 PA). Regresses to 3.5% MLB avg to prevent noise.</div>
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Platoon</b> — 3 layers: ① handedness prior (LHB vs RHP = +18%) ② player's actual split rate (50+ PA gate) ③ arsenal skill modifier (batter ISO vs SP's pitch mix vs league avg).</div>
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Pitcher</b> — Weighted blend: xFIP 35% (park+luck neutral) + Barrel% allowed 30% + FB rate 20% + HR/FB 15% + HR/9 10% (stabilization only). This centers the model on contact quality not noisy HR counts.</div>
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Park/Wx</b> — Handedness-adjusted park factor + wind direction/speed + temperature (every 10°F = ±2% HR rate). Wind out at 15+ mph is the single biggest weather signal.</div>
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Momentum</b> — L15 game log HR rate vs player's own baseline (not MLB avg). Capped at ±6% per expert recommendation — prevents chasing yesterday's HRs.</div>
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Zone Matchup</b> — Batter's top xwOBA zones (where they hit hardest) vs SP's most frequent zones × handedness-adjusted HR power zones. Gold = HR zone overlap = elite setup.</div>
-        <div><b style="color:var(--t2)">Model uses log-odds</b> — signals add in log-odds space preventing multiplicative runaway. Each signal weight reflects its empirical reliability. Total: 11 signals.</div>
+      <div style="display:flex;flex-direction:column">
+
+        <div style="display:flex;gap:10px;padding:8px 0">
+          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:var(--t2);font-family:'JetBrains Mono',monospace">Anchor</div>
+          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">Season + career + barrel/pull-air proxies. Bayesian shrunk to 3.5% MLB avg</div>
+        </div>
+        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
+          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:#90c0ff;font-family:'JetBrains Mono',monospace">Platoon ×0.70</div>
+          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">Handedness + actual split (50+ PA gate) + arsenal modifier</div>
+        </div>
+        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
+          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:#90c0ff;font-family:'JetBrains Mono',monospace">Pitcher ×0.80</div>
+          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">xFIP 35% · Barrel% allowed 30% · FB% 20% · HR/FB 15%</div>
+        </div>
+        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
+          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:#90c0ff;font-family:'JetBrains Mono',monospace">Park/Wx ×0.70</div>
+          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">Park factor (handedness-adj) + wind + temperature</div>
+        </div>
+        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
+          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:#90c0ff;font-family:'JetBrains Mono',monospace">Momentum ×0.30</div>
+          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">L15 vs player's own baseline · capped ±6%</div>
+        </div>
+        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
+          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:var(--t4);font-family:'JetBrains Mono',monospace">+ 6 more</div>
+          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">Home/away · lineup pos · umpire · stadium · plate disc · bullpen</div>
+        </div>
+
       </div>
     </div>
 
+    <!-- Signal Grades -->
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">📊 Signal Quality Guide</div>
-      <div style="font-size:.68rem;line-height:2.0;color:var(--t3)">
-        <div><span style="color:var(--green);font-weight:700">A-grade (high confidence):</span> Season HR rate, Barrel%, Pull-air%, xwOBA diff, Platoon handedness, xFIP, Barrel% allowed, Park factor, Wind direction</div>
-        <div><span style="color:var(--amber);font-weight:700">B-grade (useful):</span> Arsenal platoon adj, Player split rate (50+ PA), SP HR/FB, SP FB%, Home/away splits, Lineup position, Temperature, Stadium dimensions, Zone matchup</div>
-        <div><span style="color:var(--t4);font-weight:700">C-grade (marginal):</span> L15 momentum (±6% max), Umpire tendency, Plate discipline, Career vs SP (tiny sample), Bullpen quality</div>
+      <div class="slbl">📶 Signal Reliability</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px">
+
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.4);display:flex;align-items:center;justify-content:center;font-size:.70rem;font-weight:900;color:var(--green)">A</div>
+          <div style="font-size:.64rem;color:var(--t4);line-height:1.6;padding-top:3px">Season HR rate · Barrel% · Pull-air% · xwOBA diff · Platoon · xFIP · Barrel% allowed · Park factor · Wind</div>
+        </div>
+
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;background:rgba(240,165,0,.15);border:1px solid rgba(240,165,0,.4);display:flex;align-items:center;justify-content:center;font-size:.70rem;font-weight:900;color:var(--amber)">B</div>
+          <div style="font-size:.64rem;color:var(--t4);line-height:1.6;padding-top:3px">Arsenal platoon · Split rate · SP FB% · HR/FB · Home/away · Lineup pos · Temperature · Stadium · Zone matchup</div>
+        </div>
+
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;background:rgba(96,112,128,.15);border:1px solid rgba(96,112,128,.4);display:flex;align-items:center;justify-content:center;font-size:.70rem;font-weight:900;color:var(--t4)">C</div>
+          <div style="font-size:.64rem;color:var(--t4);line-height:1.6;padding-top:3px">Momentum ±6% · Umpire · Plate discipline · Bullpen quality</div>
+        </div>
+
       </div>
     </div>
 
+    <!-- Betting Rules -->
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">💰 Betting Framework</div>
-      <div style="font-size:.70rem;color:var(--t3);line-height:1.9">
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Edge Tiers:</b> S (+8%+) Max Bet · A (+5-8%) Strong · B (+2-5%) Lean · C (±2%) Pass · F (negative) Fade</div>
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Kelly Sizing:</b> Quarter-Kelly (conservative). If edge = 6% at +450 odds → bet ~2.1 units. Never risk more than 3 units on a single HR prop.</div>
-        <div style="margin-bottom:6px"><b style="color:var(--t2)">Rules:</b> Only bet A/S tier · Wait for lineup confirmation (3:30pm ET) · Max 3 HR props/day · Never bet &gt;40% PPD risk games</div>
-        <div><b style="color:var(--t2)">CLV:</b> Track Closing Line Value — if your model consistently beats the closing line, you have real edge that compounds over a full season.</div>
+      <div class="slbl">💰 Betting Rules</div>
+      <div style="display:flex;flex-direction:column;margin-top:4px">
+
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0">
+          <div style="font-size:.70rem;font-weight:800;color:#ffd700;min-width:44px">S tier</div>
+          <div style="font-size:.65rem;color:var(--t4)">+8%+ edge — Max Bet (¼ Kelly sizing)</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bg3)">
+          <div style="font-size:.70rem;font-weight:800;color:var(--green);min-width:44px">A tier</div>
+          <div style="font-size:.65rem;color:var(--t4)">+5–8% edge — Strong bet</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bg3)">
+          <div style="font-size:.70rem;font-weight:800;color:var(--amber);min-width:44px">B tier</div>
+          <div style="font-size:.65rem;color:var(--t4)">+2–5% edge — Small lean only</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bg3)">
+          <div style="font-size:.70rem;font-weight:800;color:var(--t4);min-width:44px">C / F</div>
+          <div style="font-size:.65rem;color:var(--t4)">Pass or Fade — no edge</div>
+        </div>
+
+        <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px;display:flex;flex-direction:column;gap:5px">
+          <div style="font-size:.65rem;color:var(--t4)">⏰ Wait for lineup confirmation — never bet before 3:30pm ET</div>
+          <div style="font-size:.65rem;color:var(--t4)">📋 Max 3 HR props per day</div>
+          <div style="font-size:.65rem;color:var(--t4)">☔ Skip games with &gt;40% postponement risk</div>
+          <div style="font-size:.65rem;color:var(--t4)">📈 Track CLV — beating the closing line = real long-term edge</div>
+        </div>
+
       </div>
     </div>
 
+    <!-- Tag Guide -->
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl" style="margin-bottom:8px">🏷️ Tag Guide</div>
-      <div style="font-size:.60rem;color:var(--t4);margin-bottom:10px"><span style="color:var(--green)">●</span> green = positive · <span style="color:var(--red)">●</span> red = fade · hover tag for details</div>
+      <div class="slbl" style="margin-bottom:6px">🏷️ Tag Guide</div>
+      <div style="font-size:.60rem;color:var(--t4);margin-bottom:10px">
+        <span style="color:var(--green)">●</span> positive &nbsp;&nbsp;
+        <span style="color:var(--red)">●</span> fade &nbsp;&nbsp;
+        hover for details
+      </div>
       <div id="tag-guide-grid"></div>
     </div>
+
     <div id="model-perf-card"></div>
     <div id="clv-stats-card"></div>
 
@@ -4060,8 +4112,30 @@ function calcZoneMatchup(batPid, spPid, batHand){
 //  ZONE HEATMAP RENDERER — mini 3x3 grid visual
 // ==================================================================
 function renderZoneHeatmap(batPid, spPid, batHand, size=28){
-  const batZones = (_batterZoneMap||{})[String(batPid)];
-  const spZones  = (_pitcherZoneMap||{})[String(spPid)];
+  // Get zone data — use estimated zones if real maps not loaded yet
+  let batZones = (_batterZoneMap||{})[String(batPid)];
+  let spZones  = (_pitcherZoneMap||{})[String(spPid)];
+
+  // Fallback: estimate from leaderboard data (same logic as calcZoneMatchup)
+  if(!batZones){
+    const savH = (_savB||{})[String(batPid)];
+    if(savH){
+      const pp = savH.pull_air_pct||savH.pull_pct||0;
+      batZones = batHand==='L'
+        ? {7:0.350+pp*0.002,4:0.320,1:0.300+pp*0.001,5:0.330,8:0.280,9:0.220,6:0.260,2:0.250,3:0.200}
+        : {9:0.350+pp*0.002,6:0.320,3:0.300+pp*0.001,5:0.330,8:0.280,7:0.220,4:0.260,2:0.250,1:0.200};
+    }
+  }
+  if(!spZones){
+    const savP = (_savP||{})[String(spPid)];
+    if(savP){
+      const gbp = savP.gb_percent||0;
+      spZones = gbp>50
+        ? {1:0.420,2:0.400,3:0.420,4:0.360,5:0.350,6:0.360,7:0.280,8:0.260,9:0.280}
+        : {7:0.420,8:0.400,9:0.420,4:0.360,5:0.350,6:0.360,1:0.280,2:0.260,3:0.280};
+    }
+  }
+
   if(!batZones && !spZones) return '';
 
   const hrZones = new Set(batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
@@ -4072,9 +4146,7 @@ function renderZoneHeatmap(batPid, spPid, batHand, size=28){
     Object.entries(spZones||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([z])=>parseInt(z))
   );
 
-  // Grid zones top-to-bottom, left-to-right (catcher's view)
   const grid = [[7,8,9],[4,5,6],[1,2,3]];
-  const cellSize = size;
 
   const cells = grid.map(row =>
     row.map(z => {
@@ -4082,23 +4154,26 @@ function renderZoneHeatmap(batPid, spPid, batHand, size=28){
       const spHot  = spSortedSet.has(z);
       const both   = batHot && spHot;
       const isHR   = hrZones.has(z);
-      const bg = both && isHR ? '#ffd700' :  // gold = HR zone overlap
-                 both         ? '#f0a500' :  // amber = overlap not HR zone
-                 batHot       ? '#22c95e' :  // green = batter hot
-                 spHot        ? '#ef4444' :  // red = pitcher goes here
-                                'var(--bg3)'; // neutral
+      const bg = both && isHR ? '#ffd700' :
+                 both         ? '#f0a500' :
+                 batHot       ? '#22c95e' :
+                 spHot        ? '#ef4444' :
+                                'var(--bg3)';
       const opacity = both ? '1' : batHot||spHot ? '0.85' : '0.3';
-      return `<div style="width:${cellSize}px;height:${cellSize}px;background:${bg};
+      return `<div style="width:${size}px;height:${size}px;background:${bg};
         opacity:${opacity};border-radius:3px;border:1px solid rgba(255,255,255,.08);
         display:flex;align-items:center;justify-content:center;
-        font-size:${cellSize*0.3}px;font-weight:700;color:rgba(0,0,0,.5)">
+        font-size:${size*0.3}px;font-weight:700;color:rgba(0,0,0,.6)">
         ${both&&isHR?'★':both?'●':''}
       </div>`;
     }).join('')
   ).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
 
+  const isEstimated = !(_batterZoneMap||{})[String(batPid)] || !(_pitcherZoneMap||{})[String(spPid)];
+
   return `<div style="display:inline-block">
     <div style="display:flex;flex-direction:column;gap:2px">${cells}</div>
+    ${isEstimated?`<div style="font-size:.54rem;color:var(--t4);margin-top:3px;text-align:center">est.</div>`:''}
   </div>`;
 }
 
@@ -4398,7 +4473,7 @@ async function loadGame(g){
         _bvp:         batterStats.batVsPitch || null,
         _spId:        spId,
         _batPid:      pid,
-        _zoneMatch:   calcZoneMatchup(pid, spId, batterStats.batHand),
+        _zoneMatch:   null, // computed fresh in showDetail
         l30hr, l30pa,
         szHR, szPA,
         l15hr,
@@ -4801,12 +4876,14 @@ function renderHitterCard(r,showGame){
       >${edgeData.edge>=0?'+':''}${edgeData.edge}% edge</span>`
     : '';
 
-  const zoneBadge = r._zoneMatch && r._zoneMatch.hotOverlap && r._zoneMatch.hotOverlap.length >= 1
+  // Compute zone matchup fresh using fallback estimation if needed
+  const _zm = r._zoneMatch || calcZoneMatchup(r._batPid||r.id, r._spId, r.batHand);
+  const zoneBadge = _zm && _zm.hotOverlap && _zm.hotOverlap.length >= 1
     ? `<span style="font-size:.55rem;padding:1px 5px;border-radius:4px;margin-left:3px;
-        background:${r._zoneMatch.hotOverlap.length>=2?'rgba(255,215,0,.3)':'rgba(34,201,94,.2)'};
-        color:${r._zoneMatch.hotOverlap.length>=2?'#ffd700':'var(--green)'}"
-        title="Zone overlap: ${(r._zoneMatch.zoneNames||[]).join(', ')}">
-        ${r._zoneMatch.hotOverlap.length>=2?'🎯 Zone Dom':'📍 Zone'}</span>`
+        background:${_zm.hotOverlap.length>=2?'rgba(255,215,0,.3)':'rgba(34,201,94,.2)'};
+        color:${_zm.hotOverlap.length>=2?'#ffd700':'var(--green)'}"
+        title="Zone overlap: ${(_zm.zoneNames||[]).join(', ')}">
+        ${_zm.hotOverlap.length>=2?'🎯 Zone Dom':'📍 Zone'}</span>`
     : '';
 
   // Angles — card shows ONLY positive signals (tier 1-2, no (-) labels)
@@ -4922,10 +4999,10 @@ function renderWeather(wx,homeTeam){
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
-  // Re-compute zone matchup now that maps may have loaded
+  // Always recompute zone matchup fresh — uses fallback estimation if maps not loaded
   const batPid = r._batPid||r.id;
   const spId   = r._spId;
-  if(batPid && spId && (_batterZoneMap||{})[String(batPid)]){
+  if(batPid && spId){
     r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
   }
   // Queue for auto-tracking when tapped (user showed interest)
