@@ -3787,6 +3787,203 @@ async function getSPVeloTrend(spId){
 }
 
 
+// ==================================================================
+//  ZONE DATA — Savant attack zone stats
+//  Zones: 1-9 (strike zone grid), 11-14 (edge), 21-24 (chase)
+//  Heart = zones 1-9 inner, Shadow = edge, Chase/Waste = outside
+//
+//  We fetch two things:
+//  1. Batter's xwOBA / HR rate by zone (where they CRUSH it)
+//  2. Pitcher's pitch% by zone (where they LIVE)
+//
+//  Overlap = batter's best zone matches pitcher's most frequent zone
+// ==================================================================
+
+// Zone layout (Statcast 3x3 grid from catcher's view):
+//  7 | 8 | 9
+//  4 | 5 | 6
+//  1 | 2 | 3
+// Shadow: 11(TL) 12(TR) 13(BL) 14(BR)
+// Chase: 21-24, Waste: 31-34
+
+const ZONE_LABELS = {
+  1:'Bot-In', 2:'Bot-Mid', 3:'Bot-Out',
+  4:'Mid-In', 5:'Heart',   6:'Mid-Out',
+  7:'Top-In', 8:'Top-Mid', 9:'Top-Out',
+  11:'Shad-TL', 12:'Shad-TR', 13:'Shad-BL', 14:'Shad-BR',
+};
+
+// HR-friendly zones (inner/heart where pull-power thrives)
+// LHB pulls to RF (left side of catcher view = zones 7,4,1 = inner)
+// RHB pulls to LF (right side = zones 9,6,3 = inner)
+const HR_ZONES_LHB = [7,4,1,8,5]; // inner + heart
+const HR_ZONES_RHB = [9,6,3,8,5]; // inner + heart
+
+let _batterZoneMap = null;
+async function ensureBatterZoneMap(){
+  if(_batterZoneMap !== null) return;
+  _batterZoneMap = {};
+  try{
+    // Savant batter zone data — xwOBA and HR by zone
+    const url = `https://baseballsavant.mlb.com/leaderboard/zone-stat?stat=xwoba&type=batter&year=${SEASON}&min=100&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`zone-stat ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    if(!rows.length) throw new Error('empty zone data');
+    const s = rows[0];
+    const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
+    console.log('[BatterZone] cols:', Object.keys(s).slice(0,15));
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      // Extract xwOBA per zone (z1-z9 for in-zone, z11-z14 for edge)
+      const zones = {};
+      for(let z=1;z<=9;z++){
+        const v = parseFloat(row[`z${z}`]||row[`zone_${z}`]||0)||null;
+        if(v!=null) zones[z] = v;
+      }
+      for(const z of [11,12,13,14]){
+        const v = parseFloat(row[`z${z}`]||row[`zone_${z}`]||0)||null;
+        if(v!=null) zones[z] = v;
+      }
+      if(Object.keys(zones).length) _batterZoneMap[pid] = zones;
+    }
+    console.log('[BatterZone] loaded', Object.keys(_batterZoneMap).length, 'batters');
+  }catch(e){ console.warn('[BatterZone]:', e.message); _batterZoneMap = {}; }
+}
+
+let _pitcherZoneMap = null;
+async function ensurePitcherZoneMap(){
+  if(_pitcherZoneMap !== null) return;
+  _pitcherZoneMap = {};
+  try{
+    const url = `https://baseballsavant.mlb.com/leaderboard/zone-stat?stat=xwoba&type=pitcher&year=${SEASON}&min=50&csv=true`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`pitcher-zone ${r.status}`);
+    const rows = parseCSVText(await r.text());
+    if(!rows.length) throw new Error('empty pitcher zone data');
+    const s = rows[0];
+    const idC = ['player_id','pitcher','id'].find(c=>s[c]!=null);
+    for(const row of rows){
+      const pid = String(row[idC]||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      const zones = {};
+      for(let z=1;z<=9;z++){
+        const v = parseFloat(row[`z${z}`]||row[`zone_${z}`]||0)||null;
+        if(v!=null) zones[z] = v;
+      }
+      for(const z of [11,12,13,14]){
+        const v = parseFloat(row[`z${z}`]||row[`zone_${z}`]||0)||null;
+        if(v!=null) zones[z] = v;
+      }
+      if(Object.keys(zones).length) _pitcherZoneMap[pid] = zones;
+    }
+    console.log('[PitcherZone] loaded', Object.keys(_pitcherZoneMap).length, 'pitchers');
+  }catch(e){ console.warn('[PitcherZone]:', e.message); _pitcherZoneMap = {}; }
+}
+
+// ==================================================================
+//  ZONE MATCHUP SCORER
+//  Returns a match score and the overlapping zones
+// ==================================================================
+function calcZoneMatchup(batPid, spPid, batHand){
+  const batZones = (_batterZoneMap||{})[String(batPid)];
+  const spZones  = (_pitcherZoneMap||{})[String(spPid)];
+  if(!batZones || !spZones) return null;
+
+  // Find batter's top zones (where xwOBA is highest)
+  const batSorted = Object.entries(batZones)
+    .filter(([z])=>parseInt(z)<=14) // in-zone only
+    .sort((a,b)=>b[1]-a[1]);
+  const batTop3 = new Set(batSorted.slice(0,3).map(([z])=>parseInt(z)));
+
+  // Find pitcher's most-frequented zones (where they locate most)
+  // For pitcher zone data xwOBA = how much damage they allow there
+  // High xwOBA = pitcher goes there AND batter crushes it
+  const spSorted = Object.entries(spZones)
+    .filter(([z])=>parseInt(z)<=14)
+    .sort((a,b)=>b[1]-a[1]);
+  const spTop3 = new Set(spSorted.slice(0,3).map(([z])=>parseInt(z)));
+
+  // HR power zones for this batter's handedness
+  const hrZones = new Set(batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
+
+  // Overlap: zones where BOTH batter crushes AND pitcher goes AND it's a power zone
+  const overlap = [...batTop3].filter(z => spTop3.has(z));
+  const hotOverlap = overlap.filter(z => hrZones.has(z));
+
+  // Batter's best zone xwOBA
+  const batBestXwOBA = batSorted[0]?.[1] || 0;
+  // Average xwOBA in overlapping zones
+  const overlapXwOBA = overlap.length
+    ? overlap.reduce((s,z)=>s+(batZones[z]||0),0)/overlap.length
+    : 0;
+
+  const score = hotOverlap.length * 3 + overlap.length;
+  const zoneNames = hotOverlap.map(z=>ZONE_LABELS[z]||`Z${z}`);
+
+  if(score === 0) return null;
+
+  return {
+    score,
+    overlap,
+    hotOverlap,
+    zoneNames,
+    overlapXwOBA: Math.round(overlapXwOBA*1000)/1000,
+    batBestXwOBA,
+    label: hotOverlap.length>=2 ? 'Zone Domination' :
+           hotOverlap.length===1 ? 'Zone Overlap' :
+           'Soft Zone Match',
+  };
+}
+
+// ==================================================================
+//  ZONE HEATMAP RENDERER — mini 3x3 grid visual
+// ==================================================================
+function renderZoneHeatmap(batPid, spPid, batHand, size=28){
+  const batZones = (_batterZoneMap||{})[String(batPid)];
+  const spZones  = (_pitcherZoneMap||{})[String(spPid)];
+  if(!batZones && !spZones) return '';
+
+  const hrZones = new Set(batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
+  const batSortedSet = new Set(
+    Object.entries(batZones||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([z])=>parseInt(z))
+  );
+  const spSortedSet = new Set(
+    Object.entries(spZones||{}).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([z])=>parseInt(z))
+  );
+
+  // Grid zones top-to-bottom, left-to-right (catcher's view)
+  const grid = [[7,8,9],[4,5,6],[1,2,3]];
+  const cellSize = size;
+
+  const cells = grid.map(row =>
+    row.map(z => {
+      const batHot = batSortedSet.has(z);
+      const spHot  = spSortedSet.has(z);
+      const both   = batHot && spHot;
+      const isHR   = hrZones.has(z);
+      const bg = both && isHR ? '#ffd700' :  // gold = HR zone overlap
+                 both         ? '#f0a500' :  // amber = overlap not HR zone
+                 batHot       ? '#22c95e' :  // green = batter hot
+                 spHot        ? '#ef4444' :  // red = pitcher goes here
+                                'var(--bg3)'; // neutral
+      const opacity = both ? '1' : batHot||spHot ? '0.85' : '0.3';
+      return `<div style="width:${cellSize}px;height:${cellSize}px;background:${bg};
+        opacity:${opacity};border-radius:3px;border:1px solid rgba(255,255,255,.08);
+        display:flex;align-items:center;justify-content:center;
+        font-size:${cellSize*0.3}px;font-weight:700;color:rgba(0,0,0,.5)">
+        ${both&&isHR?'★':both?'●':''}
+      </div>`;
+    }).join('')
+  ).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
+
+  return `<div style="display:inline-block">
+    <div style="display:flex;flex-direction:column;gap:2px">${cells}</div>
+  </div>`;
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -4051,6 +4248,8 @@ async function loadGame(g){
         fb_pct:       batterStats.fb_pct,
         _bvp:         batterStats.batVsPitch || null,
         _spId:        spId,
+        _batPid:      pid,
+        _zoneMatch:   calcZoneMatchup(pid, spId, batterStats.batHand),
         l30hr, l30pa,
         szHR, szPA,
         l15hr,
@@ -4473,7 +4672,7 @@ function renderHitterCard(r,showGame){
   return`<div class="hitter-card grade-${gCls}" onclick="showDetail('${r.id}')">
     <div class="hc-row1">
       <div style="flex:1;min-width:0">
-        <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}${(()=>{
+        <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}${zoneBadge}${(()=>{
           const today=ds();const stored=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
           const already=stored.find(x=>x.id===r.id&&x.date===today);
           if(already&&already.actual!==undefined) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.2);color:var(--green);margin-left:4px">${already.actual>0?'✅ HR':'❌ No HR'}</span>`;
@@ -4737,7 +4936,11 @@ function renderDetail(r){
           </div>`;
         }).join('');
 
-        const adjLine = pit._arsenalMult!=null && pit._arsenalMult!==1.0
+        // Zone heatmap
+      const zoneHeatmap = renderZoneHeatmap(r._batPid, r._spId, r.batHand, 24);
+      const zoneMatch = r._zoneMatch;
+
+      const adjLine = pit._arsenalMult!=null && pit._arsenalMult!==1.0
           ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bg3);font-size:.68rem;color:var(--t4)">
               Arsenal adjustment: <b style="color:${pit._arsenalMult>=1?'var(--green)':'var(--red)'}">${pit._arsenalMult>=1?'+':''}${((pit._arsenalMult-1)*100).toFixed(0)}%</b>
               ${pit._arsenalDesc?`<span> — ${pit._arsenalDesc}</span>`:''}
