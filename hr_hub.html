@@ -393,6 +393,44 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   </div>
 
 
+  <!-- PITCHER LOG PAGE -->
+  <div id="page-pl" class="page">
+    <div class="slbl">⚾ Pitcher Log</div>
+    <div class="card" style="margin-bottom:10px">
+      <div class="form-group">
+        <label>Pitcher</label>
+        <select id="pl-pitcher" onchange="loadPitcherLog()"></select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Last N BFs</label>
+          <select id="pl-count" onchange="loadPitcherLog()">
+            <option value="15">15</option>
+            <option value="30" selected>30</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Batter Hand</label>
+          <select id="pl-hand" onchange="loadPitcherLog()">
+            <option value="">Both</option>
+            <option value="R">RHB</option>
+            <option value="L">LHB</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:0;margin-top:8px">
+        <label>Pitch Type</label>
+        <select id="pl-pitch-type" onchange="loadPitcherLog()">
+          <option value="">All Pitches</option>
+        </select>
+      </div>
+    </div>
+    <div id="pl-summary" style="margin-bottom:10px"></div>
+    <div id="pl-list"></div>
+  </div>
+
   <!-- INFO / METHODOLOGY PAGE -->
   <div id="page-info" class="page" style="padding:12px;overflow-y:auto">
 
@@ -528,6 +566,10 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
     AB Log
   </button>
+  <button class="nav-btn" onclick="showPage('pl')" id="nav-pl">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10"/></svg>
+    Pitch Log
+  </button>
   <button class="nav-btn" onclick="showPage('discover')" id="nav-discover">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     Discover
@@ -594,6 +636,7 @@ function showPage(name){
   document.getElementById(`page-${name}`).classList.add('active');
   document.getElementById(`nav-${name}`)?.classList.add('active');
   if(name==='ab') populateABSelect();
+  if(name==='pl') populatePitcherSelect();
   if(name==='parlay') renderParlay();
   if(name==='picks') renderBestBets();
   if(name==='discover') renderDiscover();
@@ -5534,6 +5577,159 @@ function calcParlayEV(){
 // ==================================================================
 //  AB EXPLORER — RUDEBETS-STYLE STATCAST TABLE
 // ==================================================================
+// ==================================================================
+//  PITCHER LOG
+// ==================================================================
+function populatePitcherSelect(){
+  const sel = document.getElementById('pl-pitcher');
+  if(!sel) return;
+  if(!S.allRows.length){
+    const el=document.getElementById('pl-list');
+    if(el) el.innerHTML='<div class="empty">Load a game from the Slate tab first</div>';
+    return;
+  }
+  const seen=new Set(), pitchers=[];
+  for(const r of S.allRows){
+    const key=`${r._spId}`;
+    if(!seen.has(key)&&r._spId){ seen.add(key); pitchers.push({id:r._spId,name:r.spNm||`SP ${r._spId}`,game:r.game}); }
+  }
+  if(!pitchers.length) return;
+  sel.innerHTML=pitchers.map(p=>`<option value="${p.id}">${p.name} (${p.game||''})</option>`).join('');
+  populatePLPitchTypes();
+  loadPitcherLog();
+}
+
+async function populatePLPitchTypes(){
+  const sel=document.getElementById('pl-pitch-type'); if(!sel) return;
+  const pid=document.getElementById('pl-pitcher')?.value; if(!pid) return;
+  try{
+    const rows=await fetchPitcherLog(pid,200,'','',true);
+    const types=[...new Set(rows.map(r=>r.pt).filter(Boolean))].sort();
+    sel.innerHTML='<option value="">All Pitches</option>'+types.map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join('');
+  }catch(e){ console.warn('pl pitch types:',e.message); }
+}
+
+async function loadPitcherLog(){
+  const pid=document.getElementById('pl-pitcher')?.value;
+  const n=parseInt(document.getElementById('pl-count')?.value)||30;
+  const hand=document.getElementById('pl-hand')?.value||'';
+  const pt=document.getElementById('pl-pitch-type')?.value||'';
+  const listEl=document.getElementById('pl-list');
+  if(!pid||!listEl) return;
+  listEl.innerHTML='<div class="spinner"><div class="spin"></div>Loading pitcher data…</div>';
+  try{
+    const rows=await fetchPitcherLog(pid,n,hand,pt);
+    renderPitcherLog(rows);
+  }catch(e){
+    listEl.innerHTML=`<div class="card" style="color:var(--red)">${e.message}</div>`;
+  }
+}
+
+async function fetchPitcherLog(pid,n,batterHand,pitchType,forOptions=false){
+  if(!pid) return [];
+  for(const s of [SEASON,SEASON-1]){
+    try{
+      const url=`https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfGT=R%7C&hfSea=${s}%7C&player_type=pitcher&pitchers_lookup%5B%5D=${pid}&type=details&group_by=name-date&min_pitches=0&min_results=0&min_pas=0&sort_col=pitches&sort_order=desc&`;
+      const r=await fetch(PROXY+encodeURIComponent(url));
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const txt2=await r.text();
+      const lines=txt2.split('\n').filter(l=>l.trim());
+      if(lines.length<2) continue;
+      const rows=parseCSVText(txt2);
+      const AB_EVENTS=new Set(['single','double','triple','home_run','field_out','grounded_into_double_play','strikeout','strikeout_double_play','force_out','field_error','fielders_choice','fielders_choice_out','double_play','sac_fly','sac_bunt','walk','hit_by_pitch','intent_walk']);
+      let filtered=rows.filter(r=>AB_EVENTS.has((r.events||'').toLowerCase().trim()));
+      if(batterHand) filtered=filtered.filter(r=>r.stand===batterHand);
+      if(pitchType)  filtered=filtered.filter(r=>String(r.pitch_type||'').toUpperCase()===pitchType);
+      filtered.sort((a,b)=>new Date(b.game_date)-new Date(a.game_date));
+      const subset=filtered.slice(0,forOptions?200:n);
+      // Resolve batter names
+      const bMap={};
+      const bIds=[...new Set(subset.map(r=>String(r.batter||'').replace(/\.0$/,'')).filter(id=>id&&/^\d+$/.test(id)))];
+      if(bIds.length){
+        await Promise.allSettled(bIds.slice(0,40).map(async id=>{
+          if(_playerCache[`person_${id}`]){bMap[id]=_playerCache[`person_${id}`];return;}
+          try{const d=await fetchJSON(`${MLB}/people/${id}`);const nm=d.people?.[0]?.fullName||null;if(nm){bMap[id]=nm;_playerCache[`person_${id}`]=nm;}}catch{}
+        }));
+      }
+      const PCLR={FF:'#dc2626',SI:'#b91c1c',FC:'#ea580c',SL:'#2563eb',ST:'#1d4ed8',CU:'#7c3aed',CH:'#16a34a',FS:'#15803d',KC:'#6d28d9',SV:'#0891b2'};
+      const out=subset.map(row=>{
+        const ev=parseFloat(row.launch_speed),la=parseFloat(row.launch_angle),dist=parseFloat(row.hit_distance_sc);
+        const ptCode=String(row.pitch_type||'').toUpperCase();
+        const eventRaw=String(row.events||'').toLowerCase();
+        let isBrl=false;
+        if(ev>=98){const mx=Math.min(50,30+(ev-98));const mn=Math.max(8,26-(ev-98));if(la>=mn&&la<=mx)isBrl=true;}
+        const bid=String(row.batter||'').replace(/\.0$/,'');
+        return{date:row.game_date||'--',batter:bMap[bid]||bid||'--',hand:row.stand||'',
+          pt:ptCode,ptNm:PITCH_NAMES[ptCode]||ptCode||'--',ptClr:PCLR[ptCode]||'#607080',
+          velo:isNaN(parseFloat(row.release_speed))?null:Math.round(parseFloat(row.release_speed)*10)/10,
+          ev:isNaN(ev)?null:Math.round(ev*10)/10,la:isNaN(la)?null:Math.round(la*10)/10,
+          dist:isNaN(dist)?null:Math.round(dist),isBrl,
+          result:eventRaw.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())||'--',
+          isHR:eventRaw==='home_run'};
+      });
+      if(out.length) return out;
+    }catch(e){ console.warn(`[PL] s=${s}:`,e.message); }
+  }
+  return [];
+}
+
+function renderPitcherLog(rows){
+  const listEl=document.getElementById('pl-list');
+  const sumEl=document.getElementById('pl-summary');
+  if(!rows.length){
+    listEl.innerHTML='<div class="empty">No Statcast data found</div>';
+    if(sumEl) sumEl.innerHTML=''; return;
+  }
+  const hrs=rows.filter(r=>r.isHR).length;
+  const brlls=rows.filter(r=>r.isBrl).length;
+  const evs=rows.map(r=>r.ev).filter(v=>v!=null&&v>0);
+  const avgEV=evs.length?Math.round(evs.reduce((a,b)=>a+b)/evs.length*10)/10:null;
+  const velos=rows.map(r=>r.velo).filter(v=>v!=null&&v>0);
+  const avgVelo=velos.length?Math.round(velos.reduce((a,b)=>a+b)/velos.length*10)/10:null;
+
+  if(sumEl) sumEl.innerHTML=`<div class="card" style="display:flex;gap:0">
+    ${[['BFs',rows.length,null],['HRs',hrs,hrs>=2?'var(--red)':null],['Barrels',brlls,brlls>=3?'var(--red)':null],
+       ['Avg EV',avgEV?avgEV+'mph':null,avgEV>=92?'var(--red)':avgEV<=86?'var(--green)':null],
+       ['Avg Velo',avgVelo?avgVelo+'mph':null,null]]
+      .filter(([,v])=>v!=null)
+      .map(([l,v,c])=>`<div style="flex:1;text-align:center;padding:8px 4px;border-right:1px solid var(--bg3)">
+        <div style="font-size:.85rem;font-weight:800;color:${c||'var(--t1)'}">${v}</div>
+        <div style="font-size:.60rem;color:var(--t4)">${l}</div></div>`).join('')}
+  </div>`;
+
+  listEl.innerHTML=`<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table style="width:100%;border-collapse:collapse;font-size:.72rem">
+      <thead><tr style="border-bottom:2px solid var(--bg3);color:var(--t4);font-size:.60rem;text-transform:uppercase;letter-spacing:.04em">
+        <th style="padding:8px 6px;text-align:left;font-weight:600">DATE</th>
+        <th style="padding:8px 6px;text-align:left;font-weight:600">BATTER</th>
+        <th style="padding:8px 6px;text-align:left;font-weight:600">HND</th>
+        <th style="padding:8px 6px;text-align:left;font-weight:600">PITCH</th>
+        <th style="padding:8px 6px;text-align:right;font-weight:600">VELO</th>
+        <th style="padding:8px 6px;text-align:right;font-weight:600">EV</th>
+        <th style="padding:8px 6px;text-align:right;font-weight:600">LA</th>
+        <th style="padding:8px 6px;text-align:right;font-weight:600">DIST</th>
+        <th style="padding:8px 6px;text-align:left;font-weight:600">RESULT</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((r,i)=>`<tr style="border-bottom:1px solid var(--bg3);background:${r.isHR?'rgba(224,80,74,.10)':r.isBrl?'rgba(240,165,0,.06)':i%2===0?'transparent':'rgba(255,255,255,.01)'}">
+          <td style="padding:7px 6px;color:var(--t4);white-space:nowrap">${r.date}</td>
+          <td style="padding:7px 6px;color:var(--t2);max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.batter}</td>
+          <td style="padding:7px 6px;color:var(--t4)">${r.hand}</td>
+          <td style="padding:7px 6px;font-weight:700;color:${r.ptClr}">${r.ptNm}</td>
+          <td style="padding:7px 6px;text-align:right;color:var(--t3)">${r.velo!=null?r.velo:'--'}</td>
+          <td style="padding:7px 6px;text-align:right;color:${r.ev>=98?'var(--red)':r.ev>=95?'var(--amber)':'var(--t3)'};font-weight:${r.ev>=95?700:400}">${r.ev!=null?r.ev:'--'}</td>
+          <td style="padding:7px 6px;text-align:right;color:var(--t3)">${r.la!=null?r.la:'--'}</td>
+          <td style="padding:7px 6px;text-align:right;color:var(--t3)">${r.dist!=null?r.dist:'--'}</td>
+          <td style="padding:7px 6px;color:${r.isHR?'var(--red)':r.result.toLowerCase().includes('strikeout')?'var(--green)':'var(--t3)'};font-weight:${r.isHR?700:400};white-space:nowrap">
+            ${r.isBrl?'🔥 ':r.isHR?'💥 ':''}${r.result}
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+
 function populateABSelect(){
   const sel=document.getElementById('ab-batter');
   if(!S.allRows.length){
