@@ -1152,7 +1152,7 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
 
   const prob=clamp(sigmoid(lo),0.005,0.22); // per-PA: elite best matchup ~15-18%
   return{prob,anchor,platoon,pitcher,parkwx,momentum,
-         homeAwayMult,paMultiplier,umpMult,hvhMult,teamMult};
+         homeAwayMult,paMultiplier,umpMult,hvhMult};
 }
 
 
