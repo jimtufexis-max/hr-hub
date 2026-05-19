@@ -380,6 +380,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         </div>
       </div>
     </div>
+    <div id="ab-sp-info" style="margin-bottom:8px"></div>
     <div id="ab-summary" style="margin-bottom:10px"></div>
     <div id="ab-list"></div>
   </div>
@@ -3432,9 +3433,8 @@ function detectSleeper(r){
     || (r.iso!=null&&r.iso>=0.185);
   if(!hasPower) return null;
 
-  // Must NOT be a household name — if prob is very high they're already priced in
-  // Sleepers are mid-tier probability (4-9% per PA)
-  if(r.prob < 0.035 || r.prob > 0.09) return null;
+  // Sleepers: mid-tier probability — not the obvious picks
+  if(r.prob < 0.025 || r.prob > 0.10) return null;
 
   // Check for favorable matchup TODAY
   if(r.platoon>=1.12){
@@ -3487,7 +3487,7 @@ function detectSleeper(r){
   }
 
   // Minimum score to qualify
-  if(score < 5) return null;
+  if(score < 4) return null;
   if(reasons.length < 2) return null;
 
   return { score, reasons, fdOdds };
@@ -3511,12 +3511,11 @@ function detectDue(r){
   if((r.szPA||0) < 50) return null;
 
   // Core "due" signal: xwOBA > wOBA (hitting ball well, results haven't come)
-  if(r.xwobaDiff!=null&&r.xwobaDiff>=0.025){
+  if(r.xwobaDiff!=null&&r.xwobaDiff>=0.020){
     score+=3;
     const pts=Math.round(r.xwobaDiff*1000);
     reasons.push(`xwOBA ${r.xwoba?.toFixed(3)} vs actual wOBA ${r.woba?.toFixed(3)} (+${pts}pts overdue)`);
-  } else if(r.xwobaDiff==null||r.xwobaDiff<0.010){
-    // Not clearly unlucky — don't flag as "due"
+  } else if(r.xwobaDiff==null||r.xwobaDiff<0.015){
     return null;
   }
 
@@ -3554,7 +3553,7 @@ function detectDue(r){
   }
 
   // Minimum score and reasons
-  if(score<3||reasons.length<1) return null;
+  if(score<2||reasons.length<1) return null;
 
   // Must have some power base
   const hasPower=(r.barrel_pct!=null&&r.barrel_pct>=8)
@@ -4899,6 +4898,25 @@ async function loadABLog(){
     const rows=await fetchABLog(pid,n,arm,pitchType);
     S.abRows=rows;
     await populatePitchTypeFilter(pid,arm,pitchType);
+
+    // Show SP info above the table
+    const spInfoEl=document.getElementById('ab-sp-info');
+    if(spInfoEl){
+      const playerRow=S.allRows.find(r=>String(r.id)===String(pid));
+      const spArsenal=playerRow?._pitcherStats?.arsenal;
+      const spNm=playerRow?.spNm;
+      const oppHand=playerRow?.oppHand;
+      if(spNm&&spArsenal?.mix){
+        const topPitches=Object.entries(spArsenal.mix)
+          .filter(([,p])=>p>=8).sort((a,b)=>b[1]-a[1]).slice(0,4);
+        spInfoEl.innerHTML=`<div style="background:var(--bg3);border-radius:8px;padding:8px 12px;
+          font-size:.68rem;color:var(--t3)">
+          <b style="color:var(--t2)">${spNm} (${oppHand||'?'}HP)</b> · Today's arsenal:
+          ${topPitches.map(([pt,pct])=>`<span style="color:var(--amber)">${PITCH_NAMES[pt]||pt}</span> ${pct.toFixed(0)}%`).join(' · ')}
+        </div>`;
+      } else { spInfoEl.innerHTML=''; }
+    }
+
     renderABLog(rows);
   }catch(e){
     console.error('loadABLog error',e);
@@ -4915,14 +4933,48 @@ async function populatePitchTypeFilter(pid,arm,selected){
 
   try{
     sel.dataset.loading='1';
+
+    // Find today's SP arsenal for this batter
+    const playerRow=S.allRows.find(r=>String(r.id)===String(pid));
+    const spArsenal=playerRow?._pitcherStats?.arsenal;
+    let spPitchTypes=[];
+    if(spArsenal?.mix){
+      // Get SP's top pitch types sorted by usage
+      spPitchTypes=Object.entries(spArsenal.mix)
+        .filter(([,pct])=>pct>=8)
+        .sort((a,b)=>b[1]-a[1])
+        .map(([pt])=>pt);
+    }
+
+    // Also get pitch types from batter's recent history
     const optionRows=await fetchABLog(pid,100,arm,'',true);
-    const types=[...new Set(optionRows.map(r=>r.pt).filter(Boolean))].sort();
+    const historyTypes=[...new Set(optionRows.map(r=>r.pt).filter(Boolean))];
+
+    // Merge: SP pitches first (most relevant), then rest from history
+    const allTypes=[...new Set([...spPitchTypes,...historyTypes.sort()])];
 
     const cur=selected || sel.value || '';
     sel.innerHTML='<option value="">All Pitches</option>' +
-      types.map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join('');
+      (spPitchTypes.length?`<optgroup label="Today's SP pitches">` +
+        spPitchTypes.filter(t=>historyTypes.includes(t))
+          .map(t=>{
+            const pct=spArsenal.mix[t]||0;
+            return`<option value="${t}">${PITCH_NAMES[t]||t} (SP throws ${pct.toFixed(0)}%)</option>`;
+          }).join('') +
+        `</optgroup><optgroup label="Other pitches">`+
+        historyTypes.filter(t=>!spPitchTypes.includes(t))
+          .map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join('')+
+        `</optgroup>`
+      : allTypes.map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join(''));
 
-    if(cur && types.includes(cur)) sel.value=cur;
+    // Auto-select SP's primary pitch if no selection
+    if(!cur && spPitchTypes.length && historyTypes.includes(spPitchTypes[0])){
+      sel.value=spPitchTypes[0];
+      // Trigger reload with primary pitch pre-selected
+      setTimeout(()=>loadABLog(),0);
+    } else if(cur && allTypes.includes(cur)){
+      sel.value=cur;
+    }
   }catch(e){
     console.warn('populate pitch types failed:',e.message);
   }finally{
@@ -5060,10 +5112,14 @@ function titleCase(v){
 
 function renderABLog(rows){
   if(!rows.length){
-    document.getElementById('ab-list').innerHTML='<div class="empty">No Statcast batted-ball data found. Check that your Cloudflare Worker is deployed and the PROXY URL is correct.</div>';
+    document.getElementById('ab-list').innerHTML='<div class="empty">No Statcast batted-ball data found.</div>';
     document.getElementById('ab-summary').innerHTML='';
     return;
   }
+
+  // Get selected player's row for extra stats
+  const pid = document.getElementById('ab-batter')?.value;
+  const playerRow = S.allRows.find(x=>String(x.id)===String(pid))||null;
 
   const isStatcast=rows[0]?.source==='statcast';
   const bipRows=rows.filter(r=>r.ev!=null&&!isNaN(r.ev));
@@ -5096,15 +5152,12 @@ function renderABLog(rows){
         ${metric('PU%',pct(pu)+'%')}
         ${metric('HR/FB%',pctDen(hr,fbDenom)+'%',pctDen(hr,fbDenom)>=20)}
         ${metric('Hard Hit%',pct(hard)+'%',pct(hard)>=45)}
-      ${r.swingSpeed!=null?metric('Bat Speed',r.swingSpeed+' mph',r.swingSpeed>=72):''}
-      ${r.xwoba!=null?metric('xwOBA',r.xwoba.toFixed(3),r.xwoba>=0.360):''}
-      ${r.woba!=null?metric('wOBA',r.woba.toFixed(3),r.woba>=0.360):''}
-      ${r.rollingXwoba!=null?metric('L30 xwOBA',r.rollingXwoba.toFixed(3),r.rollingXwoba>=0.380):''}
-      ${r.evPct!=null?metric('EV Pct',r.evPct+'th',r.evPct>=85):''}
-      ${r.sprint!=null?metric('Sprint Spd',r.sprint+' ft/s',r.sprint>=28):''}
-      ${r.sweetSpot!=null?metric('Sweet Spot%',r.sweetSpot+'%',r.sweetSpot>=38):''}
-      ${r.chaseRate!=null?metric('Chase%',r.chaseRate+'%',r.chaseRate<=24):''}
-      ${r.avgHRDist!=null?metric('Avg HR Dist',Math.round(r.avgHRDist)+' ft',r.avgHRDist>=405):''}
+      ${playerRow?.swingSpeed!=null?metric('Bat Speed',playerRow.swingSpeed+' mph',playerRow.swingSpeed>=72):''}
+      ${playerRow?.xwoba!=null?metric('xwOBA',playerRow.xwoba.toFixed(3),playerRow.xwoba>=0.360):''}
+      ${playerRow?.woba!=null?metric('wOBA',playerRow.woba.toFixed(3),playerRow.woba>=0.360):''}
+      ${playerRow?.rollingXwoba!=null?metric('L30 xwOBA',playerRow.rollingXwoba.toFixed(3),playerRow.rollingXwoba>=0.380):''}
+      ${playerRow?.evPct!=null?metric('EV Pct',playerRow.evPct+'th',playerRow.evPct>=85):''}
+      ${playerRow?.sprint!=null?metric('Sprint Spd',playerRow.sprint+' ft/s',playerRow.sprint>=28):''}
         ${metric('Avg EV',avgEV!=null?avgEV.toFixed(1):'--',avgEV>=90)}
         ${metric('Barrel%',pct(brl)+'%',pct(brl)>=10)}
       </div>`;
