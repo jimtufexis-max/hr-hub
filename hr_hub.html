@@ -4166,6 +4166,13 @@ function renderZoneHeatmap(batPid, spPid, batHand, size=28){
   let batZones = (_batterZoneMap||{})[String(batPid)];
   let spZones  = (_pitcherZoneMap||{})[String(spPid)];
 
+  // DEBUG: log what data we have for zone estimation
+  const _savBEntry = (_savB||{})[String(batPid)];
+  const _savPEntry = (_savP||{})[String(spPid)];
+  const _batRow = (S.allRows||[]).find(r=>String(r._batPid||r.id)===String(batPid));
+  const _spRow  = (S.allRows||[]).find(r=>String(r._spId)===String(spPid));
+  console.log(`[zone] bat=${batPid} savB_pull_air=${_savBEntry?.pull_air_pct} row_pull_air=${_batRow?.pull_air_pct} sp=${spPid} savP_gb=${_savPEntry?.gb_percent} battedBall_gb=${_spRow?._pitcherStats?.battedBall?.gbRate}`);
+
   // Fallback: use real data from allRows + leaderboards
   if(!batZones){
     const savH = (_savB||{})[String(batPid)];
