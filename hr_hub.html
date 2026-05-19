@@ -4270,8 +4270,14 @@ async function loadGame(g){
       try{
         res = calcHRProb(batterStats, pitcherStats, pf, wx, recent);
       }catch(calcErr){
-        console.error(`[loadGame] calcHRProb failed for ${h.name}:`, calcErr.message);
-        continue; // skip this batter, don't crash entire game load
+        console.error(`[calcHRProb] FAILED for ${h.name} (${pid}):`, calcErr.message, calcErr.stack?.split('\n')[1]);
+        // Show the error on screen so we can debug
+        el.innerHTML=`<div class="card" style="color:var(--red);padding:12px;font-size:.78rem">
+          <b>calcHRProb crashed on ${h.name}</b><br>
+          ${calcErr.message}<br>
+          <span style="font-size:.65rem;color:var(--t4)">${calcErr.stack?.split('\n').slice(0,3).join(' | ')}</span>
+        </div>`;
+        return; // stop loading entirely so we can see the error
       }
       const [grd, gc, gCls] = probGrade(res.prob);
 
