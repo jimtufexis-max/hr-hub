@@ -3588,29 +3588,26 @@ function renderSleepersDue(){
 
     if(!sleepers.length&&!due.length){ el.innerHTML=''; return; }
 
-    const renderCard = (r, reasons, accentColor, icon, label, onclick) => {
+    const renderCard = (r, reasons, accentColor, icon, onclick) => {
       const [,gc]=probGrade(r.prob);
       const fdO=getFDOdds(r.name);
       const tier=fdO?getEdgeTier(r.prob,fdO):null;
       return`<div style="flex:1;min-width:0;border:1px solid ${accentColor}44;border-radius:10px;
-        padding:10px;background:${accentColor}08;cursor:pointer" onclick="${onclick}">
-        <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
-          <span style="font-size:1.1rem">${icon}</span>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:.72rem;font-weight:800;color:var(--t1);white-space:nowrap;
-              overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+        padding:10px 12px;background:${accentColor}08;cursor:pointer;
+        display:flex;align-items:center;justify-content:space-between;gap:8px"
+        onclick="${onclick}">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span style="font-size:1rem;flex-shrink:0">${icon}</span>
+          <div style="min-width:0">
+            <div style="font-size:.80rem;font-weight:800;color:var(--t1);
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
             <div style="font-size:.60rem;color:var(--t4)">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP</div>
           </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:.85rem;font-weight:900;color:${gc}">${(r.prob*100).toFixed(1)}%</div>
-            ${tier&&tier.edge>=3?`<div style="font-size:.58rem;color:${accentColor};font-weight:700">${tier.tier}: +${tier.edge.toFixed(0)}%</div>`:''}
-          </div>
         </div>
-        <div style="font-size:.62rem;color:${accentColor};margin-bottom:2px;font-weight:700">${label}</div>
-        ${reasons.slice(0,2).map(reason=>`
-          <div style="font-size:.60rem;color:var(--t4);padding:1px 0;
-            white-space:nowrap;overflow:hidden;text-overflow:ellipsis">· ${reason}</div>
-        `).join('')}
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:.95rem;font-weight:900;color:${gc}">${(r.prob*100).toFixed(1)}%</div>
+          ${tier&&tier.edge>=3?`<div style="font-size:.58rem;color:var(--green)">${tier.tier}+${tier.edge.toFixed(0)}%</div>`:''}
+        </div>
       </div>`;
     };
 
@@ -3622,7 +3619,6 @@ function renderSleepersDue(){
       html+=`<div style="display:flex;gap:8px;margin-bottom:10px">`;
       html+=sleepers.map(({r,s})=>renderCard(
         r, s.reasons, '#a78bfa', '💤',
-        `${s.reasons.length} reasons to consider`,
         `showDetail('${r.id}')`
       )).join('');
       html+=`</div>`;
@@ -3634,7 +3630,6 @@ function renderSleepersDue(){
       html+=`<div style="display:flex;gap:8px;margin-bottom:10px">`;
       html+=due.map(({r,d})=>renderCard(
         r, d.reasons, 'var(--amber)', '⏰',
-        `${d.reasons.length} regression signal${d.reasons.length>1?'s':''}`,
         `showDetail('${r.id}')`
       )).join('');
       html+=`</div>`;
@@ -4997,6 +4992,7 @@ async function fetchABLog(pid,n,arm,pitchType='',forOptions=false){
       console.log(`[AB] CSV season ${s}: ${lines.length} lines, size ${txt2.length}, x-had-cookie: ${r.headers.get('x-had-cookie')}`);
       if(lines.length >= 2){
         const rows = parseCSVText(txt2);
+        if(rows.length) console.log('[AB] CSV columns (name/pitch/throw):', Object.keys(rows[0]).filter(k=>k.match(/name|pitch|throw|player|pitcher/i)).join(', '));
         const AB_EVENTS = new Set(['single','double','triple','home_run','field_out',
           'grounded_into_double_play','strikeout','strikeout_double_play','force_out',
           'field_error','fielders_choice','fielders_choice_out','double_play','sac_fly',
@@ -5091,8 +5087,12 @@ function mapStatcastABRow(row){
   return {
     rawDate:row.game_date||'',
     date:row.game_date||'--',
-    pitcher:row.player_name||row.pitcher_name||'--',
-    arm:row.p_throws||'',
+    // In batter-type Statcast CSV: player_name = batter, pitcher = pitcher's name
+    // pitcher column is "last_name, first_name" format or "pitcher_name"
+    pitcher: row.pitcher_name || row.pitcher ||
+             (row.last_name&&row.first_name ? `${row.last_name}, ${row.first_name}` : null) ||
+             row.matchup_pitcher_name || '--',
+    arm:row.p_throws||row.pitcher_throws||'',
     pt:ptCode,
     ptNm:PITCH_NAMES[ptCode]||ptCode||'--',
     ev:Math.round(ev*10)/10,
