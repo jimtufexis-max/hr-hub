@@ -984,15 +984,28 @@ function calcPitcherMult(pitcherStats){
   const{hr9_recent,hr9_season,hrFb,barrel_pct_allowed,_arsenalMult,totalStarts}=pitcherStats;
   const shrinkHR9=(r,c)=>r*c+1.0*(1-c);
   const scores=[];
-  // Recent 4 starts: low confidence (40%), cap at 1.60 not 1.80
-  if(hr9_recent!=null) scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,0.40),0.60,1.60),0.40]);
-  // Season: higher confidence when enough starts, cap at 1.55
-  if(hr9_season!=null){const conf=(totalStarts||0)>=10?0.65:0.45;scores.push([clamp(shrinkHR9(hr9_season/LG_HR9,conf),0.60,1.55),0.40]);}
-  // HR/FB: additional confirmation, cap at 1.50
-  if(hrFb!=null){const p=hrFb>1?hrFb/100:hrFb;scores.push([clamp(shrinkHR9(p/LG_HR_FB,0.50),0.60,1.50),0.20]);}
+
+  // xFIP — best single pitcher quality metric (park + luck neutral)
+  // League avg xFIP ~4.20. Lower = harder to hit HRs.
+  const fgStats=pitcherStats.fgStats;
+  if(fgStats?.xfip!=null){
+    const xfipRatio=fgStats.xfip/4.20;  // ratio vs league avg
+    const xfipMult=clamp(shrinkHR9(xfipRatio,0.75),0.65,1.50); // 75% confidence (full season)
+    scores.push([xfipMult,0.50]); // highest weight — most reliable metric
+  } else if(fgStats?.fip!=null){
+    const fipRatio=fgStats.fip/4.20;
+    scores.push([clamp(shrinkHR9(fipRatio,0.70),0.65,1.50),0.45]);
+  }
+
+  // HR/9 recent (4 starts) — low confidence but captures recent form
+  if(hr9_recent!=null) scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,0.35),0.65,1.50),0.25]);
+  // Season HR/9 — moderate confidence
+  if(hr9_season!=null){const conf=(totalStarts||0)>=10?0.55:0.35;scores.push([clamp(shrinkHR9(hr9_season/LG_HR9,conf),0.65,1.50),0.25]);}
+  // HR/FB: confirmation signal
+  if(hrFb!=null){const p=hrFb>1?hrFb/100:hrFb;scores.push([clamp(shrinkHR9(p/LG_HR_FB,0.45),0.65,1.45),0.10]);}
+
   let quality=1.0;
   if(scores.length){const tw=scores.reduce((s,[,w])=>s+w,0);quality=clamp(scores.reduce((s,[m,w])=>s+m*w,0)/tw,0.65,1.50);}
-  // Final quality cap: max 1.50 before other mods (no SP is 50% above avg in isolation)
   quality=clamp(quality,0.65,1.50);
   // Arsenal modifier: how well THIS batter hits THIS SP's pitches (fixes Brandon Lowe)
   const arsenalMod=(_arsenalMult!=null&&_arsenalMult!==1.0)?clamp(1.0+(_arsenalMult-1.0)*0.75,0.82,1.22):1.0;
@@ -1156,25 +1169,24 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const umpMult=clamp(batterStats.umpMult||1.0,0.90,1.12);
   lo+=logOddsAdj(umpMult)*0.50;
 
-  // TEAM HR CONTEXT — weak signal
-  const teamMult=batterStats.teamHRMult??1.0;
-  lo+=logOddsAdj(teamMult)*0.25;
+  // Team HR context removed — too weak and partially captured by park factor
 
-  // BULLPEN EXPOSURE — weighted by expected innings
-  const bullpenMult = batterStats.bullpenMult??1.0;
-  const expIP = calcExpectedInnings(pitcherStats);
-  const bpExposure = bullpenExposure(expIP);
-  // Blend: SP quality carries more weight early, bullpen more weight for full game
-  const blendedBullpen = 1.0 + (bullpenMult - 1.0) * bpExposure;
-  lo += logOddsAdj(blendedBullpen) * 0.30;
-
-  // STADIUM DIMENSIONS — pull hitter advantage at specific parks
+  // STADIUM DIMENSIONS — pull hitter advantage at specific parks (keep — real signal)
   const stadiumMult = batterStats.stadiumMult??1.0;
   lo += logOddsAdj(stadiumMult) * 0.40;
 
-  // PLATE DISCIPLINE — good counts = better pitches to hit
+  // PLATE DISCIPLINE — good counts = better pitches to hit (keep — real signal)
   const platDiscMult = batterStats.platDiscMult??1.0;
-  lo += logOddsAdj(platDiscMult) * 0.35;
+  lo += logOddsAdj(platDiscMult) * 0.30;
+
+  // BULLPEN — only meaningful if SP projects for short outing
+  const bullpenMult = batterStats.bullpenMult??1.0;
+  const expIP = calcExpectedInnings(pitcherStats);
+  if(expIP<=5.0){ // only apply when SP likely exits early
+    const bpExposure = bullpenExposure(expIP);
+    const blendedBullpen = 1.0 + (bullpenMult - 1.0) * bpExposure;
+    lo += logOddsAdj(blendedBullpen) * 0.20;
+  }
 
   const prob=clamp(sigmoid(lo),0.005,0.22); // per-PA: elite best matchup ~15-18%
   return{prob,anchor,platoon,pitcher,parkwx,momentum,
@@ -1647,6 +1659,16 @@ function detectAngles(r){
     else if(pit.whiffPct<=18)
       a.push({icon:'📤',cat:'whiff',tier:2,label:'Low-K SP (+)',color:'var(--green)',
         tip:`SP ${pit.whiffPct}% whiff — fewer strikeouts, more balls in play.`});
+  }
+
+  // SP velocity trend — losing velo is a leading indicator of HR regression
+  if(pit.veloTrend){
+    if(pit.veloTrend.isLosingVelo)
+      a.push({icon:'📉',cat:'velo',tier:1,label:`SP Losing Velo (+)`,color:'var(--green)',
+        tip:`SP fastball down ${Math.abs(pit.veloTrend.delta)} mph vs last season — velocity decline = reduced stuff = more HRs`});
+    else if(pit.veloTrend.isGainingVelo)
+      a.push({icon:'📈',cat:'velo',tier:3,label:'SP Gaining Velo (-)',color:'var(--red)',
+        tip:`SP fastball up ${pit.veloTrend.delta} mph — improved velocity = harder to hit`});
   }
 
   // SP batted ball profile
@@ -3664,6 +3686,73 @@ function renderDiscover(){
 }
 
 
+// ==================================================================
+//  FANGRAPHS FIP/xFIP — gold-standard pitcher quality metrics
+//  FIP = field-independent pitching (removes luck/defense)
+//  xFIP = normalizes HR/FB rate to league avg
+//  A pitcher with high ERA but low xFIP is getting unlucky
+//  Key columns: xFIP, FIP, K%, BB%, HR/FB, SIERA
+// ==================================================================
+let _fgPitcherMap = null;
+async function ensureFGPitcherMap(){
+  if(_fgPitcherMap!==null) return; _fgPitcherMap={};
+  try{
+    // FanGraphs pitcher leaderboard — standard stats + FIP/xFIP
+    const url=`https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=pit&lg=all&qual=20&season=${SEASON}&season1=${SEASON}&ind=0&team=0&pageitems=500&pagenum=1&type=8&sortdir=default&sortstat=GamesPitched`;
+    const r=await fetch(PROXY+encodeURIComponent(url));
+    if(!r.ok) throw new Error(`FG pitcher ${r.status}`);
+    const d=await r.json();
+    const rows=d.data||d.Data||[];
+    console.log('[FG Pitchers] rows:',rows.length,'sample keys:',rows[0]?Object.keys(rows[0]).slice(0,12):[]);
+    for(const row of rows){
+      const id=String(row.mlbamid||row.playerid||row.PlayerID||'');
+      if(!id) continue;
+      _fgPitcherMap[id]={
+        fip:   parseFloat(row.FIP||row.xFIP||0)||null,
+        xfip:  parseFloat(row.xFIP||row.xfip||0)||null,
+        siera: parseFloat(row.SIERA||row.siera||0)||null,
+        kPct:  parseFloat(row['K%']||row.kpct||0)||null,
+        bbPct: parseFloat(row['BB%']||row.bbpct||0)||null,
+        hrFb:  parseFloat(row['HR/FB']||row.hrfb||0)||null,
+        era:   parseFloat(row.ERA||row.era||0)||null,
+      };
+    }
+    console.log('[FG Pitchers] loaded',Object.keys(_fgPitcherMap).length,'pitchers');
+  }catch(e){ console.warn('[FG Pitchers]:',e.message); _fgPitcherMap={}; }
+}
+
+// ==================================================================
+//  SP VELOCITY TREND — losing velo = losing stuff = more HRs
+//  Compares current season avg fastball velo vs last season
+// ==================================================================
+async function getSPVeloTrend(spId){
+  const key=`velo_${spId}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    // Get pitch arsenal stats for current and prior season
+    const [cur,prior] = await Promise.all([
+      fetchJSON(`${MLB}/people/${spId}/stats?stats=pitchArsenal&group=pitching&season=${SEASON}&gameType=R`).catch(()=>null),
+      fetchJSON(`${MLB}/people/${spId}/stats?stats=pitchArsenal&group=pitching&season=${SEASON-1}&gameType=R`).catch(()=>null),
+    ]);
+    const getVelo=d=>{
+      const splits=d?.stats?.[0]?.splits||[];
+      // Find 4-seam or primary pitch velocity
+      const ff=splits.find(s=>s.stat?.type?.code==='FF');
+      const primary=ff||splits[0];
+      const v=parseFloat(primary?.stat?.averageSpeed||primary?.stat?.velocity||0)||null;
+      return v;
+    };
+    const curVelo=getVelo(cur), priorVelo=getVelo(prior);
+    const delta=curVelo!=null&&priorVelo!=null?Math.round((curVelo-priorVelo)*10)/10:null;
+    const result={current:curVelo,prior:priorVelo,delta,
+      isLosingVelo: delta!=null&&delta<=-0.8,
+      isGainingVelo: delta!=null&&delta>=0.5,
+    };
+    _playerCache[key]=result; return result;
+  }catch(e){ _playerCache[key]=null; return null; }
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -4524,6 +4613,9 @@ function renderDetail(r){
         ${pit.whiffPct!=null?`<div class="stat-box"><span class="sb-val" style="color:${whiffClr}">${pit.whiffPct}%</span><span class="sb-lbl">Whiff%</span></div>`:''}
         ${pit.runValue!=null?`<div class="stat-box"><span class="sb-val" style="color:${rvClr}">${pit.runValue>0?'+':''}${pit.runValue}</span><span class="sb-lbl">Run Val/100</span></div>`:''}
         ${pit.daysRest!=null?`<div class="stat-box"><span class="sb-val">${daysRestStr}</span><span class="sb-lbl">Days Rest</span></div>`:''}
+        ${pit.fgStats?.xfip!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.fgStats.xfip<=3.50?'var(--green)':pit.fgStats.xfip>=4.80?'var(--red)':'var(--t3)'}">${pit.fgStats.xfip.toFixed(2)}</span><span class="sb-lbl">xFIP</span></div>`:''}
+        ${pit.fgStats?.fip!=null?`<div class="stat-box"><span class="sb-val">${pit.fgStats.fip.toFixed(2)}</span><span class="sb-lbl">FIP</span></div>`:''}
+        ${pit.fgStats?.kPct!=null?`<div class="stat-box"><span class="sb-val">${pit.fgStats.kPct.toFixed(1)}%</span><span class="sb-lbl">K%</span></div>`:''}
         ${pit.battedBall!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.battedBall.gbRate>50?'var(--red)':pit.battedBall.fbRate>42?'var(--green)':'var(--t3)'}">${pit.battedBall.gbRate}%</span><span class="sb-lbl">GB Rate</span></div>`:''}
         ${pit.battedBall?.fbRate!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.battedBall.fbRate>45?'var(--green)':'var(--t3)'}"> ${pit.battedBall.fbRate}%</span><span class="sb-lbl">FB Rate</span></div>`:''}
       </div>`;
