@@ -704,6 +704,7 @@ async function getGames(){
     awayId:    g.teams?.away?.team?.id || null,
     homeId:    g.teams?.home?.team?.id || null,
     venue:     g.venue?.name||'',
+    gameTime:  g.gameDate || null, // ISO UTC e.g. "2026-05-19T23:05:00Z"
     awaySpId:  g.teams?.away?.probablePitcher?.id||null,
     awaySpName:g.teams?.away?.probablePitcher?.fullName||'TBD',
     homeSpId:  g.teams?.home?.probablePitcher?.id||null,
@@ -737,26 +738,92 @@ async function getRoster(abbr){
   return players;
 }
 
-async function getWeather(venue){
-  const COORDS={'Yankee Stadium':[40.83,-73.93],'Fenway Park':[42.35,-71.10],
-    'Wrigley Field':[41.95,-87.66],'Dodger Stadium':[34.07,-118.24],
-    'Coors Field':[39.76,-104.99],'Great American Ball Park':[39.10,-84.51],
-    'Oracle Park':[37.78,-122.39],'Globe Life Field':[32.75,-97.08],
-    'Truist Park':[33.89,-84.47],'Citizens Bank Park':[39.91,-75.17],
-    'Busch Stadium':[38.62,-90.19],'American Family Field':[43.03,-87.97],
-    'Petco Park':[32.71,-117.16],'Chase Field':[33.45,-112.07],
-    'T-Mobile Park':[47.59,-122.33],'Target Field':[44.98,-93.28],
-    'Progressive Field':[41.50,-81.69],'Comerica Park':[42.34,-83.05],
-    'Kauffman Stadium':[39.05,-94.48],'Minute Maid Park':[29.76,-95.36],
-    'Angel Stadium':[33.80,-117.88],'Nationals Park':[38.87,-77.01],
-    'PNC Park':[40.45,-80.01],'Citi Field':[40.76,-73.85],'Camden Yards':[39.28,-76.62]};
-  const [lat,lon]=COORDS[venue]||[40.71,-74.01];
+async function getWeather(venue, gameTimeUTC){
+  const COORDS={
+    // AL East
+    'Yankee Stadium':          [40.83,-73.93],
+    'Fenway Park':             [42.35,-71.10],
+    'Oriole Park at Camden Yards':[39.28,-76.62],
+    'Camden Yards':            [39.28,-76.62],
+    'Rogers Centre':           [43.64,-79.39],
+    'Tropicana Field':         [27.77,-82.65],
+    // AL Central
+    'Guaranteed Rate Field':   [41.83,-87.63],
+    'Comerica Park':           [42.34,-83.05],
+    'Progressive Field':       [41.50,-81.69],
+    'Kauffman Stadium':        [39.05,-94.48],
+    'Target Field':            [44.98,-93.28],
+    // AL West
+    'Minute Maid Park':        [29.76,-95.36],
+    'Angel Stadium':           [33.80,-117.88],
+    'T-Mobile Park':           [47.59,-122.33],
+    'Oakland Coliseum':        [37.75,-122.20],
+    'RingCentral Coliseum':    [37.75,-122.20],
+    'Sutter Health Park':      [38.58,-121.50], // Sacramento (A's temp)
+    'Globe Life Field':        [32.75,-97.08],
+    // NL East
+    'Citizens Bank Park':      [39.91,-75.17],
+    'Citi Field':              [40.76,-73.85],
+    'Nationals Park':          [38.87,-77.01],
+    'Truist Park':             [33.89,-84.47],
+    'loanDepot park':          [25.78,-80.22],
+    'LoanDepot Park':          [25.78,-80.22],
+    'Marlins Park':            [25.78,-80.22],
+    // NL Central
+    'Wrigley Field':           [41.95,-87.66],
+    'Busch Stadium':           [38.62,-90.19],
+    'Great American Ball Park':[39.10,-84.51],
+    'American Family Field':   [43.03,-87.97],
+    'PNC Park':                [40.45,-80.01],
+    // NL West
+    'Dodger Stadium':          [34.07,-118.24],
+    'Oracle Park':             [37.78,-122.39],
+    'Petco Park':              [32.71,-117.16],
+    'Chase Field':             [33.45,-112.07],
+    'Coors Field':             [39.76,-104.99],
+  };
+
+  const [lat,lon] = COORDS[venue] || COORDS[
+    // fuzzy match — strip "The", "Park", punctuation
+    Object.keys(COORDS).find(k=>venue&&k.toLowerCase().includes(venue.toLowerCase().split(' ')[0]))
+  ] || [40.71,-74.01]; // fallback NYC
+
   try{
-    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,precipitation_probability,windspeed_10m,winddirection_10m,relativehumidity_2m&temperature_unit=fahrenheit&windspeed_unit=mph&timezone=auto&forecast_days=1`);
-    const d=await r.json();const h=d.hourly||{};
-    return{temp:h.temperature_2m?.[13]||72,rain:h.precipitation_probability?.[13]||0,
-      wind:h.windspeed_10m?.[13]||0,wdir:h.winddirection_10m?.[13]||0};
-  }catch{return{temp:72,rain:0,wind:0,wdir:0}}
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,precipitation_probability,windspeed_10m,winddirection_10m,relativehumidity_2m&temperature_unit=fahrenheit&windspeed_unit=mph&timezone=auto&forecast_days=2`);
+    const d=await r.json();
+    const h=d.hourly||{};
+
+    // Pick the hour index matching game start time
+    // Open-Meteo returns local time in timezone=auto
+    // gameTimeUTC is ISO string e.g. "2026-05-19T23:05:00Z"
+    let hourIdx = 18; // default 6pm local
+    if(gameTimeUTC){
+      try{
+        const gameDate = new Date(gameTimeUTC);
+        // Get local hour at venue using the timezone offset from the API response
+        // Approximate: use UTC offset based on coordinates
+        const utcHour = gameDate.getUTCHours();
+        // Rough timezone offset from longitude (15° per hour)
+        const tzOffset = Math.round(lon / 15);
+        const localHour = ((utcHour + tzOffset) + 24) % 24;
+        hourIdx = Math.min(Math.max(localHour, 0), 23);
+      }catch{}
+    }
+
+    // Use game hour; fall back to nearby hours if data missing
+    const idx = h.temperature_2m?.[hourIdx] != null ? hourIdx :
+                h.temperature_2m?.[hourIdx-1] != null ? hourIdx-1 : 13;
+
+    return{
+      temp: h.temperature_2m?.[idx]       ?? 72,
+      rain: h.precipitation_probability?.[idx] ?? 0,
+      wind: h.windspeed_10m?.[idx]        ?? 0,
+      wdir: h.winddirection_10m?.[idx]    ?? 0,
+      humidity: h.relativehumidity_2m?.[idx] ?? 50,
+      hourUsed: idx,
+      venue,
+    };
+  }catch{ return{temp:72,rain:0,wind:0,wdir:0,humidity:50}; }
 }
 
 async function getPitcherHand(pid){
@@ -843,7 +910,7 @@ async function getFGBatters(){
       // Pull-Air% = Pull% × FB%
       fgRow.pull_air_pct =
         (fgRow.pull != null && fgRow.fb != null)
-          ? Math.round((fgRow.pull * fgRow.fb) / 1000 * 10) / 10
+          ? Math.round((fgRow.pull * fgRow.fb / 100) * 10) / 10
           : null;
       if(pid && pid!=='undefined') out[pid]=fgRow;
       if(playerName) out.__byName[normName(playerName)] = fgRow;
@@ -4290,7 +4357,7 @@ async function loadGame(g){
     getBullpenQuality(g.away),     getBullpenQuality(g.home),
   ]).catch(()=>{});
 
-  const wx  = await getWeather(g.venue);
+  const wx  = await getWeather(g.venue, g.gameTime||g.gameDate);
   lap('after weather');
   const pf  = PARK[g.home] || 1.00;
 
