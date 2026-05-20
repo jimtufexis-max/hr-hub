@@ -2044,6 +2044,8 @@ function fireSecondaryMaps(){
         console.log(`[zone] enriched ${zoneHits} rows`);
         // Re-render slate to show zone badges
         if(S.allRows.length) renderSlate();
+        // Update stored probs with any changes from enrichment
+        if(S.allRows.length) queueForAutoTrack(S.allRows);
       });
     }, 3000);
   }, 2000); // wait 2s after game load before firing
@@ -2222,6 +2224,8 @@ async function loadSelectedGames(){
   }
 
   renderSlate();
+  // Persist final probs to localStorage so Results tab always matches slate
+  if(S.allRows.length) queueForAutoTrack(S.allRows);
   populateABSelect();
   fireSecondaryMaps(); // fire secondary enrichment maps after players shown
 }
@@ -3257,11 +3261,17 @@ function queueForAutoTrack(rows){
     const key = 'hr_hub_results';
     const today = ds();
     const stored = JSON.parse(localStorage.getItem(key)||'[]');
-    let added = 0;
+    let changed = 0;
     for(const r of rows){
-      const exists = stored.find(x=>x.id===r.id&&x.date===today);
-      if(!exists){
-        const fdO = typeof getFDOdds==='function' ? getFDOdds(r.name) : null;
+      const idx = stored.findIndex(x=>String(x.id)===String(r.id)&&x.date===today);
+      const fdO = typeof getFDOdds==='function' ? getFDOdds(r.name) : null;
+      if(idx>=0){
+        // Always update prob + fdOdds to latest value
+        stored[idx].prob   = r.prob;
+        stored[idx].fdOdds = fdO ?? stored[idx].fdOdds;
+        stored[idx].grade  = r.grade;
+        changed++;
+      } else {
         stored.push({
           id: String(r.id), name: r.name, prob: r.prob,
           fdOdds: fdO,
@@ -3272,13 +3282,12 @@ function queueForAutoTrack(rows){
           batHand: r.batHand, oppHand: r.oppHand,
           autoQueued: true,
         });
-        added++;
+        changed++;
       }
     }
-    if(added>0){
+    if(changed>0){
       if(stored.length>2000) stored.splice(0,stored.length-2000);
       localStorage.setItem(key, JSON.stringify(stored));
-      console.log(`[autoTrack] queued ${added} players for tracking`);
     }
   }catch(e){}
 }
