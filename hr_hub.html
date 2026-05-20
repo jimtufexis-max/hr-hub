@@ -2023,7 +2023,51 @@ function fireSecondaryMaps(){
       ensureFGPitcherMap(),
       ensurePitcherWhiffMap(),
       ensurePlateDiscMap(),
-    ]).then(()=>console.log('[secondary] FG/whiff/disc maps ready'));
+    ]).then(()=>{
+      console.log('[secondary] FG/whiff/disc maps ready — re-enriching pitcher stats');
+
+      // Re-enrich pitcher stats on every row now that FG/whiff maps are loaded
+      let enriched = 0;
+      for(const r of S.allRows||[]){
+        const spId = r._spId;
+        if(!spId) continue;
+        const pid = String(spId);
+        const fgStats   = (_fgPitcherMap||{})[pid]   || null;
+        const whiffPct  = (_pitcherWhiffMap||{})[pid]?.whiffPct ?? null;
+        const runValue  = (_pitcherWhiffMap||{})[pid]?.runValue  ?? null;
+        const platDisc  = (_plateDiscMap||{})[String(r.id)] ?? null;
+
+        // Update pitcherStats on the row
+        if(r._pitcherStats){
+          r._pitcherStats.fgStats  = fgStats;
+          r._pitcherStats.whiffPct = whiffPct;
+          r._pitcherStats.runValue = runValue;
+        }
+        // Update plate discipline on batterStats
+        if(platDisc != null) r.platDiscMult = calcPlateDiscMult(r.id);
+
+        // Recompute prob with enriched pitcher data
+        if(r._pitcherStats && r._batterStats){
+          try{
+            const res = calcHRProb(r._batterStats, r._pitcherStats, r._pf, r._wx, r._recentGames);
+            r.prob    = res.prob;
+            r.anchor  = res.anchor;
+            r.platoon = res.platoon;
+            r.pitcher = res.pitcher;
+            r.parkwx  = res.parkwx;
+            r.momentum= res.momentum;
+            r.grade   = probGrade(r.prob);
+            enriched++;
+          }catch{}
+        }
+      }
+      console.log(`[secondary] re-enriched ${enriched} rows with pitcher data`);
+      if(enriched > 0){
+        renderSlate();
+        queueForAutoTrack(S.allRows);
+      }
+    });
+
     // Zone maps fire even later — large CSVs
     setTimeout(()=>{
       Promise.allSettled([
@@ -2031,7 +2075,6 @@ function fireSecondaryMaps(){
         ensurePitcherZoneMap(),
       ]).then(()=>{
         console.log('[secondary] zone maps ready — re-computing zone matchups');
-        // Re-compute zone matchup for all rows now that maps are loaded
         let zoneHits = 0;
         for(const r of S.allRows||[]){
           const batPid = r._batPid||r.id;
@@ -2042,13 +2085,11 @@ function fireSecondaryMaps(){
           }
         }
         console.log(`[zone] enriched ${zoneHits} rows`);
-        // Re-render slate to show zone badges
         if(S.allRows.length) renderSlate();
-        // Update stored probs with any changes from enrichment
         if(S.allRows.length) queueForAutoTrack(S.allRows);
       });
     }, 3000);
-  }, 2000); // wait 2s after game load before firing
+  }, 2000);
 }
 
 // Fetch a single player's season hitting stats from MLB Stats API
@@ -4780,13 +4821,15 @@ async function loadGame(g){
         _bvp:         batterStats.batVsPitch || null,
         _spId:        spId,
         _batPid:      pid,
-        _zoneMatch:   null, // computed fresh in showDetail
+        _zoneMatch:   null,
         l30hr, l30pa,
         szHR, szPA,
         l15hr,
         _pitcherStats: pitcherStats,
-        _recentGames: recent,
-        // Extra computed fields for angle detection
+        _batterStats:  batterStats,
+        _pf:           pf,
+        _wx:           wx,
+        _recentGames:  recent,
         _platoon: plat,
         _oppHand: oppHand,
       });
