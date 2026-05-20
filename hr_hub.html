@@ -4047,8 +4047,8 @@ function detectSleeper(r){
     }
   }
 
-  // Minimum score to qualify
-  if(score < 4) return null;
+  // Minimum score to qualify — lowered to 3 to surface 10 on a full slate
+  if(score < 3) return null;
   if(reasons.length < 2) return null;
 
   return { score, reasons, fdOdds };
@@ -4146,70 +4146,107 @@ function renderDiscover(){
       .map(r=>({r, s:detectSleeper(r)}))
       .filter(({s})=>s!=null)
       .sort((a,b)=>b.s.score-a.s.score)
-      .slice(0,3);
+      .slice(0,10);
 
-    // Find "due" players
     const due = S.allRows
       .map(r=>({r, d:detectDue(r)}))
       .filter(({d})=>d!=null)
       .sort((a,b)=>b.d.score-a.d.score)
-      .slice(0,3);
+      .slice(0,5);
 
-    if(!sleepers.length&&!due.length){ el.innerHTML=''; return; }
+    if(!sleepers.length && !due.length){
+      el.innerHTML='<div class="empty" style="padding:40px 0">No sleepers or due players found today</div>';
+      return;
+    }
 
-    const renderCard = (r, reasons, accentColor, icon, onclick) => {
-      const [,gc]=probGrade(r.prob);
-      const fdO=getFDOdds(r.name);
-      const tier=fdO?getEdgeTier(r.prob,fdO):null;
-      return`<div style="flex:1;min-width:0;border:1px solid ${accentColor}44;border-radius:10px;
-        padding:10px 12px;background:${accentColor}08;cursor:pointer;
-        display:flex;align-items:center;justify-content:space-between;gap:8px"
-        onclick="${onclick}">
-        <div style="display:flex;align-items:center;gap:8px;min-width:0">
-          <span style="font-size:1rem;flex-shrink:0">${icon}</span>
-          <div style="min-width:0">
-            <div style="font-size:.80rem;font-weight:800;color:var(--t1);
-              white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-            <div style="font-size:.60rem;color:var(--t4)">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP</div>
+    const renderDiscoverCard = (r, reasons, score, accentColor, icon, badge) => {
+      const [,gc] = probGrade(r.prob);
+      const fdO = getFDOdds(r.name);
+      const tier = fdO ? getEdgeTier(r.prob, fdO) : null;
+      const edgeStr = tier && tier.edge >= 2
+        ? `<span style="font-size:.60rem;font-weight:700;color:var(--green);
+            padding:1px 5px;background:rgba(34,201,94,.12);border-radius:4px">
+            ${tier.tier} +${tier.edge.toFixed(0)}%</span>` : '';
+
+      return `<div style="border:1px solid ${accentColor}33;border-radius:12px;
+        padding:12px;background:${accentColor}07;margin-bottom:8px;cursor:pointer"
+        onclick="showDetail('${r.id}')">
+        <!-- Header row -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
+            <span style="font-size:1.1rem;flex-shrink:0">${icon}</span>
+            <div style="min-width:0">
+              <div style="font-size:.82rem;font-weight:800;color:var(--t1);
+                white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${r.name} ${edgeStr}
+              </div>
+              <div style="font-size:.62rem;color:var(--t4);margin-top:1px">
+                ${r.team} · ${r.batHand}HB vs ${r.oppHand||'?'}HP
+                ${r.spNm?` · ${r.spNm}`:''}
+              </div>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;padding-left:8px">
+            <div style="font-size:1.05rem;font-weight:900;color:${gc}">${(r.prob*100).toFixed(1)}%</div>
+            ${fdO!=null?`<div style="font-size:.60rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
           </div>
         </div>
-        <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:.95rem;font-weight:900;color:${gc}">${(r.prob*100).toFixed(1)}%</div>
-          ${tier&&tier.edge>=3?`<div style="font-size:.58rem;color:var(--green)">${tier.tier}+${tier.edge.toFixed(0)}%</div>`:''}
+        <!-- Signal badge -->
+        <div style="display:inline-block;font-size:.60rem;font-weight:700;letter-spacing:.04em;
+          text-transform:uppercase;color:${accentColor};margin-bottom:7px;
+          padding:2px 7px;background:${accentColor}15;border-radius:4px">${badge}</div>
+        <!-- Reason bullets -->
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${reasons.slice(0,3).map(reason=>
+            `<div style="display:flex;align-items:flex-start;gap:6px;font-size:.65rem;color:var(--t3)">
+              <span style="color:${accentColor};flex-shrink:0;margin-top:1px">▸</span>
+              <span>${reason}</span>
+            </div>`
+          ).join('')}
         </div>
       </div>`;
     };
 
     let html = '';
 
+    // ── Sleepers ──────────────────────────────────────────────────
     if(sleepers.length){
-      html+=`<div style="font-size:.62rem;color:var(--t4);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">💤 Sleepers — Under the Radar</div>
-      <div style="font-size:.70rem;color:var(--t3);margin-bottom:10px">Players the public is ignoring with genuine HR upside today</div>`;
-      html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">`;
-      html+=sleepers.map(({r,s})=>renderCard(r, s.reasons, '#a78bfa', '💤', `showDetail('${r.id}')`)).join('');
-      html+=`</div>`;
+      html += `<div style="margin-bottom:16px">
+        <div style="font-size:.62rem;color:var(--t4);letter-spacing:.08em;
+          text-transform:uppercase;margin-bottom:4px">💤 Sleepers (${sleepers.length})</div>
+        <div style="font-size:.68rem;color:var(--t4);margin-bottom:10px">
+          Power profiles the market is undervaluing today
+        </div>`;
+      sleepers.forEach(({r,s},i)=>{
+        const badge = s.fdOdds!=null && getEdgeTier(r.prob,s.fdOdds)?.edge>=4
+          ? 'Book Value Play' : r.pitcher>=1.10 ? 'SP Mismatch' : r.platoon>=1.12
+          ? 'Platoon Edge' : 'Power Profile';
+        html += renderDiscoverCard(r, s.reasons, s.score, '#a78bfa', '💤', badge);
+      });
+      html += `</div>`;
     }
 
+    // ── Due ───────────────────────────────────────────────────────
     if(due.length){
-      html+=`<div style="font-size:.62rem;color:var(--t4);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">⏰ Due — Positive Regression Pending</div>
-      <div style="font-size:.70rem;color:var(--t3);margin-bottom:10px">Hitting ball hard but HRs haven't fallen — expect positive regression</div>`;
-      html+=`<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">`;
-      html+=due.map(({r,d})=>renderCard(r, d.reasons, 'var(--amber)', '⏰', `showDetail('${r.id}')`)).join('');
-      html+=`</div>`;
+      html += `<div style="margin-bottom:16px">
+        <div style="font-size:.62rem;color:var(--t4);letter-spacing:.08em;
+          text-transform:uppercase;margin-bottom:4px">⏰ Due (${due.length})</div>
+        <div style="font-size:.68rem;color:var(--t4);margin-bottom:10px">
+          Hitting the ball hard — HRs haven't caught up to contact quality yet
+        </div>`;
+      due.forEach(({r,d})=>{
+        const badge = r.xwobaDiff>=0.040 ? 'Highly Unlucky' : r.xwobaDiff>=0.025
+          ? 'xwOBA Gap' : 'Below Pace';
+        html += renderDiscoverCard(r, d.reasons, d.score, 'var(--amber)', '⏰', badge);
+      });
+      html += `</div>`;
     }
 
-    // Build full discover page
-    const noSleepers = !sleepers.length;
-    const noDue = !due.length;
-    if(noSleepers && noDue){
-      el.innerHTML='<div class="empty" style="padding:40px 0">No sleepers or due players found today</div>';
-      return;
-    }
-    el.innerHTML=html;
+    el.innerHTML = html;
 
   }catch(e){
-    console.error('[renderSleepersDue]',e.message);
-    el.innerHTML='';
+    console.error('[renderDiscover]', e);
+    el.innerHTML = `<div class="card" style="color:var(--red);font-size:.75rem">${e.message}</div>`;
   }
 }
 
