@@ -5610,9 +5610,33 @@ async function populatePLPitchTypes(){
   const sel=document.getElementById('pl-pitch-type'); if(!sel) return;
   const pid=document.getElementById('pl-pitcher')?.value; if(!pid) return;
   try{
+    // Get pitcher's arsenal from loaded game rows
+    const spRow=S.allRows.find(r=>String(r._spId)===String(pid));
+    const arsenal=spRow?._pitcherStats?.arsenal;
+    let arsenalTypes=[];
+    if(arsenal?.mix){
+      arsenalTypes=Object.entries(arsenal.mix)
+        .filter(([,pct])=>pct>=5)
+        .sort((a,b)=>b[1]-a[1])
+        .map(([pt,pct])=>({pt,pct}));
+    }
+    // Get all pitch types from Statcast history
     const rows=await fetchPitcherLog(pid,200,'','',true);
-    const types=[...new Set(rows.map(r=>r.pt).filter(Boolean))].sort();
-    sel.innerHTML='<option value="">All Pitches</option>'+types.map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join('');
+    const historyTypes=[...new Set(rows.map(r=>r.pt).filter(Boolean))];
+    const arsenalPTs=new Set(arsenalTypes.map(x=>x.pt));
+    const otherTypes=historyTypes.filter(t=>!arsenalPTs.has(t)).sort();
+
+    sel.innerHTML='<option value="">All Pitches</option>'+
+      (arsenalTypes.length
+        ?`<optgroup label="Pitcher's Arsenal">`+
+          arsenalTypes.filter(({pt})=>historyTypes.includes(pt))
+            .map(({pt,pct})=>`<option value="${pt}">${PITCH_NAMES[pt]||pt} (${pct.toFixed(0)}%)</option>`).join('')+
+          `</optgroup>`+
+          (otherTypes.length?`<optgroup label="Other Pitches">`+
+            otherTypes.map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join('')+
+            `</optgroup>`:'')
+        :historyTypes.sort().map(t=>`<option value="${t}">${PITCH_NAMES[t]||t}</option>`).join('')
+      );
   }catch(e){ console.warn('pl pitch types:',e.message); }
 }
 
