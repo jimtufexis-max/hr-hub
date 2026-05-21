@@ -89,11 +89,43 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 
 /* ── Hitter cards ─────────────────────────────────────────────── */
 .hitter-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:12px;
-  padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
+  padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
 .hitter-card:active{border-color:var(--blue)}
 .hitter-card.grade-a{border-left:3px solid var(--green)}
 .hitter-card.grade-b{border-left:3px solid var(--amber)}
 .hitter-card.grade-c{border-left:3px solid var(--red)}
+
+/* ── Pulse glow for elite plays ───────────────────────────────── */
+@keyframes pulse-glow{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,.0)}
+  50%{box-shadow:0 0 12px 3px rgba(255,215,0,.25)}
+}
+@keyframes pulse-glow-green{
+  0%,100%{box-shadow:0 0 0 0 rgba(34,201,94,.0)}
+  50%{box-shadow:0 0 10px 2px rgba(34,201,94,.20)}
+}
+.hitter-card.pulse-gold{animation:pulse-glow 2.4s ease-in-out infinite;border-color:rgba(255,215,0,.4)}
+.hitter-card.pulse-green{animation:pulse-glow-green 2.8s ease-in-out infinite}
+
+/* ── Headshot ─────────────────────────────────────────────────── */
+.hc-headshot{width:38px;height:38px;border-radius:50%;object-fit:cover;
+  border:2px solid var(--bdr);flex-shrink:0;background:var(--bg3)}
+.hc-headshot-wrap{position:relative;flex-shrink:0}
+
+/* ── Pull-to-refresh ──────────────────────────────────────────── */
+#ptr-indicator{display:none;align-items:center;justify-content:center;gap:8px;
+  padding:12px;font-size:.72rem;color:var(--t4);background:var(--bg2)}
+#ptr-indicator.visible{display:flex}
+#ptr-spinner{width:16px;height:16px;border:2px solid var(--bdr);border-top-color:var(--amber);
+  border-radius:50%;animation:spin .6s linear infinite}
+
+/* ── Lineup lock banner ───────────────────────────────────────── */
+#lineup-lock-banner{display:none;background:rgba(34,201,94,.12);border-bottom:1px solid rgba(34,201,94,.3);
+  padding:8px 16px;font-size:.72rem;color:var(--green);align-items:center;gap:8px;flex-shrink:0}
+#lineup-lock-banner.visible{display:flex}
+
+/* ── Daily summary card ───────────────────────────────────────── */
+#daily-summary{margin:0 0 10px 0}
 .hc-row1{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .hc-name{font-weight:700;font-size:.95rem;color:var(--t1);flex:1}
 .hc-prob{font-family:'JetBrains Mono',monospace;font-size:1.15rem;font-weight:800}
@@ -278,6 +310,12 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 <div id="app">
 
 <!-- ── HEADER ──────────────────────────────────────────────────── -->
+<div id="lineup-lock-banner">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+  <span id="lineup-lock-msg">⚾ Lineups confirmed — check your plays</span>
+  <button onclick="this.parentElement.classList.remove('visible')"
+    style="margin-left:auto;background:none;border:none;color:var(--green);cursor:pointer;font-size:.9rem">✕</button>
+</div>
 <div id="header">
   <div id="header-title">⚾ HR <span>Hub</span></div>
   <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="refreshOdds();this.textContent='↺ refreshing...'">FD odds: loading…</div>
@@ -320,6 +358,8 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       </div>
     </div>
     <div id="hr-projection-strip"></div>
+    <div id="ptr-indicator"><div id="ptr-spinner"></div>Refreshing…</div>
+    <div id="daily-summary"></div>
     <div id="hitter-list"></div>
   </div>
 
@@ -2277,6 +2317,8 @@ async function loadSelectedGames(){
   }
 
   renderSlate();
+  renderDailySummary();
+  checkLineupLockAlert();
   // Persist final probs to localStorage so Results tab always matches slate
   if(S.allRows.length) queueForAutoTrack(S.allRows);
   populateABSelect();
@@ -4145,6 +4187,131 @@ function renderSleepersDue(){
   renderDiscover();
 }
 
+// ==================================================================
+//  DAILY SUMMARY CARD — top of slate
+// ==================================================================
+// ==================================================================
+//  PULL-TO-REFRESH
+// ==================================================================
+(function setupPTR(){
+  let startY=0, pulling=false, threshold=70;
+  const content = document.getElementById('content');
+  if(!content) return;
+
+  content.addEventListener('touchstart', e=>{
+    if(content.scrollTop===0) startY=e.touches[0].clientY;
+  }, {passive:true});
+
+  content.addEventListener('touchmove', e=>{
+    if(!startY) return;
+    const dy = e.touches[0].clientY - startY;
+    if(dy > 20 && content.scrollTop===0){
+      pulling=true;
+      const ind=document.getElementById('ptr-indicator');
+      if(ind) ind.classList.add('visible');
+    }
+  }, {passive:true});
+
+  content.addEventListener('touchend', ()=>{
+    if(pulling){
+      pulling=false; startY=0;
+      refreshData();
+      setTimeout(()=>{
+        const ind=document.getElementById('ptr-indicator');
+        if(ind) ind.classList.remove('visible');
+      }, 1200);
+    }
+    startY=0;
+  }, {passive:true});
+})();
+
+
+// ==================================================================
+//  LINEUP LOCK ALERT
+// ==================================================================
+function checkLineupLockAlert(){
+  // Check if it's after 3:30pm ET and lineups are confirmed
+  const now = new Date();
+  const etOffset = -5; // ET is UTC-5 (adjust for DST if needed)
+  const etHour = (now.getUTCHours() + etOffset + 24) % 24;
+  const etMin  = now.getUTCMinutes();
+  const isAfter330 = etHour > 15 || (etHour === 15 && etMin >= 30);
+
+  if(!isAfter330) return;
+
+  const confirmed = S.allRows.filter(r=>r.lineupConfirmed).length;
+  if(!confirmed) return;
+
+  const banner = document.getElementById('lineup-lock-banner');
+  const msg    = document.getElementById('lineup-lock-msg');
+  if(!banner) return;
+
+  // Only show once per session
+  if(sessionStorage.getItem('lineup_lock_shown')) return;
+  sessionStorage.setItem('lineup_lock_shown','1');
+
+  const sTier = S.allRows.filter(r=>{ const f=getFDOdds(r.name); return f&&getEdgeTier(r.prob,f)?.tier==='S'; }).length;
+  const aTier = S.allRows.filter(r=>{ const f=getFDOdds(r.name); return f&&getEdgeTier(r.prob,f)?.tier==='A'; }).length;
+
+  if(msg) msg.textContent = `⚾ Lineups confirmed${sTier+aTier>0?' — '+([sTier?' S-tier plays':'',aTier?aTier+' A-tier plays':''].filter(Boolean).join(', ')):''}`;
+  banner.classList.add('visible');
+
+  // Browser notification if permission granted
+  if(Notification?.permission==='granted'){
+    new Notification('HR Hub ⚾', {
+      body: `Lineups confirmed — ${sTier+aTier} high-confidence plays ready`,
+      icon: '/favicon.ico',
+    });
+  } else if(Notification?.permission!=='denied'){
+    Notification?.requestPermission?.();
+  }
+}
+
+
+function renderDailySummary(){
+  const el = document.getElementById('daily-summary');
+  if(!el || !S.allRows.length) return;
+
+  const rows = S.allRows;
+  const eligible = rows.filter(r=>r.lineupConfirmed!==false&&(r.postponeRisk||0)<0.40);
+  const sTier = eligible.filter(r=>{ const fdO=getFDOdds(r.name); return fdO&&getEdgeTier(r.prob,fdO)?.tier==='S'; });
+  const aTier = eligible.filter(r=>{ const fdO=getFDOdds(r.name); return fdO&&getEdgeTier(r.prob,fdO)?.tier==='A'; });
+  const bestPlay = eligible.sort((a,b)=>b.prob-a.prob)[0];
+  const windGames = rows.filter(r=>r._wx&&r._wx.wind>=15);
+  const ppdRisk = rows.filter(r=>r.postponeRisk>=0.40);
+
+  // Unique games
+  const games = [...new Set(rows.map(r=>r.game||''))].filter(Boolean).length;
+
+  const parts = [];
+  if(games) parts.push(`${games} game${games!==1?'s':''}`);
+  parts.push(`${rows.length} batters`);
+  if(sTier.length) parts.push(`<span style="color:#ffd700;font-weight:800">${sTier.length} S-tier</span>`);
+  if(aTier.length) parts.push(`<span style="color:var(--green);font-weight:700">${aTier.length} A-tier</span>`);
+  if(windGames.length) parts.push(`<span style="color:var(--amber)">💨 Wind boost: ${[...new Set(windGames.map(r=>r.home||''))].join(', ')}</span>`);
+  if(ppdRisk.length) parts.push(`<span style="color:var(--red)">🌧️ ${ppdRisk.length} ppd risk</span>`);
+
+  el.innerHTML = `<div class="card" style="padding:10px 14px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      <span style="font-size:.80rem">📋</span>
+      <span style="font-size:.62rem;font-weight:700;color:var(--t4);letter-spacing:.06em;text-transform:uppercase">Today's Slate</span>
+    </div>
+    <div style="font-size:.70rem;color:var(--t3);line-height:1.8">${parts.join(' · ')}</div>
+    ${bestPlay?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bg3);
+      display:flex;align-items:center;gap:8px">
+      <span style="font-size:.85rem">👑</span>
+      <div>
+        <span style="font-size:.72rem;font-weight:800;color:var(--t1)">${bestPlay.name}</span>
+        <span style="font-size:.65rem;color:var(--t4);margin-left:6px">
+          ${(bestPlay.prob*100).toFixed(1)}% · ${bestPlay.team} vs ${bestPlay.oppHand}HP
+          ${bestPlay.spNm?`· ${bestPlay.spNm}`:''}
+        </span>
+      </div>
+    </div>`:''}
+  </div>`;
+}
+
+
 function renderDiscover(){
   const el = document.getElementById('discover-content');
   if(!el) return;
@@ -5302,8 +5469,17 @@ function renderHitterCard(r,showGame){
         }).join('')}
        </div>` : '';
 
-  return`<div class="hitter-card grade-${gCls}" onclick="showDetail('${r.id}')">
+  // Pulse class for elite plays
+  const pulseClass = r.prob>=0.12 ? 'pulse-gold' : r.prob>=0.09 ? 'pulse-green' : '';
+  // Player headshot URL
+  const headshotUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/${r.id}/headshot/67/current`;
+
+  return`<div class="hitter-card grade-${gCls} ${pulseClass}" onclick="showDetail('${r.id}')">
     <div class="hc-row1">
+      <div class="hc-headshot-wrap">
+        <img class="hc-headshot" src="${headshotUrl}" alt="${r.name}"
+          onerror="this.style.display='none'">
+      </div>
       <div style="flex:1;min-width:0">
         <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}${zoneBadge}${(()=>{
           const today=ds();const stored=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
