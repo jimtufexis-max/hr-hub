@@ -6129,78 +6129,121 @@ async function togglePitchDrill(drillId, spId, batId, pt){
 }
 
 
+function filterStatsGrid(statsId, pitchType, playerId){
+  const container = document.getElementById(statsId);
+  if(!container) return;
+  const data = window._statsCache?.[statsId];
+  if(!data) return;
+
+  const fMetric=(lbl,val,good,bad)=>`<div class="ab-metric"><div class="lbl">${lbl}</div><div class="val" style="${good?'color:var(--green)':bad?'color:var(--red)':''}">${val}</div></div>`;
+  const s = pitchType==='ALL' ? data.all : data.per[pitchType];
+  if(!s) return;
+
+  const {totGB,totFB,totLD,totPU,totHard,totHR,totPA,avgEV,n,fbDenom} = s;
+  const pct = (x,d)=>Math.round(x/Math.max(d||Math.max(s.totBIP,1),1)*100);
+
+  const metric=(lbl,val,good,bad)=>`
+    <div class="ab-metric">
+      <div class="lbl">${lbl}</div>
+      <div class="val" style="${good?'color:var(--green)':bad?'color:var(--red)':''}">${val}</div>
+    </div>`;
+
+  container.querySelector('.ab-metric-grid').innerHTML =
+    fMetric('GB%',   pct(totGB)+'%',  false, pct(totGB)>=50) +
+    fMetric('FB%',   pct(totFB)+'%',  pct(totFB)>=35) +
+    fMetric('LD%',   pct(totLD)+'%',  pct(totLD)>=25) +
+    fMetric('PU%',   pct(totPU)+'%',  pct(totPU)>=15) +
+    fMetric('HR/FB%',pct(totHR,Math.max(totFB+totLD+totPU,1))+'%', pct(totHR,Math.max(totFB+totLD+totPU,1))>=20) +
+    fMetric('Hard%', pct(totHard,totPA)+'%', pct(totHard,totPA)>=45) +
+    (avgEV!=null?fMetric('Avg EV',avgEV+' mph',avgEV>=92,avgEV<=85):'') +
+    (totHR>0?fMetric('HR',totHR,totHR>=3):'');
+
+  // Update label
+  const label = document.getElementById(`${statsId}-label`);
+  const PITCH_FULL_MAP={FF:'4-Seam FB',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curveball',CH:'Changeup',FS:'Splitter'};
+  if(label) label.textContent = `${totPA} PA vs ${pitchType==='ALL'?'all pitches':(PITCH_FULL_MAP[pitchType]||pitchType)}`;
+
+  // Update pill active states
+  data.pitches.concat(['ALL']).forEach(pt=>{
+    const btn = document.getElementById(`${statsId}-${pt}`);
+    if(!btn) return;
+    const PITCH_CLR2={FF:'#dc2626',SI:'#b91c1c',FC:'#ea580c',SL:'#2563eb',ST:'#1d4ed8',CU:'#7c3aed',CH:'#16a34a',FS:'#15803d'};
+    if(pt===pitchType){
+      btn.style.background = pt==='ALL'?'var(--green)':(PITCH_CLR2[pt]||'var(--amber)');
+      btn.style.color = '#000';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.color = pt==='ALL'?'var(--green)':(PITCH_CLR2[pt]||'var(--t3)');
+    }
+  });
+}
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
-  // Always recompute zone matchup fresh — uses fallback estimation if maps not loaded
+  // Always recompute zone matchup fresh
   const batPid = r._batPid||r.id;
   const spId   = r._spId;
-  if(batPid && spId){
-    r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
-  }
-  // Queue for auto-tracking when tapped (user showed interest)
+  if(batPid && spId) r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
   queueForAutoTrack([r]);
   showPage('detail');
   renderDetail(r);
 
-  // Lazy-load BvP data for this player — single CSV download only when needed
+  // Lazy-load count splits
+  const _countId = String(r.id);
+  getCountSplits(String(batPid)).then(counts=>{
+    const el=document.getElementById(`count-splits-${_countId}`);
+    if(!el) return;
+    if(!counts){ el.remove(); return; }
+    const {ahead,behind,even}=counts;
+    if(!ahead&&!behind){ el.remove(); return; }
+    const isoClr=v=>v>=0.220?'var(--amber)':v>=0.130?'var(--t2)':'var(--t3)';
+    const countCard=(data,label,sub,color)=>{
+      if(!data||!data.pa) return '';
+      return `<div style="flex:1;background:rgba(255,255,255,.02);border-radius:8px;
+        padding:8px 10px;border:1px solid ${color}44">
+        <div style="font-size:.62rem;font-weight:800;color:${color};
+          text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${label}</div>
+        <div style="font-size:.56rem;color:var(--t4);margin-bottom:6px">${sub}</div>
+        ${[['PA',data.pa,'var(--t4)'],['HR',data.hr,data.hr>=3?'var(--amber)':'var(--t3)'],
+          ['ISO',data.iso!=null?data.iso.toFixed(3):'--',data.iso!=null?isoClr(data.iso):'var(--t4)'],
+          ['SLG',data.slg!=null?data.slg.toFixed(3):'--','var(--t3)']
+        ].map(([l,v,c])=>`
+          <div style="display:flex;justify-content:space-between;padding:1px 0">
+            <span style="font-size:.65rem;color:var(--t4)">${l}</span>
+            <span style="font-size:.68rem;font-weight:700;color:${c}">${v}</span>
+          </div>`).join('')}
+      </div>`;
+    };
+    el.innerHTML=`<div class="card">
+      <div class="slbl" style="margin-bottom:8px">🎯 Count Splits</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+        ${countCard(ahead,'Ahead','2-0, 3-0, 3-1','var(--green)')}
+        ${countCard(even,'Even','0-0, 1-1, 2-2','var(--amber)')}
+        ${countCard(behind,'Behind','0-2, 1-2','var(--red)')}
+      </div>
+      <div style="font-size:.58rem;color:var(--t4);margin-top:6px">
+        Ahead = hitter counts · Behind = pitcher counts
+      </div>
+    </div>`;
+  }).catch(()=>{});
+
+  // Lazy-load BvP
   if(!r._bvp && batPid){
     getBatterVsPitchType(batPid).then(bvp=>{
       if(bvp){
         r._bvp = bvp;
-        // Upgrade zone matchup using real Statcast zone data now that BvP is loaded
         const realZM = calcZoneMatchupFromBvP(bvp, r._spId, r.batHand);
         if(realZM) r._zoneMatch = realZM;
         const cur = S.allRows.find(x=>x.id===id);
         if(cur && document.getElementById('page-detail')?.classList.contains('active')){
           renderDetail(cur);
         }
-        // Re-render slate so zone badges reflect real data
         if(S.allRows.length) renderSlate();
       }
     }).catch(()=>{});
   }
 
-  // Lazy-load count splits
-  if(batPid){
-    const _countId = String(r.id);
-    getCountSplits(String(batPid)).then(counts=>{
-      const el=document.getElementById(`count-splits-${_countId}`);
-      if(!el) return;
-      if(!counts){ el.remove(); return; }
-      const {ahead,behind,even}=counts;
-      if(!ahead&&!behind){ el.remove(); return; }
-      const isoClr=v=>v>=0.220?'var(--amber)':v>=0.130?'var(--t2)':'var(--t3)';
-      const countCard=(data,label,sub,color)=>{
-        if(!data||!data.pa) return '';
-        return `<div style="flex:1;background:rgba(255,255,255,.02);border-radius:8px;
-          padding:8px 10px;border:1px solid ${color}44">
-          <div style="font-size:.62rem;font-weight:800;color:${color};
-            text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${label}</div>
-          <div style="font-size:.56rem;color:var(--t4);margin-bottom:6px">${sub}</div>
-          ${[['PA',data.pa,'var(--t4)'],['HR',data.hr,data.hr>=3?'var(--amber)':'var(--t3)'],
-            ['ISO',data.iso!=null?data.iso.toFixed(3):'--',data.iso!=null?isoClr(data.iso):'var(--t4)'],
-            ['SLG',data.slg!=null?data.slg.toFixed(3):'--','var(--t3)']
-          ].map(([l,v,c])=>`
-            <div style="display:flex;justify-content:space-between;padding:1px 0">
-              <span style="font-size:.65rem;color:var(--t4)">${l}</span>
-              <span style="font-size:.68rem;font-weight:700;color:${c}">${v}</span>
-            </div>`).join('')}
-        </div>`;
-      };
-      el.innerHTML=`<div class="card">
-        <div class="slbl" style="margin-bottom:8px">🎯 Count Splits</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
-          ${countCard(ahead,'Ahead','2-0, 3-0, 3-1','var(--green)')}
-          ${countCard(even,'Even','0-0, 1-1, 2-2','var(--amber)')}
-          ${countCard(behind,'Behind','0-2, 1-2','var(--red)')}
-        </div>
-        <div style="font-size:.58rem;color:var(--t4);margin-top:6px">
-          Ahead = hitter counts · Behind = pitcher counts
-        </div>
-      </div>`;
-    }).catch(()=>{});
-  }
+  // Lazy-load full splits
   const needsPlat = !r.platoonSplits?.vsLFull && !r.platoonSplits?.vsRFull;
   const needsHA   = !r.homeAwaySplits?.homeFull && !r.homeAwaySplits?.awayFull;
   if(needsPlat || needsHA){
@@ -6474,8 +6517,7 @@ function renderDetail(r){
             const spHeader = arsenal?.mix ? `<div style="font-size:.68rem;padding:8px 10px;
               background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.6">
               <span style="font-weight:800;color:var(--t2)">${r.spNm||'SP'}</span>
-              <span style="color:var(--t4)"> (${r.oppHand||'?'}HP) · Today's arsenal:</span>
-              ${pitches.slice(0,4).map(([pt,p])=>`<span style="color:${PITCH_CLR[pt]||'var(--t3)'}"> ${PITCH_FULL[pt]||pt}</span> ${p.toFixed(0)}%`).join(' ·')}
+              <span style="color:var(--t4)"> (${r.oppHand||'?'}HP)</span>
             </div>` : '';
 
             if(!pitches.length) return spHeader + `<div style="font-size:.70rem;color:var(--t4);padding:12px 0;text-align:center">No arsenal data</div>`;
@@ -6485,41 +6527,58 @@ function renderDetail(r){
               BvP data loading… tap player again in ~3s
             </div>`;
 
-            // Aggregate across all SP arsenal pitches (weighted by usage)
-            let totGB=0,totFB=0,totLD=0,totPU=0,totHard=0,totHR=0;
-            let evSum=0,evN=0,totBIP=0,totPA=0;
-            for(const [pt] of pitches){
-              const d=bvp[pt]; if(!d||d.pa<1) continue;
-              totGB+=d.gb||0; totFB+=d.fb||0; totLD+=d.ld||0; totPU+=d.pu||0;
-              totHard+=d.hard||0; totHR+=d.hr||0; totBIP+=d.bip||0; totPA+=d.pa||0;
-              if(d.avgEV!=null&&d.avgEV>0){ evSum+=d.avgEV*(d.pa||1); evN+=(d.pa||1); }
-            }
-            const n = Math.max(totBIP,1);
-            const avgEV = evN>0 ? Math.round(evSum/evN*10)/10 : null;
-            const fbDenom = Math.max(totFB+totLD+totPU,1);
-
-            const pct = (x,d)=>Math.round(x/Math.max(d||n,1)*100);
-            const brl = pitches.reduce((s,[pt])=>s+(bvp[pt]?.isBrl||0),0);
-
-            const metric=(lbl,val,good=false,bad=false)=>`
-              <div class="ab-metric">
-                <div class="lbl">${lbl}</div>
-                <div class="val" style="${good?'color:var(--green)':bad?'color:var(--red)':''}">${val}</div>
-              </div>`;
-
-            return spHeader + `<div class="ab-metric-grid">
-              ${metric('GB%',   pct(totGB)+'%',  false, pct(totGB)>=50)}
-              ${metric('FB%',   pct(totFB)+'%',  pct(totFB)>=35)}
-              ${metric('LD%',   pct(totLD)+'%',  pct(totLD)>=25)}
-              ${metric('PU%',   pct(totPU)+'%',  pct(totPU)>=15)}
-              ${metric('HR/FB%',pct(totHR,fbDenom)+'%', pct(totHR,fbDenom)>=20)}
-              ${metric('Hard%', pct(totHard,totPA)+'%', pct(totHard,totPA)>=45)}
-              ${avgEV!=null?metric('Avg EV',avgEV+' mph',avgEV>=92,avgEV<=85):''}
-              ${totHR>0?metric('HR',totHR,totHR>=3):''}
-            </div>
-            <div style="font-size:.58rem;color:var(--t4);margin-top:6px;text-align:center">
-              ${totPA} PA vs ${r.spNm?.split(' ').pop()||'SP'}'s arsenal
+            // Pitch selector pills
+            const statsId = `stats-grid-${r.id}`;
+            const pills = `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+              <button onclick="filterStatsGrid('${statsId}','ALL','${r.id}')"
+                id="${statsId}-ALL"
+                style="padding:4px 10px;border-radius:99px;border:1px solid var(--green);
+                background:var(--green);color:#000;font-size:.65rem;font-weight:700;cursor:pointer">
+                All
+              </button>
+              ${pitches.map(([pt,pct])=>`
+                <button onclick="filterStatsGrid('${statsId}','${pt}','${r.id}')"
+                  id="${statsId}-${pt}"
+                  style="padding:4px 10px;border-radius:99px;border:1px solid ${PITCH_CLR[pt]||'var(--bdr)'};
+                  background:transparent;color:${PITCH_CLR[pt]||'var(--t3)'};
+                  font-size:.65rem;font-weight:700;cursor:pointer">
+                  ${pt} <span style="opacity:.6">${pct.toFixed(0)}%</span>
+                </button>`).join('')}
             </div>`;
+
+            // Pre-compute stats for each pitch + ALL combined
+            const computeStats = (pts) => {
+              let totGB=0,totFB=0,totLD=0,totPU=0,totHard=0,totHR=0;
+              let evSum=0,evN=0,totBIP=0,totPA=0;
+              for(const pt of pts){
+                const d=bvp[pt]; if(!d||d.pa<1) continue;
+                totGB+=d.gb||0; totFB+=d.fb||0; totLD+=d.ld||0; totPU+=d.pu||0;
+                totHard+=d.hard||0; totHR+=d.hr||0; totBIP+=d.bip||0; totPA+=d.pa||0;
+                if(d.avgEV!=null&&d.avgEV>0){ evSum+=d.avgEV*(d.pa||1); evN+=(d.pa||1); }
+              }
+              const n=Math.max(totBIP,1);
+              const avgEV=evN>0?Math.round(evSum/evN*10)/10:null;
+              const fbDenom=Math.max(totFB+totLD+totPU,1);
+              const pct=(x,d)=>Math.round(x/Math.max(d||n,1)*100);
+              return {totGB,totFB,totLD,totPU,totHard,totHR,totBIP,totPA,avgEV,n,fbDenom,pct};
+            };
+
+            // Encode stats for all pitches and each individual pitch
+            const allPts = pitches.map(([pt])=>pt);
+            const allStats = computeStats(allPts);
+            const perPitchStats = {};
+            for(const [pt] of pitches) perPitchStats[pt] = computeStats([pt]);
+
+            // Store stats in global map (avoid parsing issues with data attributes + template literals)
+            if(!window._statsCache) window._statsCache={};
+            window._statsCache[statsId] = { all:allStats, per:perPitchStats, pitches:allPts };
+
+            return spHeader + pills +
+              `<div id="${statsId}">
+                <div class="ab-metric-grid">${renderGrid(allStats)}</div>
+                <div style="font-size:.58rem;color:var(--t4);margin-top:6px;text-align:center"
+                  id="${statsId}-label">${allStats.totPA} PA vs all pitches</div>
+              </div>`;
           })()}
         </div>
 
