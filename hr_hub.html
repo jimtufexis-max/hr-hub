@@ -4746,6 +4746,89 @@ async function ensurePitcherZoneMap(){
 //  ZONE MATCHUP SCORER
 //  Returns a match score and the overlapping zones
 // ==================================================================
+// ==================================================================
+//  ZONE MATCHUP FROM REAL BVP DATA
+//  Uses actual zone3xwoba + zone3hr from Statcast CSV
+//  Called after BvP lazy-loads, updates _zoneMatch on the row
+// ==================================================================
+function calcZoneMatchupFromBvP(bvp, spId, batHand){
+  if(!bvp || !spId) return null;
+
+  // Find the pitcher's primary + secondary pitches from this SP's arsenal
+  const spRow = (S.allRows||[]).find(r=>String(r._spId)===String(spId));
+  const arsenal = spRow?._pitcherStats?.arsenal;
+  if(!arsenal?.mix) return null;
+
+  // Get top 2 pitches by usage
+  const topPitches = Object.entries(arsenal.mix)
+    .filter(([,pct])=>pct>=8)
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,2)
+    .map(([pt])=>pt);
+
+  if(!topPitches.length) return null;
+
+  // For each top pitch, find batter's hottest zone in the 3×3 grid
+  // Compare against pitcher's damage zones (from cached throw location)
+  const hrZones3 = batHand==='L'
+    ? [[false,false,false],[true,false,false],[true,true,false]]   // LHB: inner-left = bottom-left
+    : [[false,false,false],[false,false,true],[false,true,true]];  // RHB: inner-right = bottom-right
+
+  let bestOverlapScore = 0;
+  let bestPitchType = null;
+  let hotZoneNames = [];
+  let topXwOBA = 0;
+
+  for(const pt of topPitches){
+    const bdata = bvp[pt];
+    if(!bdata?.zone3xwoba || bdata.pa < 10) continue;
+
+    const xw = bdata.zone3xwoba;
+    const hr3 = bdata.zone3hr;
+
+    // Find batter's top 2 xwOBA zones in 3×3
+    const flat = xw.flat().map((v,i)=>({v,ri:Math.floor(i/3),ci:i%3}));
+    const top2 = flat.filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,2);
+
+    // Find zones where batter is hot AND it's a power zone AND pitcher goes there
+    let score = 0;
+    const names = [];
+
+    for(const {v,ri,ci} of top2){
+      const isPowerZone = hrZones3[ri]?.[ci];
+      const hasHR = (hr3?.[ri]?.[ci]||0) >= 1;
+      if(v >= 0.350){
+        if(isPowerZone && hasHR){ score+=3; names.push(`Zone(${ri+1},${ci+1})`); }
+        else if(isPowerZone){ score+=2; names.push(`Zone(${ri+1},${ci+1})`); }
+        else{ score+=1; }
+        if(v > topXwOBA) topXwOBA = v;
+      }
+    }
+
+    if(score > bestOverlapScore){
+      bestOverlapScore = score;
+      bestPitchType = pt;
+      hotZoneNames = names;
+    }
+  }
+
+  if(bestOverlapScore === 0) return null;
+
+  const PITCH_FULL={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Changeup',FS:'Split'};
+  const ptName = PITCH_FULL[bestPitchType]||bestPitchType||'';
+
+  return {
+    score: bestOverlapScore,
+    overlap: hotZoneNames,
+    hotOverlap: bestOverlapScore>=3 ? hotZoneNames : bestOverlapScore>=2 ? hotZoneNames.slice(0,1) : [],
+    zoneNames: hotZoneNames.length ? [`${ptName} (xwOBA ${topXwOBA.toFixed(3)})`] : [],
+    overlapXwOBA: topXwOBA,
+    fromRealData: true,
+    label: bestOverlapScore>=3 ? 'Zone Domination' :
+           bestOverlapScore>=2 ? 'Zone Overlap' : 'Soft Zone Match',
+  };
+}
+
 function calcZoneMatchup(batPid, spPid, batHand){
   let batZones = (_batterZoneMap||{})[String(batPid)];
   let spZones  = (_pitcherZoneMap||{})[String(spPid)];
@@ -5635,8 +5718,8 @@ function renderHitterCard(r,showGame){
     ? `<span style="font-size:.55rem;padding:1px 5px;border-radius:4px;margin-left:3px;
         background:${_zm.hotOverlap.length>=2?'rgba(255,215,0,.3)':'rgba(34,201,94,.2)'};
         color:${_zm.hotOverlap.length>=2?'#ffd700':'var(--green)'}"
-        title="Zone overlap: ${(_zm.zoneNames||[]).join(', ')}">
-        ${_zm.hotOverlap.length>=2?'🎯 Zone Dom':'📍 Zone'}</span>`
+        title="${_zm.fromRealData?'Statcast zone data: ':'Estimated: '}${(_zm.zoneNames||[]).join(', ')}">
+        ${_zm.hotOverlap.length>=2?'🎯 Zone Dom':'📍 Zone'}${_zm.fromRealData?' ✦':''}</span>`
     : '';
 
   // Angles — top 3 only, positive signals
@@ -6017,10 +6100,15 @@ function showDetail(id){
     getBatterVsPitchType(batPid).then(bvp=>{
       if(bvp){
         r._bvp = bvp;
+        // Upgrade zone matchup using real Statcast zone data now that BvP is loaded
+        const realZM = calcZoneMatchupFromBvP(bvp, r._spId, r.batHand);
+        if(realZM) r._zoneMatch = realZM;
         const cur = S.allRows.find(x=>x.id===id);
         if(cur && document.getElementById('page-detail')?.classList.contains('active')){
           renderDetail(cur);
         }
+        // Re-render slate so zone badges reflect real data
+        if(S.allRows.length) renderSlate();
       }
     }).catch(()=>{});
   }
