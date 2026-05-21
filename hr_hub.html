@@ -5785,23 +5785,71 @@ async function togglePitchDrill(drillId, spId, batId, pt){
   };
 
   // Helper: render a 3x3 zone grid
-  const grid3 = (data, label, fmtFn, colorFn, avgVal) => {
+  // Compute 3×3 overlap mask — which batter zones align with pitcher's top damage zones
+  // dmg5avg is 5×5, map it down to 3×3 by averaging the corresponding cells
+  // 5×5 to 3×3: cols 1-3 map to inner 3×3 zone (skip outer cols 0,4)
+  // rows 1-3 map to inner 3×3 zone (skip outer rows 0,4)
+  let overlapMask = null; // 3×3 boolean: true = gold border
+  if(dmg5 && zone3xw){
+    // Collapse 5×5 damage into 3×3 by taking the middle 3×3 region (rows/cols 1-3)
+    const dmg3 = [[0,1,2],[1,2,3],[2,3,4]].map((_,ri)=>
+      [[0,1,2],[1,2,3],[2,3,4]].map((_,ci)=>{
+        // Average the 3×3 patch centered on this zone
+        let sum=0, n=0;
+        for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+          const r5=ri+1+dr, c5=ci+1+dc;
+          if(r5>=0&&r5<5&&c5>=0&&c5<5){ sum+=dmg5[r5][c5]; n++; }
+        }
+        return n>0?sum/n:0;
+      })
+    );
+    // Find top 2 damage zones
+    const dmg3Flat = dmg3.flat().filter(v=>v>0);
+    const dmgThreshold = dmg3Flat.length>=2
+      ? dmg3Flat.sort((a,b)=>b-a)[1]   // top 2 threshold
+      : dmg3Flat.length>=1 ? dmg3Flat[0]*0.6 : 0;
+
+    // Find top 2 batter xwOBA zones
+    const xwFlat = zone3xw.flat().filter(v=>v>0);
+    const xwThreshold = xwFlat.length>=2
+      ? [...xwFlat].sort((a,b)=>b-a)[1]
+      : xwFlat.length>=1 ? xwFlat[0]*0.6 : 0;
+
+    overlapMask = dmg3.map((row,ri)=>
+      row.map((dv,ci)=>{
+        const xv = zone3xw[ri][ci]||0;
+        return dv>=dmgThreshold && xv>=xwThreshold && (dv>0||xv>0);
+      })
+    );
+  }
+
+  // grid3 with optional per-cell gold border overlay
+  const grid3WithOverlap = (data, label, fmtFn, colorFn, avgVal, mask) => {
     if(!data) return '';
-    const cells = data.flat().map(v=>{
+    const cells = data.flat().map((v, idx)=>{
+      const ri = Math.floor(idx/3), ci = idx%3;
+      const isOverlap = mask?.[ri]?.[ci];
       const bg = colorFn(v);
       const txt = fmtFn(v);
-      return `<div style="padding:6px 4px;background:${bg};border-radius:3px;
+      return `<div style="padding:7px 4px;background:${bg};border-radius:4px;
         display:flex;align-items:center;justify-content:center;
-        font-size:.62rem;font-weight:700;color:#fff;min-height:28px">${txt}</div>`;
+        font-size:.65rem;font-weight:700;color:#fff;min-height:32px;
+        ${isOverlap?'box-shadow:inset 0 0 0 2px #ffd700;':''}">
+        ${txt}
+      </div>`;
     }).join('');
     return `<div>
       <div style="font-size:.58rem;color:var(--t4);margin-bottom:4px;
         text-transform:uppercase;letter-spacing:.04em">${label}</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;
-        border:2px solid rgba(255,215,0,.25);border-radius:6px;padding:2px">${cells}</div>
-      ${avgVal!=null?`<div style="font-size:.58rem;color:var(--t4);margin-top:3px;text-align:center">${avgVal} avg</div>`:''}
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;
+        border:2px solid rgba(255,215,0,.3);border-radius:8px;padding:3px;
+        background:rgba(255,215,0,.04)">${cells}</div>
+      ${avgVal!=null?`<div style="font-size:.58rem;color:var(--t4);margin-top:4px;text-align:center">${avgVal} avg</div>`:''}
     </div>`;
   };
+
+  const grid3 = (data, label, fmtFn, colorFn, avgVal) =>
+    grid3WithOverlap(data, label, fmtFn, colorFn, avgVal, null);
 
   // Color functions
   const locColor = v => {
@@ -5873,9 +5921,9 @@ async function togglePitchDrill(drillId, spId, batId, pt){
         <span style="color:var(--amber);font-size:.55rem"> ★ gold border = best overlap</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        ${grid3(zone3xw,'xwOBA*',
+        ${grid3WithOverlap(zone3xw,'xwOBA*',
           v=>v>=0.050?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'.000',
-          xwobaColor, avgXw)}
+          xwobaColor, avgXw, overlapMask)}
         ${grid3(zone3hr,'HR',
           v=>v>0?String(Math.round(v)):'0',
           hrZoneColor, totalHR3?totalHR3+' total':null)}
