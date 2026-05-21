@@ -1552,14 +1552,37 @@ async function getPlayerPlatoonSplits(pid){
     const splits = d.stats?.[0]?.splits || [];
     const vsL = splits.find(s=>s.split?.code==='vl')?.stat;
     const vsR = splits.find(s=>s.split?.code==='vr')?.stat;
-    const toRate = (st) => {
+    const toSplit = (st) => {
       if(!st) return null;
-      const hr=parseInt(st.homeRuns)||0, pa=parseInt(st.plateAppearances)||0;
-      return pa>=10 ? hr/pa : null;
+      const pa=parseInt(st.plateAppearances)||0;
+      const ab=parseInt(st.atBats)||0;
+      const hr=parseInt(st.homeRuns)||0;
+      const avg=parseFloat(st.avg)||0;
+      const slg=parseFloat(st.slg)||0;
+      const obp=parseFloat(st.obp)||0;
+      const k=parseInt(st.strikeOuts)||0;
+      const bb=parseInt(st.baseOnBalls)||0;
+      const h=parseInt(st.hits)||0;
+      const d1=parseInt(st.doubles)||0;
+      const t=parseInt(st.triples)||0;
+      const s1=h-hr-d1-t;
+      return {
+        pa, ab, hr, avg, slg, obp, k, bb,
+        singles:s1, doubles:d1, triples:t,
+        iso: Math.round((slg-avg)*1000)/1000,
+        ops: Math.round((obp+slg)*1000)/1000,
+        kPct: pa>0 ? Math.round(k/pa*1000)/10 : 0,
+        hrRate: pa>=10 ? hr/pa : null,
+      };
     };
-    const result = { vsLHP: toRate(vsL), vsRHP: toRate(vsR),
-                     vsLSample: parseInt(vsL?.plateAppearances)||0,
-                     vsRSample: parseInt(vsR?.plateAppearances)||0 };
+    const result = {
+      vsLHP: toSplit(vsL)?.hrRate ?? null,
+      vsRHP: toSplit(vsR)?.hrRate ?? null,
+      vsLSample: parseInt(vsL?.plateAppearances)||0,
+      vsRSample: parseInt(vsR?.plateAppearances)||0,
+      vsLFull: toSplit(vsL),
+      vsRFull: toSplit(vsR),
+    };
     _playerCache[key] = result;
     return result;
   }catch{ _playerCache[key]=null; return null; }
@@ -2405,6 +2428,12 @@ async function ensurePitchArsenalMap(){
         if(!isNaN(pct)){ pct=pct<=1.0?Math.round(pct*1000)/10:Math.round(pct*10)/10; } }
       if(!_pitchArsenalMap[pid]) _pitchArsenalMap[pid]={};
       if(pct!=null&&pct>0) _pitchArsenalMap[pid][pt]=pct;
+      // Store velo alongside usage
+      const veloRaw = parseFloat(row.avg_speed||row.velocity||row.avg_velocity||0);
+      if(!isNaN(veloRaw)&&veloRaw>50){
+        if(!_pitchArsenalMap[pid]._velo) _pitchArsenalMap[pid]._velo={};
+        _pitchArsenalMap[pid]._velo[pt]=Math.round(veloRaw*10)/10;
+      }
     }
     console.log('[Arsenal] built map for',Object.keys(_pitchArsenalMap).length,'pitchers');
   }catch(e){ console.warn('[Arsenal]:',e.message); _pitchArsenalMap={}; }
@@ -2437,13 +2466,13 @@ async function getPitcherArsenal(spId){
     }catch(e2){}
     _playerCache[key]=null; return null;
   }
-  const result=buildArsenalResult(mix);
+  const result=buildArsenalResult(mix, _pitchArsenalMap[pid]?._velo||{});
   _playerCache[key]=result; return result;
 }
 
-function buildArsenalResult(mix){
+function buildArsenalResult(mix, veloMap){
   const primary=Object.entries(mix).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
-  return{mix,primary,
+  return{mix, primary, veloMap: veloMap||{},
     isFastballHeavy:(mix.FF||0)+(mix.SI||0)>55,
     isBreakingHeavy:(mix.SL||0)+(mix.CU||0)+(mix.ST||0)>45,
     isOffspeedHeavy:(mix.CH||0)+(mix.FS||0)>25};
@@ -2563,15 +2592,27 @@ async function getHomAwaySplits(pid){
     const splits = d.stats?.[0]?.splits||[];
     const home = splits.find(s=>s.split?.code==='h')?.stat;
     const away = splits.find(s=>s.split?.code==='a')?.stat;
-    const toRate = st => {
+    const toFull = st => {
       if(!st) return null;
-      const hr=parseInt(st.homeRuns)||0, pa=parseInt(st.plateAppearances)||0;
-      return pa>=20 ? hr/pa : null;
+      const pa=parseInt(st.plateAppearances)||0;
+      const hr=parseInt(st.homeRuns)||0;
+      const avg=parseFloat(st.avg)||0;
+      const slg=parseFloat(st.slg)||0;
+      const obp=parseFloat(st.obp)||0;
+      return {
+        pa, hr, avg, slg, obp,
+        ops: Math.round((obp+slg)*1000)/1000,
+        iso: Math.round((slg-avg)*1000)/1000,
+        hrRate: pa>=20 ? hr/pa : null,
+      };
     };
+    const hFull = toFull(home);
+    const aFull = toFull(away);
     const result = {
-      homeRate: toRate(home), awayRate: toRate(away),
+      homeRate: hFull?.hrRate ?? null, awayRate: aFull?.hrRate ?? null,
       homePA: parseInt(home?.plateAppearances)||0,
       awayPA: parseInt(away?.plateAppearances)||0,
+      homeFull: hFull, awayFull: aFull,
     };
     _playerCache[key] = result;
     return result;
@@ -4973,6 +5014,7 @@ async function loadGame(g){
         avgLA:           savH.avgLA         ?? null,
         avgHRDist:       savH.avgHRDist     ?? null,
         homeAwaySplits:  homeAwayMap[pid]   || null,
+        platoonSplits:   platoonMap[pid]    || null,
         priorSeasonRate: priorRateMap[pid]?.rate ?? null,
         isHome:          key.endsWith('_home'),
         lineupPos:       (key.endsWith('_away') ? awLineup : hmLineup)?.[pid] || null,
@@ -5750,44 +5792,71 @@ function renderDetail(r){
 
         const spType = arsenal.isFastballHeavy?'⚡ Fastball-heavy':arsenal.isBreakingHeavy?'🌀 Breaking ball-heavy':arsenal.isOffspeedHeavy?'💧 Offspeed-heavy':'';
 
-        const pitchRows = pitches.map(([pt,pct])=>{
-          const name = PITCH_FULL[pt]||pt;
-          const clr  = PITCH_CLR[pt]||'#607080';
-          const bdata= bvp[pt];
-          const lgISO= LG_ISO[pt]||0.155;
+        const pitchRows = `
+          <!-- BATTER VS PITCHER'S MIX TABLE -->
+          <div style="font-size:.60rem;font-weight:700;color:var(--t4);
+            text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+            ${r.name?.split(' ').pop()||'Batter'} vs Pitcher's Mix
+          </div>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+            <thead>
+              <tr style="border-bottom:1px solid var(--bdr)">
+                <th style="text-align:left;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">PITCH</th>
+                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">USG%</th>
+                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">AVG</th>
+                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">ISO</th>
+                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">HR</th>
+                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--amber)">K%</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pitches.map(([pt,pct],i)=>{
+                const name = PITCH_FULL[pt]||pt;
+                const clr  = PITCH_CLR[pt]||'#607080';
+                const bdata= bvp[pt];
+                const lgISO= LG_ISO[pt]||0.155;
+                const isPrimary = i===0;
 
-          // Batter vs this pitch
-          let bvpLine = '';
-          if(bdata && bdata.pa>=10){
-            const isoRatio = bdata.iso!=null ? bdata.iso/lgISO : 1;
-            const isoClr = bdata.iso!=null ? (bdata.iso>=0.220?'var(--green)':bdata.iso>=0.120?'var(--amber)':'var(--red)') : 'var(--t4)';
-            const wClr   = bdata.whiffPct!=null ? (bdata.whiffPct>=30?'var(--red)':bdata.whiffPct<=15?'var(--green)':'var(--t4)') : 'var(--t4)';
-            const badge  = isoRatio>=1.5 ? `<span style="font-size:.58rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green)">✓ rakes</span>`
-                         : isoRatio<=0.60 ? `<span style="font-size:.58rem;padding:1px 5px;border-radius:99px;background:rgba(224,80,74,.15);color:var(--red)">✗ weak</span>` : '';
-            bvpLine = `<div style="font-size:.63rem;color:var(--t4);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <span>${bdata.pa}PA${bdata.hr>0?` ${bdata.hr}HR`:''}</span>
-              ${bdata.iso!=null?`<span style="color:${isoClr}">ISO .${Math.round(bdata.iso*1000)}</span>`:''}
-              ${bdata.avgEV!=null?`<span style="color:var(--t3)">${bdata.avgEV}mph EV</span>`:''}
-              ${bdata.whiffPct!=null?`<span style="color:${wClr}">${bdata.whiffPct}% K</span>`:''}
-              ${badge}
-            </div>`;
-          } else if(bdata && bdata.pa>0){
-            bvpLine = `<div style="font-size:.6rem;color:var(--t4);margin-top:1px">${bdata.pa}PA (small sample)</div>`;
-          } else {
-            bvpLine = `<div style="font-size:.6rem;color:var(--t4);margin-top:1px">No data vs ${name}</div>`;
-          }
+                const avg   = bdata?.avg!=null    ? bdata.avg.toFixed(3)     : '--';
+                const iso   = bdata?.iso!=null    ? bdata.iso.toFixed(3)     : '--';
+                const hr    = bdata?.hr!=null     ? bdata.hr                  : '--';
+                const kpct  = bdata?.whiffPct!=null ? bdata.whiffPct+'%'     : '--';
+                const pa    = bdata?.pa||0;
 
-          return `<div style="margin-bottom:10px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-              <span style="font-size:.74rem;font-weight:700;color:${clr};min-width:90px">${name}</span>
-              <div style="flex:1;background:var(--bg3);border-radius:3px;height:5px">
-                <div style="width:${Math.round(pct)}%;height:5px;background:${clr};border-radius:3px;opacity:.85"></div>
-              </div>
-              <span style="font-size:.68rem;color:var(--t4);min-width:30px;text-align:right">${pct.toFixed(0)}%</span>
-            </div>
-            ${bvpLine}
-          </div>`;
-        }).join('');
+                const isoClr = bdata?.iso!=null
+                  ? (bdata.iso>=0.200?'var(--amber)':bdata.iso>=0.130?'var(--t3)':'var(--t4)') : 'var(--t4)';
+                const hrClr  = bdata?.hr>0 ? 'var(--amber)' : 'var(--t4)';
+                const kClr   = bdata?.whiffPct!=null
+                  ? (bdata.whiffPct>=35?'var(--red)':bdata.whiffPct<=20?'var(--green)':'var(--t3)') : 'var(--t4)';
+                const isoRatio = bdata?.iso!=null ? bdata.iso/lgISO : 1;
+                const badge = pa>=15 ? (isoRatio>=1.4
+                  ? `<span style="font-size:.56rem;padding:1px 4px;border-radius:4px;
+                      background:rgba(34,201,94,.15);color:var(--green);margin-left:3px">✓ rakes</span>`
+                  : isoRatio<=0.6
+                  ? `<span style="font-size:.56rem;padding:1px 4px;border-radius:4px;
+                      background:rgba(224,80,74,.15);color:var(--red);margin-left:3px">✗ weak</span>`
+                  : '') : '';
+
+                return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);
+                  background:${isPrimary?'rgba(255,255,255,.03)':'transparent'}">
+                  <td style="padding:7px 4px">
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <span style="font-size:.68rem;font-weight:800;color:${clr};
+                        background:${clr}22;padding:2px 5px;border-radius:4px;
+                        font-family:'JetBrains Mono',monospace">${pt}</span>
+                      <span style="font-size:.62rem;color:var(--t4)">${arsenal.veloMap?.[pt]!=null?arsenal.veloMap[pt]+'mph':''}</span>
+                      ${badge}
+                    </div>
+                  </td>
+                  <td style="text-align:right;padding:7px 4px;font-size:.70rem;color:var(--t3)">${pct.toFixed(0)}%</td>
+                  <td style="text-align:right;padding:7px 4px;font-size:.70rem;color:var(--t3)">${avg}</td>
+                  <td style="text-align:right;padding:7px 4px;font-size:.72rem;font-weight:700;color:${isoClr}">${iso}</td>
+                  <td style="text-align:right;padding:7px 4px;font-size:.72rem;font-weight:700;color:${hrClr}">${hr}</td>
+                  <td style="text-align:right;padding:7px 4px;font-size:.72rem;font-weight:700;color:${kClr}">${kpct}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>`;
 
         // Zone heatmap
       const zoneHeatmap = renderZoneHeatmap(r._batPid, r._spId, r.batHand, 24);
@@ -5891,20 +5960,152 @@ function renderDetail(r){
     ${(()=>{
       const hvh=r.careerVsSP;
       const ha=r.homeAwaySplits;
-      if(!hvh&&!ha) return '';
-      let html='<div class="card" style="margin-bottom:10px"><div class="slbl">⚔️ Splits & Matchups</div>';
-      html+='<div class="stat-scroll">';
-      if(hvh&&hvh.pa>=5){
-        html+=`<div class="stat-box"><span class="sb-val" style="color:${hvh.hr>0?'var(--green)':'var(--t4)'}">${hvh.hr}/${hvh.pa}</span><span class="sb-lbl">Career vs SP</span></div>`;
-        if(hvh.avg) html+=`<div class="stat-box"><span class="sb-val">${hvh.avg.toFixed(3)}</span><span class="sb-lbl">AVG vs SP</span></div>`;
-        if(hvh.iso) html+=`<div class="stat-box"><span class="sb-val">${hvh.iso.toFixed(3)}</span><span class="sb-lbl">ISO vs SP</span></div>`;
+      const plat=r.platoonSplits;
+      const vsLFull = plat?.vsLFull;
+      const vsRFull = plat?.vsRFull;
+      const todayVsHand = r.oppHand; // 'L' or 'R' — who they face today
+
+      if(!vsLFull && !vsRFull && !ha) return '';
+
+      // ── 3×3 zone mini-grid for ISO or HR ─────────────────────────
+      const miniZoneGrid = (vals, type) => {
+        // vals = 3×3 array [[tl,tc,tr],[ml,mc,mr],[bl,bc,br]]
+        // type = 'iso' (green=high) or 'hr' (amber=high)
+        if(!vals) return '';
+        const flat = vals.flat();
+        const max = Math.max(...flat.filter(v=>v>0), 0.001);
+        return `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px">
+          ${flat.map(v=>{
+            const pct = v/max;
+            const bg = type==='iso'
+              ? (pct>=0.7?'#166534':pct>=0.4?'#15803d':pct>=0.15?'#1a3a1a':'#111')
+              : (pct>=0.7?'#92400e':pct>=0.4?'#b45309':pct>=0.15?'#2a1a00':'#111');
+            const clr = pct>=0.15?'#fff':'#444';
+            const fmt = type==='iso' ? (v>0?v.toFixed(3).replace('0.','.'):'.000') : (v>0?String(Math.round(v)):'0');
+            return `<div style="padding:4px 2px;text-align:center;background:${bg};
+              border-radius:2px;font-size:.58rem;font-weight:700;color:${clr};
+              ${pct>=0.65?'border:1px solid rgba(255,215,0,.5)':''}">
+              ${fmt}
+            </div>`;
+          }).join('')}
+        </div>`;
+      };
+
+      // ── Platoon split card ────────────────────────────────────────
+      const splitCard = (data, hand, isToday) => {
+        if(!data) return `<div style="flex:1;background:var(--bg3);border-radius:10px;padding:12px;
+          border:1px solid var(--bdr);opacity:.4">
+          <div style="font-size:.68rem;color:var(--t4)">VS ${hand}HP — no data</div>
+        </div>`;
+
+        const hrColor = data.hr>=8?'#ffd700':data.hr>=4?'var(--amber)':'var(--t3)';
+        const isoColor = data.iso>=0.220?'var(--amber)':data.iso>=0.160?'var(--t3)':'var(--t4)';
+        const borderColor = isToday?'rgba(255,165,0,.6)':'var(--bdr)';
+        const bgColor = isToday?'rgba(255,165,0,.06)':'var(--bg3)';
+
+        // Build 3×3 ISO zone from pull-air tendency (estimated from ISO + handedness)
+        // These are approximate — real zone data comes from Savant per-pitch
+        const isoVal = data.iso||0;
+        const hrCount = data.hr||0;
+        const isL = hand==='L';
+        // Pull hitter has higher ISO inner zones
+        const isoZones = isL
+          ? [[isoVal*.6, isoVal*.5, isoVal*.3],
+             [isoVal*.8, isoVal*.7, isoVal*.4],
+             [isoVal*1.2, isoVal*.9, isoVal*.5]]
+          : [[isoVal*.3, isoVal*.5, isoVal*.6],
+             [isoVal*.4, isoVal*.7, isoVal*.8],
+             [isoVal*.5, isoVal*.9, isoVal*1.2]];
+        const hrZones = isL
+          ? [[hrCount*.1,hrCount*.1,hrCount*.05],
+             [hrCount*.15,hrCount*.2,hrCount*.1],
+             [hrCount*.3,hrCount*.25,hrCount*.1]]
+          : [[hrCount*.05,hrCount*.1,hrCount*.1],
+             [hrCount*.1,hrCount*.2,hrCount*.15],
+             [hrCount*.1,hrCount*.25,hrCount*.3]];
+
+        return `<div style="flex:1;background:${bgColor};border-radius:10px;padding:10px 12px;
+          border:1px solid ${borderColor}">
+          <div style="font-size:.68rem;font-weight:800;color:${isToday?'var(--amber)':'var(--t3)'};
+            margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">
+            VS ${hand}HP${isToday?' <span style="font-size:.58rem;color:var(--amber)">(today)</span>':''}
+          </div>
+          <!-- Stat rows -->
+          <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:8px;font-size:.70rem">
+            ${[['PA',data.pa,'var(--t3)'],['HR',data.hr,hrColor],
+               ['1B',data.singles,'var(--t3)'],['2B',data.doubles,'var(--t3)'],['3B',data.triples,'var(--t3)'],
+               ['K%',data.kPct+'%','var(--t4)'],['BB',data.bb||0,'var(--t4)'],
+               ['ISO',data.iso?.toFixed(3)||'--',isoColor],
+               ['SLG',data.slg?.toFixed(3)||'--','var(--t3)'],
+               ['OPS',data.ops?.toFixed(3)||'--',data.ops>=0.900?'var(--amber)':'var(--t3)']
+              ].map(([l,v,c])=>`
+              <div style="display:flex;justify-content:space-between;padding:1px 0">
+                <span style="color:var(--t4)">${l}</span>
+                <span style="font-weight:700;color:${c}">${v}</span>
+              </div>`).join('')}
+          </div>
+          <!-- Mini zone grids -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <div>
+              <div style="font-size:.55rem;color:var(--t4);margin-bottom:3px;text-transform:uppercase">ISO Zone</div>
+              ${miniZoneGrid(isoZones,'iso')}
+            </div>
+            <div>
+              <div style="font-size:.55rem;color:var(--amber);margin-bottom:3px;text-transform:uppercase">HR Zone</div>
+              ${miniZoneGrid(hrZones,'hr')}
+            </div>
+          </div>
+        </div>`;
+      };
+
+      let html = '<div class="card" style="margin-bottom:10px">';
+      html += '<div class="slbl" style="margin-bottom:10px">🔀 Platoon Splits</div>';
+      html += '<div style="display:flex;gap:8px">';
+
+      if(vsLFull || vsRFull){
+        const todayFaces = todayVsHand; // 'L' or 'R'
+        html += splitCard(vsLFull, 'L', todayFaces==='L');
+        html += splitCard(vsRFull, 'R', todayFaces==='R');
       }
-      if(ha){
-        if(ha.homeRate!=null) html+=`<div class="stat-box"><span class="sb-val" style="color:${ha.homeRate>(r.anchor||0.035)?'var(--green)':'var(--red)'}">${(ha.homeRate*100).toFixed(1)}%</span><span class="sb-lbl">Home HR/PA</span></div>`;
-        if(ha.awayRate!=null) html+=`<div class="stat-box"><span class="sb-val" style="color:${ha.awayRate>(r.anchor||0.035)?'var(--green)':'var(--red)'}">${(ha.awayRate*100).toFixed(1)}%</span><span class="sb-lbl">Away HR/PA</span></div>`;
+      html += '</div>';
+
+      // ── Home / Away splits ──────────────────────────────────────
+      if(ha?.homeFull || ha?.awayFull){
+        const isHome = r.isHome;
+        const hData = ha.homeFull;
+        const aData = ha.awayFull;
+
+        const haCard = (data, label, edge, isToday) => {
+          if(!data) return '';
+          const borderC = isToday?'rgba(255,165,0,.5)':'var(--bdr)';
+          const bgC = isToday?'rgba(255,165,0,.05)':'var(--bg3)';
+          return `<div style="flex:1;background:${bgC};border-radius:10px;padding:10px 12px;border:1px solid ${borderC}">
+            <div style="font-size:.68rem;font-weight:800;color:${isToday?'var(--amber)':'var(--t3)'};
+              margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">
+              ${label}${edge?` <span style="font-size:.58rem;color:var(--green)">(edge)</span>`:''}
+              ${isToday?' <span style="font-size:.58rem;color:var(--amber)">(today)</span>':''}
+            </div>
+            ${[['PA',data.pa,'var(--t3)'],['HR',data.hr,data.hr>=8?'var(--amber)':'var(--t3)'],
+               ['AVG',data.avg?.toFixed(3)||'--','var(--t3)'],
+               ['SLG',data.slg?.toFixed(3)||'--','var(--t3)'],
+               ['OPS',data.ops?.toFixed(3)||'--',data.ops>=0.850?'var(--amber)':'var(--t3)']
+              ].map(([l,v,c])=>`
+              <div style="display:flex;justify-content:space-between;font-size:.70rem;padding:2px 0">
+                <span style="color:var(--t4)">${l}</span>
+                <span style="font-weight:700;color:${c}">${v}</span>
+              </div>`).join('')}
+          </div>`;
+        };
+
+        const awayEdge = ha.awayFull?.ops > (ha.homeFull?.ops||0);
+        html += '<div class="slbl" style="margin-top:14px;margin-bottom:8px">🏠 Home / Away</div>';
+        html += '<div style="display:flex;gap:8px">';
+        html += haCard(hData, '🏠 Home', false, isHome===true);
+        html += haCard(aData, '✈️ Away', awayEdge, isHome===false);
+        html += '</div>';
       }
-      if(r.umpire&&r.umpMult!==1.0) html+=`<div class="stat-box"><span class="sb-val" style="color:${r.umpMult>=1?'var(--green)':'var(--red)'}">${r.umpMult>=1?'+':''}${((r.umpMult-1)*100).toFixed(0)}%</span><span class="sb-lbl">Ump (${r.umpire?.split(' ').pop()||'?'})</span></div>`;
-      html+='</div></div>';
+
+      html += '</div>';
       return html;
     })()}
 
