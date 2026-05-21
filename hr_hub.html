@@ -6451,113 +6451,66 @@ function renderDetail(r){
           ${arsenalHTML}
         </div>
 
-        <!-- Stats panel — Batter vs SP Arsenal -->
+        <!-- Stats panel — Pitcher batted ball profile -->
         <div id="panel-stats-${r.id}" style="display:none">
           ${(()=>{
-            const bvp = r._bvp || {};
-            const pitches = arsenal?.mix
-              ? Object.entries(arsenal.mix).filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1])
-              : [];
-            if(!pitches.length) return `<div style="font-size:.70rem;color:var(--t4);padding:16px 0;text-align:center">Load player detail first to get arsenal data</div>`;
-            const hasBvP = pitches.some(([pt])=>bvp[pt]?.pa>=10);
+            const fg  = pit.fgStats;
+            const bb  = pit.battedBall;
+            const savP = (_savP||{})[String(r._spId||'')];
 
-            // SP header
-            const spHeader = `<div style="font-size:.68rem;padding:8px 10px;background:var(--bg3);
-              border-radius:8px;margin-bottom:10px;line-height:1.6">
+            const gbPct   = fg?.gbPct   || bb?.gbRate         || savP?.gb_percent  || null;
+            const fbPct   = fg?.fbPct   || bb?.fbRate         || savP?.fb_percent  || null;
+            const ldPct   = fg?.ldPct                                               || null;
+            const puPct   = fg?.iffbPct                                             || null;
+            const hrFbV   = fg?.hrFb!=null?(fg.hrFb>1?fg.hrFb:fg.hrFb*100)
+                            : pit.hrFb!=null?(pit.hrFb>1?pit.hrFb:pit.hrFb*100)   : null;
+            const hardHit = savP?.hard_hit_pct                                     || null;
+            const avgEV   = savP?.avg_ev                                            || null;
+            const barrelA = pit.barrel_pct_allowed!=null
+              ? (pit.barrel_pct_allowed>1?pit.barrel_pct_allowed:pit.barrel_pct_allowed*100)
+              : null;
+
+            const hasData = gbPct||fbPct||hrFbV||hardHit||avgEV||barrelA;
+            if(!hasData) return `<div style="font-size:.70rem;color:var(--t4);padding:16px 0;text-align:center">
+              Pitcher stats loading…
+            </div>`;
+
+            // Arsenal header
+            const spHeader = arsenal?.mix ? `<div style="font-size:.68rem;padding:8px 10px;
+              background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.6">
               <span style="font-weight:800;color:var(--t2)">${r.spNm||'SP'}</span>
-              <span style="color:var(--t4)"> (${r.oppHand||'?'}HP) · Today's mix:</span>
-              ${pitches.slice(0,4).map(([pt,p])=>`<span style="color:${PITCH_CLR[pt]||'var(--t3)'}"> ${PITCH_FULL[pt]||pt} ${p.toFixed(0)}%</span>`).join('·')}
-            </div>`;
-
-            if(!hasBvP) return spHeader + `<div style="font-size:.70rem;color:var(--t4);padding:12px 0;text-align:center">
-              BvP data loading…<br>
-              <span style="font-size:.62rem">Tap player again after ~3s</span>
-            </div>`;
-
-            // Table header
-            const thead = `<div style="display:grid;grid-template-columns:80px 36px 48px 52px 36px 50px;
-              padding:5px 8px;background:var(--bg3);border-radius:6px 6px 0 0;
-              font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.04em">
-              <div>Pitch</div>
-              <div style="text-align:center">PA</div>
-              <div style="text-align:center">AVG</div>
-              <div style="text-align:center">ISO</div>
-              <div style="text-align:center">HR</div>
-              <div style="text-align:right">K%</div>
-            </div>`;
-
-            const rows = pitches.map(([pt,pct],i)=>{
-              const clr = PITCH_CLR[pt]||'#607080';
-              const d = bvp[pt];
-              const lgISO = {FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130}[pt]||0.155;
-
-              if(!d || d.pa<5) return `<div style="display:grid;grid-template-columns:80px 36px 48px 52px 36px 50px;
-                padding:7px 8px;border-top:1px solid rgba(255,255,255,.04);
-                background:${i%2===0?'transparent':'rgba(255,255,255,.01)'}">
-                <div style="display:flex;align-items:center;gap:5px">
-                  <span style="font-size:.66rem;font-weight:800;color:${clr};background:${clr}22;
-                    padding:2px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace">${pt}</span>
-                  <span style="font-size:.58rem;color:var(--t4)">${pct.toFixed(0)}%</span>
-                </div>
-                <div style="text-align:center;font-size:.65rem;color:var(--t4)">--</div>
-                <div style="text-align:center;font-size:.65rem;color:var(--t4)">--</div>
-                <div style="text-align:center;font-size:.65rem;color:var(--t4)">--</div>
-                <div style="text-align:center;font-size:.65rem;color:var(--t4)">--</div>
-                <div style="text-align:right;font-size:.65rem;color:var(--t4)">--</div>
-              </div>`;
-
-              const isoRatio = d.iso!=null ? d.iso/lgISO : 1;
-              const isoClr = d.iso>=0.220?'var(--amber)':d.iso>=0.130?'var(--t2)':'var(--t4)';
-              const hrClr  = d.hr>=2?'var(--amber)':d.hr>=1?'var(--t2)':'var(--t4)';
-              const kClr   = d.whiffPct>=35?'var(--red)':d.whiffPct<=20?'var(--green)':'var(--t3)';
-              const badge  = d.pa>=15
-                ? isoRatio>=1.4
-                  ? `<span style="font-size:.52rem;padding:1px 4px;border-radius:3px;background:rgba(34,201,94,.15);color:var(--green)">✓</span>`
-                  : isoRatio<=0.6
-                  ? `<span style="font-size:.52rem;padding:1px 4px;border-radius:3px;background:rgba(224,80,74,.15);color:var(--red)">✗</span>`
-                  : '' : '';
-              const sampleNote = d.pa<15 ? `<span style="font-size:.52rem;color:var(--t4)">(${d.pa}PA)</span>` : '';
-
-              return `<div style="display:grid;grid-template-columns:80px 36px 48px 52px 36px 50px;
-                padding:7px 8px;border-top:1px solid rgba(255,255,255,.04);
-                align-items:center;background:${d.hr>0?'rgba(255,215,0,.04)':i%2===0?'transparent':'rgba(255,255,255,.01)'}">
-                <div style="display:flex;align-items:center;gap:4px">
-                  <span style="font-size:.66rem;font-weight:800;color:${clr};background:${clr}22;
-                    padding:2px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace">${pt}</span>
-                  ${badge}${sampleNote}
-                </div>
-                <div style="text-align:center;font-size:.70rem;color:var(--t3)">${d.pa}</div>
-                <div style="text-align:center;font-size:.70rem;color:var(--t3)">${d.avg!=null?d.avg.toFixed(3):'--'}</div>
-                <div style="text-align:center;font-size:.72rem;font-weight:700;color:${isoClr}">${d.iso!=null?d.iso.toFixed(3):'--'}</div>
-                <div style="text-align:center;font-size:.72rem;font-weight:700;color:${hrClr}">${d.hr!=null?d.hr:'--'}</div>
-                <div style="text-align:right;font-size:.70rem;font-weight:700;color:${kClr}">${d.whiffPct!=null?d.whiffPct+'%':'--'}</div>
-              </div>`;
-            }).join('');
-
-            // Totals across all arsenal pitches with sample
-            const arsenalPAs  = pitches.reduce((s,[pt])=>s+(bvp[pt]?.pa||0),0);
-            const arsenalHRs  = pitches.reduce((s,[pt])=>s+(bvp[pt]?.hr||0),0);
-            const avgISO = (() => {
-              let w=0,t=0;
-              pitches.forEach(([pt,pct])=>{ if(bvp[pt]?.iso!=null&&bvp[pt].pa>=10){w+=bvp[pt].iso*(pct/100);t+=pct/100;} });
-              return t>0?Math.round(w/t*1000)/1000:null;
-            })();
-            const totals = arsenalPAs>0 ? `<div style="display:grid;grid-template-columns:80px 36px 48px 52px 36px 50px;
-              padding:6px 8px;border-top:2px solid var(--bdr);border-radius:0 0 6px 6px;
-              background:var(--bg3);font-size:.65rem;font-weight:700;color:var(--t4)">
-              <div style="font-size:.60rem;text-transform:uppercase;letter-spacing:.04em">Totals</div>
-              <div style="text-align:center;color:var(--t3)">${arsenalPAs}</div>
-              <div></div>
-              <div style="text-align:center;color:${avgISO>=0.220?'var(--amber)':avgISO<=0.120?'var(--red)':'var(--t3)'}">${avgISO!=null?avgISO.toFixed(3):'--'}</div>
-              <div style="text-align:center;color:${arsenalHRs>=3?'var(--amber)':'var(--t3)'}">${arsenalHRs}</div>
-              <div></div>
+              <span style="color:var(--t4)"> (${r.oppHand||'?'}HP) · Today's arsenal:</span>
+              ${Object.entries(arsenal.mix).filter(([,p])=>p>=8).sort((a,b)=>b[1]-a[1]).map(([pt,p])=>`
+                <span style="color:${PITCH_CLR[pt]||'var(--t3)'}"> ${PITCH_FULL[pt]||pt}</span> ${p.toFixed(0)}%`).join(' ·')}
             </div>` : '';
 
-            return spHeader + `<div style="border:1px solid var(--bdr);border-radius:8px;overflow:hidden">
-              ${thead}${rows}${totals}
-            </div>
-            <div style="font-size:.58rem;color:var(--t4);margin-top:6px;text-align:center">
-              ✓ = rakes (ISO 1.4× lg avg) &nbsp;·&nbsp; ✗ = weak (ISO 0.6× lg avg)
+            const cell = (label, val, fmt, colorFn) => {
+              const clr = val!=null && colorFn ? colorFn(val) : 'var(--t2)';
+              return `<div style="padding:14px 8px;text-align:center;border:1px solid var(--bdr);border-radius:0">
+                <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;
+                  letter-spacing:.05em;margin-bottom:6px">${label}</div>
+                <div style="font-size:1.15rem;font-weight:900;color:${clr}">
+                  ${val!=null ? fmt(val) : '--'}
+                </div>
+              </div>`;
+            };
+
+            const pct = v => `${Math.round(v)}%`;
+            const dec = v => v.toFixed(1);
+
+            return spHeader + `<div style="border:1px solid var(--bdr);border-radius:10px;overflow:hidden">
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--bdr)">
+                ${cell('GB%',  gbPct,  pct, v=>v>52?'var(--t2)':v<32?'var(--green)':'var(--t2)')}
+                ${cell('FB%',  fbPct,  pct, v=>v>45?'var(--green)':v<30?'var(--t2)':'var(--t2)')}
+                ${cell('LD%',  ldPct,  pct, ()=>'var(--t2)')}
+                ${cell('PU%',  puPct,  pct, ()=>'var(--t2)')}
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr)">
+                ${cell('HR/FB%',  hrFbV,   pct, v=>v>=18?'var(--green)':v<=10?'var(--t2)':'var(--t2)')}
+                ${cell('Hard Hit%', hardHit, pct, v=>v>=44?'var(--green)':v<=32?'var(--t2)':'var(--t2)')}
+                ${cell('Avg EV',  avgEV,   dec, v=>v>=92?'var(--green)':v<=87?'var(--t2)':'var(--t2)')}
+                ${cell('Barrel%', barrelA, pct, v=>v>=10?'var(--green)':v<=5?'var(--t2)':'var(--t2)')}
+              </div>
             </div>`;
           })()}
         </div>
