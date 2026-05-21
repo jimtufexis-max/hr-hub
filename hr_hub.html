@@ -5721,6 +5721,18 @@ function switchMatchupTab(playerId, tab){
     arsenalBtn.style.background='var(--bg3)';
     arsenalBtn.style.color='var(--t3)';
     if(splitsBtn){ splitsBtn.style.background='var(--amber)'; splitsBtn.style.color='#000'; }
+
+    // Check if splits are still showing the loading message — re-render if data now available
+    const r = S.allRows.find(x=>String(x.id)===String(playerId));
+    if(r && splitsPanel){
+      const hasData = r.platoonSplits?.vsLFull || r.platoonSplits?.vsRFull ||
+                      r.homeAwaySplits?.homeFull || r.homeAwaySplits?.awayFull;
+      if(hasData && splitsPanel.textContent.includes('Splits loading')){
+        renderDetail(r); // re-render with fresh data
+        // Re-open splits tab after re-render
+        setTimeout(()=>switchMatchupTab(playerId,'splits'),50);
+      }
+    }
   } else {
     if(splitsPanel) splitsPanel.style.display='none';
     arsenalPanel.style.display='block';
@@ -5951,11 +5963,27 @@ function showDetail(id){
     getBatterVsPitchType(batPid).then(bvp=>{
       if(bvp){
         r._bvp = bvp;
-        // Re-render detail to show pitch data if still on this player's page
         const cur = S.allRows.find(x=>x.id===id);
         if(cur && document.getElementById('page-detail')?.classList.contains('active')){
           renderDetail(cur);
         }
+      }
+    }).catch(()=>{});
+  }
+
+  // Lazy-load full splits if not already populated (vsLFull/vsRFull/homeFull/awayFull)
+  const needsPlat = !r.platoonSplits?.vsLFull && !r.platoonSplits?.vsRFull;
+  const needsHA   = !r.homeAwaySplits?.homeFull && !r.homeAwaySplits?.awayFull;
+  if(needsPlat || needsHA){
+    Promise.all([
+      needsPlat ? getPlayerPlatoonSplits(String(batPid)) : Promise.resolve(r.platoonSplits),
+      needsHA   ? getHomAwaySplits(String(batPid))       : Promise.resolve(r.homeAwaySplits),
+    ]).then(([plat, ha])=>{
+      if(plat) r.platoonSplits  = plat;
+      if(ha)   r.homeAwaySplits = ha;
+      const cur = S.allRows.find(x=>x.id===id);
+      if(cur && document.getElementById('page-detail')?.classList.contains('active')){
+        renderDetail(cur);
       }
     }).catch(()=>{});
   }
