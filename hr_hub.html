@@ -2273,8 +2273,22 @@ function renderGameChips(){
   el.innerHTML=gamesCache.map(g=>{
     const active=S.selPks.has(g.pk);
     const loaded=!!S.cache[`${g.pk}_away`];
+    // Get weather from loaded rows for this game
+    const rows=(S.cache[`${g.pk}_away`]||[]).concat(S.cache[`${g.pk}_home`]||[]);
+    const wx=rows[0]?._wx||null;
+    let windBadge='';
+    if(wx&&wx.wind>=10){
+      const toDir=(wx.wdir+180)%360;
+      const dirs=['↑','↗','→','↘','↓','↙','←','↖'];
+      const arrow=dirs[Math.round(toDir/45)%8];
+      const clr=wx.wind>=15?'#ffd700':wx.wind>=10?'var(--amber)':'var(--t4)';
+      windBadge=`<span style="font-size:.60rem;color:${clr};margin-left:3px">${arrow}${Math.round(wx.wind)}</span>`;
+    }
+    if(wx&&wx.rain>=40){
+      windBadge+=`<span style="font-size:.60rem;color:#60a5fa;margin-left:2px">🌧️</span>`;
+    }
     return`<div class="chip${active?' active':''}${loaded&&!active?' loaded':''}"
-      onclick="toggleGame('${g.pk}')">${loaded?'✅ ':''}${g.away}@${g.home}</div>`;
+      onclick="toggleGame('${g.pk}')">${loaded?'✅ ':''}${g.away}@${g.home}${windBadge}</div>`;
   }).join('');
 }
 
@@ -4878,6 +4892,39 @@ function renderZoneHeatmap(batPid, spPid, batHand, size=28){
 }
 
 
+// ==================================================================
+//  COUNT SPLITS — ahead/behind/even in count
+// ==================================================================
+async function getCountSplits(pid){
+  const key=`counts_${pid}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    const d=await fetchJSON(`${MLB}/people/${pid}/stats?stats=statSplits&group=hitting&season=${SEASON}&sitCodes=a,b,e&gameType=R`);
+    const splits=d.stats?.[0]?.splits||[];
+    const toStat=st=>{
+      if(!st) return null;
+      const pa=parseInt(st.plateAppearances)||0;
+      const hr=parseInt(st.homeRuns)||0;
+      const ab=parseInt(st.atBats)||0;
+      const h=parseInt(st.hits)||0;
+      const tb=parseInt(st.totalBases)||0;
+      const bb=parseInt(st.baseOnBalls)||0;
+      const so=parseInt(st.strikeOuts)||0;
+      return{ pa,hr,ab,h,tb,bb,so,
+        avg:ab>0?Math.round(h/ab*1000)/1000:null,
+        slg:ab>0?Math.round(tb/ab*1000)/1000:null,
+        iso:ab>0?Math.round((tb-h)/ab*1000)/1000:null,
+        hrRate:pa>20?hr/pa:null };
+    };
+    const ahead  = toStat(splits.find(s=>s.split?.code==='a')?.stat);
+    const behind = toStat(splits.find(s=>s.split?.code==='b')?.stat);
+    const even   = toStat(splits.find(s=>s.split?.code==='e')?.stat);
+    const result = {ahead,behind,even};
+    _playerCache[key]=result; return result;
+  }catch(e){ _playerCache[key]=null; return null; }
+}
+
+
 async function getBatterRecentGames(pid){
   // Fetch last 15 games for momentum calculation — MLB API, no proxy needed
   if(!pid) return [];
@@ -4892,8 +4939,11 @@ async function getBatterRecentGames(pid){
       const h=parseInt(st.hits)||0, hr=parseInt(st.homeRuns)||0;
       const bb=parseInt(st.baseOnBalls)||0, so=parseInt(st.strikeOuts)||0;
       const tb=parseInt(st.totalBases)||0, xbh=(parseInt(st.doubles)||0)+(parseInt(st.triples)||0)+hr;
+      const d2=parseInt(st.doubles)||0, t=parseInt(st.triples)||0;
       const slg=ab>0?tb/ab:null, obp=pa>0?(h+bb)/pa:null;
-      return{ hr, ab, pa, h, bb, so, tb, xbh, slg, obp };
+      const date=sp.date||'';
+      const opp=sp.team?.abbreviation||sp.opponent?.abbreviation||'';
+      return{ hr, ab, pa, h, bb, so, tb, xbh, d2, t, slg, obp, date, opp };
     }).filter(g=>g.ab>0||g.bb>0);
     _playerCache[key] = recent;
     return recent;
@@ -5971,7 +6021,44 @@ function showDetail(id){
     }).catch(()=>{});
   }
 
-  // Lazy-load full splits if not already populated (vsLFull/vsRFull/homeFull/awayFull)
+  // Lazy-load count splits
+  if(batPid){
+    getCountSplits(String(batPid)).then(counts=>{
+      const el=document.getElementById(`count-splits-${id}`);
+      if(!el||!counts) return;
+      const {ahead,behind,even}=counts;
+      if(!ahead&&!behind) return;
+      const isoClr=v=>v>=0.220?'var(--amber)':v>=0.130?'var(--t2)':'var(--t3)';
+      const countCard=(data,label,sub,color)=>{
+        if(!data||!data.pa) return '';
+        return `<div style="flex:1;background:rgba(255,255,255,.02);border-radius:8px;
+          padding:8px 10px;border:1px solid ${color}44">
+          <div style="font-size:.62rem;font-weight:800;color:${color};
+            text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${label}</div>
+          <div style="font-size:.56rem;color:var(--t4);margin-bottom:6px">${sub}</div>
+          ${[['PA',data.pa,'var(--t4)'],['HR',data.hr,data.hr>=3?'var(--amber)':'var(--t3)'],
+            ['ISO',data.iso!=null?data.iso.toFixed(3):'--',data.iso!=null?isoClr(data.iso):'var(--t4)'],
+            ['SLG',data.slg!=null?data.slg.toFixed(3):'--','var(--t3)']
+          ].map(([l,v,c])=>`
+            <div style="display:flex;justify-content:space-between;padding:1px 0">
+              <span style="font-size:.65rem;color:var(--t4)">${l}</span>
+              <span style="font-size:.68rem;font-weight:700;color:${c}">${v}</span>
+            </div>`).join('')}
+        </div>`;
+      };
+      el.innerHTML=`<div class="card">
+        <div class="slbl" style="margin-bottom:8px">🎯 Count Splits</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+          ${countCard(ahead,'Ahead','2-0, 3-0, 3-1','var(--green)')}
+          ${countCard(even,'Even','0-0, 1-1, 2-2','var(--amber)')}
+          ${countCard(behind,'Behind','0-2, 1-2','var(--red)')}
+        </div>
+        <div style="font-size:.58rem;color:var(--t4);margin-top:6px">
+          Ahead = hitter counts · Behind = pitcher counts
+        </div>
+      </div>`;
+    }).catch(()=>{});
+  }
   const needsPlat = !r.platoonSplits?.vsLFull && !r.platoonSplits?.vsRFull;
   const needsHA   = !r.homeAwaySplits?.homeFull && !r.homeAwaySplits?.awayFull;
   if(needsPlat || needsHA){
@@ -6369,6 +6456,137 @@ function renderDetail(r){
 
       </div>`;
     })()}
+
+    <!-- ── 7-DAY DOT PATTERN + LAST 3 MINI LOG + L30 CHART + COUNT SPLITS ── -->
+    ${(()=>{
+      const recent = r._recentGames||[];
+      if(!recent.length) return '';
+      let html = '';
+
+      // ── 7-Day HR dot pattern ────────────────────────────────────
+      const l7 = recent.slice(0,7);
+      const dots = l7.map(g=>{
+        const hasHR = g.hr>0;
+        const noAB  = !g.ab && !g.pa;
+        const clr   = hasHR ? '#ffd700' : 'rgba(255,255,255,.15)';
+        const sz    = hasHR ? '11px' : '8px';
+        const title = g.date ? `${g.date}${g.opp?' vs '+g.opp:''}${hasHR?' — HR!':''}` : '';
+        return `<div title="${title}" style="width:${sz};height:${sz};border-radius:50%;
+          background:${clr};flex-shrink:0;align-self:center;
+          ${hasHR?'box-shadow:0 0 6px rgba(255,215,0,.6)':''}"></div>`;
+      }).join('');
+      const l7HR = l7.reduce((s,g)=>s+(g.hr||0),0);
+      const trendColor = l7HR>=3?'#ffd700':l7HR>=1?'var(--green)':'var(--t4)';
+
+      html += `<div class="card" style="margin-bottom:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="slbl" style="margin:0">📅 Recent Form</div>
+          <div style="font-size:.65rem;font-weight:700;color:${trendColor}">
+            ${l7HR} HR last ${l7.length}G
+          </div>
+        </div>
+
+        <!-- 7-day dots -->
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:12px">
+          <div style="font-size:.58rem;color:var(--t4);margin-right:2px">L7</div>
+          ${dots}
+          <div style="font-size:.58rem;color:var(--t4);margin-left:auto">🟡=HR</div>
+        </div>
+
+        <!-- Last 3 games mini log -->
+        ${(()=>{
+          const l3 = recent.slice(0,3);
+          if(!l3.length) return '';
+          return `<div style="margin-bottom:12px">
+            <div style="font-size:.58rem;color:var(--t4);text-transform:uppercase;
+              letter-spacing:.05em;margin-bottom:5px">Last 3 Games</div>
+            <div style="border:1px solid var(--bdr);border-radius:8px;overflow:hidden">
+              <div style="display:grid;grid-template-columns:1fr 28px 28px 28px 28px 28px;
+                padding:5px 8px;background:var(--bg3);
+                font-size:.58rem;color:var(--t4);font-weight:700;
+                text-transform:uppercase;letter-spacing:.04em">
+                <div>Date</div>
+                <div style="text-align:center">AB</div>
+                <div style="text-align:center">H</div>
+                <div style="text-align:center">HR</div>
+                <div style="text-align:center">BB</div>
+                <div style="text-align:center">K</div>
+              </div>
+              ${l3.map((g,i)=>`
+                <div style="display:grid;grid-template-columns:1fr 28px 28px 28px 28px 28px;
+                  padding:6px 8px;
+                  border-top:${i>0?'1px solid rgba(255,255,255,.04)':'none'};
+                  background:${g.hr>0?'rgba(255,215,0,.05)':'transparent'}">
+                  <div style="font-size:.67rem;color:var(--t4)">
+                    ${g.date?g.date.slice(5):'-'}
+                    ${g.opp?`<span style="color:var(--t4);margin-left:3px">vs ${g.opp}</span>`:''}
+                  </div>
+                  <div style="text-align:center;font-size:.68rem;color:var(--t3)">${g.ab||0}</div>
+                  <div style="text-align:center;font-size:.68rem;color:var(--t3)">${g.h||0}</div>
+                  <div style="text-align:center;font-size:.72rem;font-weight:800;
+                    color:${g.hr>0?'#ffd700':'var(--t4)'}">${g.hr||0}</div>
+                  <div style="text-align:center;font-size:.68rem;color:var(--t4)">${g.bb||0}</div>
+                  <div style="text-align:center;font-size:.68rem;color:var(--t4)">${g.so||0}</div>
+                </div>`).join('')}
+            </div>
+          </div>`;
+        })()}
+
+        <!-- L30 Performance Sparkline -->
+        ${(()=>{
+          const l30 = recent.slice(0,30);
+          if(l30.length < 5) return '';
+          // Build rolling 5-game HR rate windows for sparkline
+          const windows = [];
+          for(let i=0; i<=l30.length-5; i++){
+            const chunk = l30.slice(i,i+5);
+            const pa = chunk.reduce((s,g)=>s+(g.pa||g.ab||0),0);
+            const hr = chunk.reduce((s,g)=>s+(g.hr||0),0);
+            windows.push(pa>0?hr/pa:0);
+          }
+          windows.reverse(); // oldest to newest
+          const max = Math.max(...windows,0.001);
+          const W=260, H=48, pts=windows.length;
+          const x=i=>Math.round(i/(pts-1)*(W-4)+2);
+          const y=v=>Math.round(H-4-(v/max)*(H-8));
+          const polyline=windows.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+          const last=windows[windows.length-1];
+          const avg=windows.reduce((a,b)=>a+b)/windows.length;
+          const trending=last>avg*1.15?'↑ Heating up':last<avg*0.75?'↓ Cooling':null;
+          const tClr=trending?.startsWith('↑')?'var(--green)':'var(--red)';
+          return `<div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="font-size:.58rem;color:var(--t4);text-transform:uppercase;
+                letter-spacing:.05em">L30 HR Rate Trend</div>
+              ${trending?`<div style="font-size:.62rem;font-weight:700;color:${tClr}">${trending}</div>`:''}
+            </div>
+            <svg width="${W}" height="${H}" style="width:100%;height:${H}px;display:block">
+              <!-- Baseline MLB avg -->
+              <line x1="2" y1="${y(0.035)}" x2="${W-2}" y2="${y(0.035)}"
+                stroke="rgba(255,255,255,.1)" stroke-width="1" stroke-dasharray="3,3"/>
+              <!-- Fill under line -->
+              <polygon points="2,${H} ${polyline} ${W-2},${H}"
+                fill="rgba(255,215,0,.08)"/>
+              <!-- Sparkline -->
+              <polyline points="${polyline}" fill="none"
+                stroke="${last>avg*1.1?'var(--green)':last<avg*0.85?'var(--red)':'var(--amber)'}"
+                stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+              <!-- Current point -->
+              <circle cx="${x(windows.length-1)}" cy="${y(last)}" r="3"
+                fill="${last>avg*1.1?'var(--green)':last<avg*0.85?'var(--red)':'var(--amber)'}"/>
+            </svg>
+            <div style="font-size:.58rem;color:var(--t4);margin-top:2px">
+              older ←————————————————————→ recent
+            </div>
+          </div>`;
+        })()}
+      </div>`;
+
+      return html;
+    })()}
+
+    <!-- Count Splits — lazy loaded -->
+    <div id="count-splits-${r.id}" style="margin-bottom:10px"></div>
 
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">Season Stats</div>
