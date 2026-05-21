@@ -112,7 +112,16 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
   border:2px solid var(--bdr);flex-shrink:0;background:var(--bg3)}
 .hc-headshot-wrap{position:relative;flex-shrink:0}
 
-/* ── Pull-to-refresh ──────────────────────────────────────────── */
+/* ── Pitch drill-down ──────────────────────────────────────────── */
+.pitch-row-btn{width:100%;background:none;border:none;cursor:pointer;
+  padding:0;text-align:left;border-radius:8px;transition:background .1s}
+.pitch-row-btn:active{background:rgba(255,255,255,.04)}
+.pitch-drill{display:none;padding:12px 0 4px}
+.pitch-drill.open{display:block}
+.zone-grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
+.zone-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}
+.zc{border-radius:3px;display:flex;align-items:center;justify-content:center;
+  font-size:.58rem;font-weight:700;color:#fff}
 #ptr-indicator{display:none;align-items:center;justify-content:center;gap:8px;
   padding:12px;font-size:.72rem;color:var(--t4);background:var(--bg2)}
 #ptr-indicator.visible{display:flex}
@@ -2517,6 +2526,45 @@ function scoreArsenalMatchup(arsenal,batVsPitch){
   return{mult,desc,strengths,weaknesses,avg};
 }
 
+// ==================================================================
+//  PITCHER THROW LOCATION — where SP throws each pitch type
+//  Returns loc5pct (5×5 frequency grid) and damage5 (5×5 avg xwOBA)
+// ==================================================================
+async function fetchPitcherThrowLocation(spId, pitchType){
+  if(!spId||!pitchType) return null;
+  const key=`ptloc_${spId}_${pitchType}`;
+  if(_playerCache[key]!==undefined) return _playerCache[key];
+  try{
+    const pt=pitchType.toUpperCase();
+    const url=`https://baseballsavant.mlb.com/statcast_search/csv?all=true&hfSea=${SEASON}%7C&player_type=pitcher&pitchers_lookup%5B%5D=${spId}&type=details&hfGT=R%7C&hfPT=${pt}%7C&min_results=0&group_by=name&sort_col=pitches&sort_order=desc&`;
+    const r=await fetch(PROXY+encodeURIComponent(url));
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const rows=parseCSVText(await r.text());
+    if(rows.length<2) throw new Error('no data');
+
+    const loc5 = Array.from({length:5},()=>Array(5).fill(0));
+    const dmg5 = Array.from({length:5},()=>Array(5).fill(0));
+    const dmg5n= Array.from({length:5},()=>Array(5).fill(0));
+
+    for(const p of rows){
+      const px=parseFloat(p.plate_x), pz=parseFloat(p.plate_z);
+      if(isNaN(px)||isNaN(pz)) continue;
+      const col5=Math.min(4,Math.max(0,Math.floor((px+1.5)/0.6)));
+      const row5=Math.min(4,Math.max(0,Math.floor((4.0-pz)/0.6)));
+      loc5[row5][col5]++;
+      const xw=parseFloat(p.estimated_woba_using_speedangle||p.woba_value||0)||0;
+      if(xw>0){ dmg5[row5][col5]+=xw; dmg5n[row5][col5]++; }
+    }
+    const total=loc5.flat().reduce((a,b)=>a+b,0)||1;
+    const loc5pct=loc5.map(row=>row.map(v=>Math.round(v/total*100)));
+    const dmg5avg=dmg5.map((row,ri)=>row.map((s,ci)=>
+      dmg5n[ri][ci]>2?Math.round(s/dmg5n[ri][ci]*1000)/1000:0));
+
+    const result={loc5pct,dmg5avg,totalPitches:rows.length};
+    _playerCache[key]=result; return result;
+  }catch(e){ _playerCache[key]=null; return null; }
+}
+
 async function getBatterVsPitchType(batId){
   // Lazy load — only called when player detail is opened, not during slate load
   if(!batId) return null;
@@ -2553,7 +2601,54 @@ async function getBatterVsPitches(pid){
         const avg=abs>0?Math.round(hits/abs*1000)/1000:null;
         const slg=abs>0?Math.round(tb/abs*1000)/1000:null;
         const iso=(avg!=null&&slg!=null)?Math.round((slg-avg)*1000)/1000:null;
-        result[pt]={pa,hr:hrs,avg,slg,iso,avgEV,whiffPct};
+
+        // ── Zone grids: 5×5 (location) and 3×3 (in-zone xwOBA + HR) ──
+        // Statcast zones: plate_x (horizontal, catcher view), plate_z (vertical)
+        // Strike zone: plate_x ∈ [-0.83, 0.83], plate_z ∈ [sz_bot, sz_top] (~1.5–3.5)
+        // Map to 5×5 grid: col 0=outer-left to col 4=outer-right (catcher view)
+        //                  row 0=top to row 4=bottom
+
+        const loc5 = Array.from({length:5},()=>Array(5).fill(0)); // pitch frequency
+        const zone3xwoba = Array.from({length:3},()=>Array(3).fill(0)); // sum xwOBA
+        const zone3xwobaCount = Array.from({length:3},()=>Array(3).fill(0));
+        const zone3hr = Array.from({length:3},()=>Array(3).fill(0)); // HR count
+
+        for(const p of pitches){
+          const px = parseFloat(p.plate_x);
+          const pz = parseFloat(p.plate_z);
+          const szTop = parseFloat(p.sz_top)||3.5;
+          const szBot = parseFloat(p.sz_bot)||1.5;
+          if(isNaN(px)||isNaN(pz)) continue;
+
+          // 5×5 grid mapping (-1.5 to 1.5 horizontal, 1.0 to 4.0 vertical)
+          const col5 = Math.min(4, Math.max(0, Math.floor((px + 1.5) / 0.6)));
+          const row5 = Math.min(4, Math.max(0, Math.floor((4.0 - pz) / 0.6)));
+          loc5[row5][col5]++;
+
+          // 3×3 in-zone grid (strike zone mapped to 3 cols × 3 rows)
+          const zW = 0.83*2; const zH = szTop - szBot;
+          const col3 = Math.min(2, Math.max(0, Math.floor((px + 0.83) / (zW/3))));
+          const row3 = Math.min(2, Math.max(0, Math.floor((szTop - pz) / (zH/3))));
+          if(px>=-0.83&&px<=0.83&&pz>=szBot&&pz<=szTop){
+            const xw = parseFloat(p.estimated_woba_using_speedangle||p.woba_value||0)||0;
+            zone3xwoba[row3][col3] += xw;
+            zone3xwobaCount[row3][col3]++;
+            if((p.events||'').toLowerCase()==='home_run') zone3hr[row3][col3]++;
+          }
+        }
+
+        // Normalize loc5 to percentages
+        const totalLoc = loc5.flat().reduce((a,b)=>a+b,0)||1;
+        const loc5pct = loc5.map(row=>row.map(v=>Math.round(v/totalLoc*100)));
+
+        // Average xwOBA per zone
+        const zone3xwobaAvg = zone3xwoba.map((row,ri)=>
+          row.map((sum,ci)=>zone3xwobaCount[ri][ci]>0
+            ? Math.round(sum/zone3xwobaCount[ri][ci]*1000)/1000 : 0)
+        );
+
+        result[pt]={pa,hr:hrs,avg,slg,iso,avgEV,whiffPct,
+          loc5pct, zone3xwoba:zone3xwobaAvg, zone3hr};
       }
       if(Object.keys(result).length>0){_playerCache[key]=result;return result;}
     }catch(e){}
@@ -5637,6 +5732,160 @@ function switchMatchupTab(playerId, tab){
   }
 }
 
+// ==================================================================
+//  PITCH DRILL-DOWN — zone grids on tap
+// ==================================================================
+async function togglePitchDrill(drillId, spId, batId, pt){
+  const panel = document.getElementById(drillId);
+  const arrow = document.getElementById(drillId+'_arr');
+  const content = document.getElementById(drillId+'_content');
+  if(!panel) return;
+
+  const isOpen = panel.style.display !== 'none';
+  if(isOpen){
+    panel.style.display = 'none';
+    if(arrow) arrow.style.transform = '';
+    return;
+  }
+
+  panel.style.display = 'block';
+  if(arrow) arrow.style.transform = 'rotate(180deg)';
+  if(content.dataset.loaded) return; // already loaded
+
+  content.innerHTML = '<div style="color:var(--t4)">Loading zone data…</div>';
+
+  // Fetch both in parallel
+  const [throwLoc, batData] = await Promise.all([
+    fetchPitcherThrowLocation(spId, pt).catch(()=>null),
+    // Re-use cached BvP data
+    Promise.resolve(_playerCache[`bvp_${batId}`]),
+  ]);
+
+  const bvpPt = batData?.[pt] || {};
+  const loc5  = throwLoc?.loc5pct;
+  const dmg5  = throwLoc?.dmg5avg;
+  const zone3xw = bvpPt?.zone3xwoba;
+  const zone3hr  = bvpPt?.zone3hr;
+
+  // Helper: render a 5x5 grid
+  const grid5 = (data, label, fmtFn, colorFn) => {
+    if(!data) return '';
+    const cells = data.flat().map(v=>{
+      const bg = colorFn(v);
+      const txt = fmtFn(v);
+      return `<div style="aspect-ratio:1;background:${bg};border-radius:2px;
+        display:flex;align-items:center;justify-content:center;
+        font-size:.55rem;font-weight:700;color:rgba(255,255,255,.85)">${txt}</div>`;
+    }).join('');
+    return `<div>
+      <div style="font-size:.58rem;color:var(--t4);margin-bottom:4px;
+        text-transform:uppercase;letter-spacing:.04em">${label}</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:2px">${cells}</div>
+    </div>`;
+  };
+
+  // Helper: render a 3x3 zone grid
+  const grid3 = (data, label, fmtFn, colorFn, avgVal) => {
+    if(!data) return '';
+    const cells = data.flat().map(v=>{
+      const bg = colorFn(v);
+      const txt = fmtFn(v);
+      return `<div style="padding:6px 4px;background:${bg};border-radius:3px;
+        display:flex;align-items:center;justify-content:center;
+        font-size:.62rem;font-weight:700;color:#fff;min-height:28px">${txt}</div>`;
+    }).join('');
+    return `<div>
+      <div style="font-size:.58rem;color:var(--t4);margin-bottom:4px;
+        text-transform:uppercase;letter-spacing:.04em">${label}</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;
+        border:2px solid rgba(255,215,0,.25);border-radius:6px;padding:2px">${cells}</div>
+      ${avgVal!=null?`<div style="font-size:.58rem;color:var(--t4);margin-top:3px;text-align:center">${avgVal} avg</div>`:''}
+    </div>`;
+  };
+
+  // Color functions
+  const locColor = v => {
+    if(v>=10) return '#1d4ed8'; // blue-dark
+    if(v>=5)  return '#2563eb'; // blue
+    if(v>=2)  return '#1e3a5f'; // blue-muted
+    if(v>=1)  return '#172033'; // very faint
+    return '#0d1117';
+  };
+  const dmgColor = v => {
+    if(v>=1.00) return '#7c2d12'; // deep red
+    if(v>=0.70) return '#b91c1c'; // red
+    if(v>=0.40) return '#92400e'; // amber-dark
+    if(v>=0.20) return '#78350f'; // amber-muted
+    if(v>0)     return '#1a1507';
+    return '#0d1117';
+  };
+  const xwobaColor = v => {
+    if(v>=1.200) return '#dc2626'; // red — HR zone
+    if(v>=0.700) return '#b45309'; // amber
+    if(v>=0.400) return '#166534'; // green
+    if(v>=0.200) return '#14532d'; // green-dark
+    if(v>0)      return '#1a2b1a';
+    return '#0d1117';
+  };
+  const hrZoneColor = v => {
+    if(v>=3) return '#92400e';
+    if(v>=2) return '#b45309';
+    if(v>=1) return '#78350f';
+    return '#0d1117';
+  };
+
+  // Avg xwOBA for the 3×3 zone
+  const avgXw = zone3xw
+    ? (() => { const flat=zone3xw.flat().filter(v=>v>0); return flat.length?'.'+Math.round(flat.reduce((a,b)=>a+b)/flat.length*1000).toString().padStart(3,'0'):null; })()
+    : null;
+  const totalHR3 = zone3hr ? zone3hr.flat().reduce((a,b)=>a+b,0) : 0;
+
+  const PITCH_NAMES_MAP = {FF:'4-Seam FB',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curveball',CH:'Changeup',FS:'Splitter',KC:'Knuckle-Curve'};
+  const ptName = PITCH_NAMES_MAP[pt]||pt;
+
+  content.innerHTML = `
+    <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:10px">
+      ${ptName} · Zone Analysis
+      <span style="font-size:.58rem;font-weight:400;color:var(--t4)"> (catcher's view)</span>
+    </div>
+
+    ${loc5||dmg5 ? `
+    <div style="margin-bottom:14px">
+      <div style="font-size:.62rem;font-weight:700;color:var(--t4);
+        text-transform:uppercase;margin-bottom:8px;letter-spacing:.04em">
+        Pitcher Throw Location
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        ${grid5(loc5,'where this pitch lands',
+          v=>v>=1?v+'%':'',
+          locColor)}
+        ${grid5(dmg5,'damage zones (xwOBA)',
+          v=>v>=0.050?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(1):'',
+          dmgColor)}
+      </div>
+    </div>` : `<div style="font-size:.65rem;color:var(--t4);margin-bottom:10px">Pitcher location: loading…</div>`}
+
+    ${zone3xw||zone3hr ? `
+    <div>
+      <div style="font-size:.62rem;font-weight:700;color:var(--t4);
+        text-transform:uppercase;margin-bottom:8px;letter-spacing:.04em">
+        ${bvpPt.pa?bvpPt.pa+'PA — ':'' }Batter vs ${ptName} — All Zones
+        <span style="color:var(--amber);font-size:.55rem"> ★ gold border = best overlap</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        ${grid3(zone3xw,'xwOBA*',
+          v=>v>=0.050?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'.000',
+          xwobaColor, avgXw)}
+        ${grid3(zone3hr,'HR',
+          v=>v>0?String(Math.round(v)):'0',
+          hrZoneColor, totalHR3?totalHR3+' total':null)}
+      </div>
+    </div>` : `<div style="font-size:.65rem;color:var(--t4)">Tap player detail first to load BvP data</div>`}
+  `;
+  content.dataset.loaded = '1';
+}
+
+
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
@@ -5793,70 +6042,67 @@ function renderDetail(r){
         const spType = arsenal.isFastballHeavy?'⚡ Fastball-heavy':arsenal.isBreakingHeavy?'🌀 Breaking ball-heavy':arsenal.isOffspeedHeavy?'💧 Offspeed-heavy':'';
 
         const pitchRows = `
-          <!-- BATTER VS PITCHER'S MIX TABLE -->
           <div style="font-size:.60rem;font-weight:700;color:var(--t4);
-            text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+            text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
             ${r.name?.split(' ').pop()||'Batter'} vs Pitcher's Mix
+            <span style="font-size:.55rem;color:var(--t4);font-weight:400;margin-left:4px">↓ tap pitch for zone detail</span>
           </div>
-          <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
-            <thead>
-              <tr style="border-bottom:1px solid var(--bdr)">
-                <th style="text-align:left;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">PITCH</th>
-                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">USG%</th>
-                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">AVG</th>
-                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">ISO</th>
-                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--t4)">HR</th>
-                <th style="text-align:right;padding:5px 4px;font-size:.58rem;font-weight:700;color:var(--amber)">K%</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${pitches.map(([pt,pct],i)=>{
-                const name = PITCH_FULL[pt]||pt;
-                const clr  = PITCH_CLR[pt]||'#607080';
-                const bdata= bvp[pt];
-                const lgISO= LG_ISO[pt]||0.155;
-                const isPrimary = i===0;
-
-                const avg   = bdata?.avg!=null    ? bdata.avg.toFixed(3)     : '--';
-                const iso   = bdata?.iso!=null    ? bdata.iso.toFixed(3)     : '--';
-                const hr    = bdata?.hr!=null     ? bdata.hr                  : '--';
-                const kpct  = bdata?.whiffPct!=null ? bdata.whiffPct+'%'     : '--';
-                const pa    = bdata?.pa||0;
-
-                const isoClr = bdata?.iso!=null
-                  ? (bdata.iso>=0.200?'var(--amber)':bdata.iso>=0.130?'var(--t3)':'var(--t4)') : 'var(--t4)';
-                const hrClr  = bdata?.hr>0 ? 'var(--amber)' : 'var(--t4)';
-                const kClr   = bdata?.whiffPct!=null
-                  ? (bdata.whiffPct>=35?'var(--red)':bdata.whiffPct<=20?'var(--green)':'var(--t3)') : 'var(--t4)';
-                const isoRatio = bdata?.iso!=null ? bdata.iso/lgISO : 1;
-                const badge = pa>=15 ? (isoRatio>=1.4
-                  ? `<span style="font-size:.56rem;padding:1px 4px;border-radius:4px;
-                      background:rgba(34,201,94,.15);color:var(--green);margin-left:3px">✓ rakes</span>`
-                  : isoRatio<=0.6
-                  ? `<span style="font-size:.56rem;padding:1px 4px;border-radius:4px;
-                      background:rgba(224,80,74,.15);color:var(--red);margin-left:3px">✗ weak</span>`
-                  : '') : '';
-
-                return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);
-                  background:${isPrimary?'rgba(255,255,255,.03)':'transparent'}">
-                  <td style="padding:7px 4px">
-                    <div style="display:flex;align-items:center;gap:6px">
-                      <span style="font-size:.68rem;font-weight:800;color:${clr};
-                        background:${clr}22;padding:2px 5px;border-radius:4px;
-                        font-family:'JetBrains Mono',monospace">${pt}</span>
-                      <span style="font-size:.62rem;color:var(--t4)">${arsenal.veloMap?.[pt]!=null?arsenal.veloMap[pt]+'mph':''}</span>
-                      ${badge}
-                    </div>
-                  </td>
-                  <td style="text-align:right;padding:7px 4px;font-size:.70rem;color:var(--t3)">${pct.toFixed(0)}%</td>
-                  <td style="text-align:right;padding:7px 4px;font-size:.70rem;color:var(--t3)">${avg}</td>
-                  <td style="text-align:right;padding:7px 4px;font-size:.72rem;font-weight:700;color:${isoClr}">${iso}</td>
-                  <td style="text-align:right;padding:7px 4px;font-size:.72rem;font-weight:700;color:${hrClr}">${hr}</td>
-                  <td style="text-align:right;padding:7px 4px;font-size:.72rem;font-weight:700;color:${kClr}">${kpct}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>`;
+          <div style="border:1px solid var(--bdr);border-radius:10px;overflow:hidden;margin-bottom:12px">
+            <div style="display:grid;grid-template-columns:1fr 48px 48px 52px 36px 48px;
+              padding:6px 10px;background:var(--bg3);border-bottom:1px solid var(--bdr)">
+              ${['PITCH','USG%','AVG','ISO','HR','K%'].map((h,i)=>
+                `<div style="font-size:.58rem;font-weight:700;
+                  color:${i===5?'var(--amber)':'var(--t4)'};
+                  text-align:${i===0?'left':'right'}">${h}</div>`
+              ).join('')}
+            </div>
+            ${pitches.map(([pt,pct],i)=>{
+              const clr=PITCH_CLR[pt]||'#607080';
+              const bdata=bvp[pt];
+              const lgISO=LG_ISO[pt]||0.155;
+              const avg=bdata?.avg!=null?bdata.avg.toFixed(3):'--';
+              const iso=bdata?.iso!=null?bdata.iso.toFixed(3):'--';
+              const hr=bdata?.hr!=null?bdata.hr:'--';
+              const kpct=bdata?.whiffPct!=null?bdata.whiffPct+'%':'--';
+              const isoClr=bdata?.iso!=null?(bdata.iso>=0.200?'var(--amber)':bdata.iso>=0.130?'var(--t3)':'var(--t4)'):'var(--t4)';
+              const hrClr=bdata?.hr>0?'var(--amber)':'var(--t4)';
+              const kClr=bdata?.whiffPct!=null?(bdata.whiffPct>=35?'var(--red)':bdata.whiffPct<=20?'var(--green)':'var(--t3)'):'var(--t4)';
+              const isoRatio=bdata?.iso!=null?bdata.iso/lgISO:1;
+              const badge=bdata?.pa>=15?(isoRatio>=1.4
+                ?`<span style="font-size:.55rem;padding:1px 4px;border-radius:3px;background:rgba(34,201,94,.15);color:var(--green);margin-left:3px">✓ rakes</span>`
+                :isoRatio<=0.6
+                ?`<span style="font-size:.55rem;padding:1px 4px;border-radius:3px;background:rgba(224,80,74,.15);color:var(--red);margin-left:3px">✗ weak</span>`
+                :''):'';
+              const velo=arsenal.veloMap?.[pt]!=null?arsenal.veloMap[pt]+'mph':'';
+              const drillId=`drill_${r.id}_${pt}`;
+              return `<div style="border-bottom:1px solid rgba(255,255,255,.04)">
+                <button onclick="togglePitchDrill('${drillId}','${r._spId}','${r._batPid||r.id}','${pt}')"
+                  style="display:grid;grid-template-columns:1fr 48px 48px 52px 36px 48px;
+                  width:100%;padding:8px 10px;background:${i===0?'rgba(255,255,255,.025)':'none'};
+                  border:none;cursor:pointer;align-items:center;text-align:right">
+                  <div style="display:flex;align-items:center;gap:5px;text-align:left">
+                    <span style="font-size:.67rem;font-weight:800;color:${clr};background:${clr}22;
+                      padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace">${pt}</span>
+                    <span style="font-size:.60rem;color:var(--t4)">${velo}</span>
+                    ${badge}
+                    <svg id="${drillId}_arr" width="10" height="10" viewBox="0 0 10 10" style="margin-left:auto;opacity:.3;flex-shrink:0">
+                      <path d="M2 3.5L5 6.5L8 3.5" stroke="#fff" stroke-width="1.5" fill="none"/></svg>
+                  </div>
+                  <div style="font-size:.70rem;color:var(--t3)">${pct.toFixed(0)}%</div>
+                  <div style="font-size:.70rem;color:var(--t3)">${avg}</div>
+                  <div style="font-size:.72rem;font-weight:700;color:${isoClr}">${iso}</div>
+                  <div style="font-size:.72rem;font-weight:700;color:${hrClr}">${hr}</div>
+                  <div style="font-size:.72rem;font-weight:700;color:${kClr}">${kpct}</div>
+                </button>
+                <div id="${drillId}" style="display:none;padding:12px 10px 10px;
+                  border-top:1px dashed rgba(255,255,255,.08);background:rgba(0,0,0,.25)">
+                  <div id="${drillId}_content" style="color:var(--t4);font-size:.65rem">
+                    Loading…
+                  </div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>`;
 
         // Zone heatmap
       const zoneHeatmap = renderZoneHeatmap(r._batPid, r._spId, r.batHand, 24);
