@@ -283,6 +283,13 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="refreshOdds();this.textContent='↺ refreshing...'">FD odds: loading…</div>
   <div id="header-date"></div>
   <button onclick="refreshData()" style="background:none;border:none;color:var(--t4);font-size:.8rem;cursor:pointer;padding:4px 8px;border:1px solid var(--bdr);border-radius:6px">↺</button>
+  <button onclick="showPage('info')" id="nav-info-header"
+    style="background:none;border:1px solid var(--bdr);border-radius:6px;
+    color:var(--t4);font-size:.80rem;cursor:pointer;padding:4px 9px;
+    display:flex;align-items:center;gap:4px;font-weight:600">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Info
+  </button>
 </div>
 
 <!-- ── CONTENT ─────────────────────────────────────────────────── -->
@@ -589,7 +596,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
     Results
   </button>
-  <button class="nav-btn" onclick="showPage('info')" id="nav-info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Info</button>
+
 </nav>
 
 </div><!-- /app -->
@@ -644,8 +651,13 @@ function goToday(){S.date=new Date();S.selPks.clear();S.allRows=[];loadSlate()}
 function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  // Reset info header button style
+  const infoHdr=document.getElementById('nav-info-header');
+  if(infoHdr) infoHdr.style.color='var(--t4)';
   document.getElementById(`page-${name}`).classList.add('active');
   document.getElementById(`nav-${name}`)?.classList.add('active');
+  // Highlight header info button when on info page
+  if(name==='info' && infoHdr) infoHdr.style.color='var(--amber)';
   if(name==='ab') populateABSelect();
   if(name==='pl') populatePitcherSelect();
   if(name==='results') renderResultsTab();
