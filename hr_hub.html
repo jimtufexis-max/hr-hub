@@ -6580,13 +6580,28 @@ function renderDetail(r){
             const perPitchStats = {};
             for(const [pt] of pitches) perPitchStats[pt] = computeStats([pt]);
 
-            // Store stats in global map (avoid parsing issues with data attributes + template literals)
             if(!window._statsCache) window._statsCache={};
             window._statsCache[statsId] = { all:allStats, per:perPitchStats, pitches:allPts };
 
+            const buildGrid = (s) => {
+              const {totGB,totFB,totLD,totPU,totHard,totHR,totPA,avgEV,totBIP} = s;
+              const p = (x,d)=>Math.round(x/Math.max(d||Math.max(totBIP,1),1)*100);
+              const fbD = Math.max(totFB+totLD+totPU,1);
+              const m = (lbl,val,good=false,bad=false)=>
+                `<div class="ab-metric"><div class="lbl">${lbl}</div><div class="val" style="${good?'color:var(--green)':bad?'color:var(--red)':''}">${val}</div></div>`;
+              return m('GB%',p(totGB)+'%',false,p(totGB)>=50)+
+                m('FB%',p(totFB)+'%',p(totFB)>=35)+
+                m('LD%',p(totLD)+'%',p(totLD)>=25)+
+                m('PU%',p(totPU)+'%',p(totPU)>=15)+
+                m('HR/FB%',p(totHR,fbD)+'%',p(totHR,fbD)>=20)+
+                m('Hard%',p(totHard,totPA)+'%',p(totHard,totPA)>=45)+
+                (avgEV!=null?m('Avg EV',avgEV+' mph',avgEV>=92,avgEV<=85):'')+
+                (totHR>0?m('HR',totHR,totHR>=3):'');
+            };
+
             return spHeader + pills +
               `<div id="${statsId}">
-                <div class="ab-metric-grid">${renderGrid(allStats)}</div>
+                <div class="ab-metric-grid">${buildGrid(allStats)}</div>
                 <div style="font-size:.58rem;color:var(--t4);margin-top:6px;text-align:center"
                   id="${statsId}-label">${allStats.totPA} PA vs all pitches</div>
               </div>`;
