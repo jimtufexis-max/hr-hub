@@ -6023,11 +6023,13 @@ function showDetail(id){
 
   // Lazy-load count splits
   if(batPid){
+    const _countId = String(r.id);
     getCountSplits(String(batPid)).then(counts=>{
-      const el=document.getElementById(`count-splits-${id}`);
-      if(!el||!counts) return;
+      const el=document.getElementById(`count-splits-${_countId}`);
+      if(!el) return;
+      if(!counts){ el.remove(); return; }
       const {ahead,behind,even}=counts;
-      if(!ahead&&!behind) return;
+      if(!ahead&&!behind){ el.remove(); return; }
       const isoClr=v=>v>=0.220?'var(--amber)':v>=0.130?'var(--t2)':'var(--t3)';
       const countCard=(data,label,sub,color)=>{
         if(!data||!data.pa) return '';
@@ -6585,8 +6587,13 @@ function renderDetail(r){
       return html;
     })()}
 
-    <!-- Count Splits — lazy loaded -->
-    <div id="count-splits-${r.id}" style="margin-bottom:10px"></div>
+    <!-- Count Splits — lazy loaded, always present -->
+    <div id="count-splits-${r.id}" style="margin-bottom:10px">
+      <div class="card" style="opacity:.4">
+        <div class="slbl">🎯 Count Splits</div>
+        <div style="font-size:.65rem;color:var(--t4);padding:6px 0">Loading…</div>
+      </div>
+    </div>
 
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">Season Stats</div>
