@@ -4640,6 +4640,10 @@ async function ensureFGPitcherMap(){
         bbPct: parseFloat(row['BB%']||row.bbpct||0)||null,
         hrFb:  parseFloat(row['HR/FB']||row.hrfb||0)||null,
         era:   parseFloat(row.ERA||row.era||0)||null,
+        gbPct: parseFloat(row['GB%']||row.gb_pct||row['GB/FB']||0)||null,
+        fbPct: parseFloat(row['FB%']||row.fb_pct||0)||null,
+        ldPct: parseFloat(row['LD%']||row.ld_pct||0)||null,
+        iffbPct: parseFloat(row['IFFB%']||row.iffb_pct||0)||null,
       };
     }
     console.log('[FG Pitchers] loaded',Object.keys(_fgPitcherMap).length,'pitchers');
@@ -5879,34 +5883,36 @@ function renderWeather(wx,homeTeam){
 function switchMatchupTab(playerId, tab){
   const arsenalPanel = document.getElementById(`panel-arsenal-${playerId}`);
   const splitsPanel  = document.getElementById(`panel-splits-${playerId}`);
+  const statsPanel   = document.getElementById(`panel-stats-${playerId}`);
   const arsenalBtn   = document.getElementById(`tab-arsenal-${playerId}`);
   const splitsBtn    = document.getElementById(`tab-splits-${playerId}`);
+  const statsBtn     = document.getElementById(`tab-stats-${playerId}`);
   if(!arsenalPanel) return;
 
-  if(tab==='splits'){
-    arsenalPanel.style.display='none';
-    if(splitsPanel) splitsPanel.style.display='block';
-    arsenalBtn.style.background='var(--bg3)';
-    arsenalBtn.style.color='var(--t3)';
-    if(splitsBtn){ splitsBtn.style.background='var(--amber)'; splitsBtn.style.color='#000'; }
+  // Hide all panels, reset all buttons
+  [arsenalPanel,splitsPanel,statsPanel].forEach(p=>{ if(p) p.style.display='none'; });
+  if(arsenalBtn){ arsenalBtn.style.background='var(--bg3)'; arsenalBtn.style.color='var(--t3)'; }
+  if(splitsBtn) { splitsBtn.style.background='var(--bg3)';  splitsBtn.style.color='var(--t3)'; }
+  if(statsBtn)  { statsBtn.style.background='var(--bg3)';   statsBtn.style.color='var(--t3)'; }
 
-    // Check if splits are still showing the loading message — re-render if data now available
-    const r = S.allRows.find(x=>String(x.id)===String(playerId));
+  if(tab==='splits'){
+    if(splitsPanel) splitsPanel.style.display='block';
+    if(splitsBtn){ splitsBtn.style.background='var(--amber)'; splitsBtn.style.color='#000'; }
+    const r=S.allRows.find(x=>String(x.id)===String(playerId));
     if(r && splitsPanel){
-      const hasData = r.platoonSplits?.vsLFull || r.platoonSplits?.vsRFull ||
-                      r.homeAwaySplits?.homeFull || r.homeAwaySplits?.awayFull;
+      const hasData=r.platoonSplits?.vsLFull||r.platoonSplits?.vsRFull||
+                    r.homeAwaySplits?.homeFull||r.homeAwaySplits?.awayFull;
       if(hasData && splitsPanel.textContent.includes('Splits loading')){
-        renderDetail(r); // re-render with fresh data
-        // Re-open splits tab after re-render
+        renderDetail(r);
         setTimeout(()=>switchMatchupTab(playerId,'splits'),50);
       }
     }
+  } else if(tab==='stats'){
+    if(statsPanel) statsPanel.style.display='block';
+    if(statsBtn){ statsBtn.style.background='#3b82f6'; statsBtn.style.color='#fff'; }
   } else {
-    if(splitsPanel) splitsPanel.style.display='none';
     arsenalPanel.style.display='block';
-    arsenalBtn.style.background='var(--green)';
-    arsenalBtn.style.color='#000';
-    if(splitsBtn){ splitsBtn.style.background='var(--bg3)'; splitsBtn.style.color='var(--t3)'; }
+    if(arsenalBtn){ arsenalBtn.style.background='var(--green)'; arsenalBtn.style.color='#000'; }
   }
 }
 
@@ -6430,6 +6436,10 @@ function renderDetail(r){
             style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
             font-size:.70rem;font-weight:700;background:var(--green);color:#000;transition:all .15s">
             ⚾ Arsenal</button>
+          <button id="tab-stats-${r.id}" onclick="switchMatchupTab('${r.id}','stats')"
+            style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
+            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
+            📊 Stats</button>
           <button id="tab-splits-${r.id}" onclick="switchMatchupTab('${r.id}','splits')"
             style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
             font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
@@ -6439,6 +6449,84 @@ function renderDetail(r){
         <!-- Arsenal panel -->
         <div id="panel-arsenal-${r.id}">
           ${arsenalHTML}
+        </div>
+
+        <!-- Stats panel -->
+        <div id="panel-stats-${r.id}" style="display:none">
+          ${(()=>{
+            const fg = pit.fgStats;
+            const bb = pit.battedBall;
+            const savP = (_savP||{})[String(r._spId||'')];
+            // Batted ball: GB%, FB%, LD%, PU%
+            const gbPct  = fg?.gbPct   || bb?.gbRate   || savP?.gb_percent || null;
+            const fbPct  = fg?.fbPct   || bb?.fbRate   || savP?.fb_percent || null;
+            const ldPct  = fg?.ldPct   || null;
+            const puPct  = fg?.iffbPct || null;
+            // Damage: HR/FB%, Hard Hit%, Avg EV, Barrel%
+            const hrFbV  = fg?.hrFb    || pit.hrFb     || null;
+            const hardHit= savP?.hard_hit_pct || null;
+            const avgEV  = savP?.avg_ev        || null;
+            const barrelA= pit.barrel_pct_allowed!=null
+              ? (pit.barrel_pct_allowed>1?pit.barrel_pct_allowed:pit.barrel_pct_allowed*100)
+              : null;
+            // xFIP/FIP header
+            const xfip  = fg?.xfip || null;
+            const fip   = fg?.fip  || null;
+            const kPct  = fg?.kPct || null;
+            const bbPct = fg?.bbPct|| null;
+
+            const statCell=(label,val,fmt,colorFn)=>{
+              if(val==null) return `<div style="padding:12px 8px;text-align:center;background:var(--bg3);border-radius:8px">
+                <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">${label}</div>
+                <div style="font-size:1.0rem;font-weight:800;color:var(--t4)">--</div>
+              </div>`;
+              const clr = colorFn?colorFn(val):'var(--t2)';
+              return `<div style="padding:12px 8px;text-align:center;background:var(--bg3);border-radius:8px">
+                <div style="font-size:.62rem;color:var(--t4);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">${label}</div>
+                <div style="font-size:1.05rem;font-weight:900;color:${clr}">${fmt(val)}</div>
+              </div>`;
+            };
+
+            const pctFmt = v=>`${Math.round(v)}%`;
+            const decFmt = v=>v.toFixed(1);
+
+            // Row 1: batted ball profile
+            const r1 = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px">
+              ${statCell('GB%',  gbPct,  pctFmt, v=>v>52?'var(--red)':v<32?'var(--green)':'var(--t2)')}
+              ${statCell('FB%',  fbPct,  pctFmt, v=>v>45?'var(--green)':v<30?'var(--red)':'var(--t2)')}
+              ${statCell('LD%',  ldPct,  pctFmt, v=>v>24?'var(--red)':'var(--t2)')}
+              ${statCell('PU%',  puPct,  pctFmt, v=>v>12?'var(--green)':'var(--t2)')}
+            </div>`;
+            // Row 2: damage profile
+            const r2 = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px">
+              ${statCell('HR/FB%', hrFbV!=null?(hrFbV>1?hrFbV:hrFbV*100):null, pctFmt,  v=>v>=18?'var(--green)':v<=10?'var(--red)':'var(--t2)')}
+              ${statCell('Hard%',  hardHit, pctFmt, v=>v>=44?'var(--green)':v<=35?'var(--red)':'var(--t2)')}
+              ${statCell('Avg EV', avgEV,   decFmt, v=>v>=92?'var(--green)':v<=87?'var(--red)':'var(--t2)')}
+              ${statCell('Barrel%',barrelA, pctFmt, v=>v>=10?'var(--green)':v<=5?'var(--red)':'var(--t2)')}
+            </div>`;
+            // Row 3: FIP/xFIP/K%/BB%
+            const r3 = xfip||fip||kPct?`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px">
+              ${statCell('xFIP',  xfip,  v=>v.toFixed(2), v=>v<=3.50?'var(--green)':v>=4.80?'var(--red)':'var(--t2)')}
+              ${statCell('FIP',   fip,   v=>v.toFixed(2), v=>v<=3.50?'var(--green)':v>=4.80?'var(--red)':'var(--t2)')}
+              ${statCell('K%',    kPct,  pctFmt,          v=>v>=28?'var(--red)':v<=18?'var(--green)':'var(--t2)')}
+              ${statCell('BB%',   bbPct, pctFmt,          v=>v>=10?'var(--green)':v<=6?'var(--red)':'var(--t2)')}
+            </div>`:'';
+
+            if(!gbPct&&!fbPct&&!hrFbV&&!hardHit&&!xfip){
+              return `<div style="font-size:.70rem;color:var(--t4);padding:16px 0;text-align:center">
+                Stats loading — open detail again after secondary maps load
+              </div>`;
+            }
+
+            // Arsenal summary header
+            const arsenalSummary = arsenal?.mix ? `<div style="font-size:.68rem;color:var(--t3);
+              padding:8px 10px;background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.6">
+              <span style="font-weight:700;color:var(--t2)">${r.spNm||'SP'} (${r.oppHand||'?'}HP)</span>
+              · Today's arsenal: ${Object.entries(arsenal.mix).filter(([,p])=>p>=8).sort((a,b)=>b[1]-a[1]).map(([pt,p])=>`<span style="color:${PITCH_CLR[pt]||'var(--t3)'}">${PITCH_FULL[pt]||pt}</span> ${p.toFixed(0)}%`).join(' · ')}
+            </div>` : '';
+
+            return arsenalSummary + r1 + r2 + r3;
+          })()}
         </div>
 
         <!-- Splits panel -->
