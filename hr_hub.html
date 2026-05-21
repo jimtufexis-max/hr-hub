@@ -2034,14 +2034,25 @@ function detectAngles(r){
     else if(ed.edge<=-5) a.push({icon:'🚫',cat:'value',tier:3,label:'Overpriced (-)',color:'var(--red)',tip:`Book ${ed.bookImp}% implied vs our ${(r.prob*100).toFixed(1)}%`});
   }}
 
-  // Combo
-  const posCats=[...new Set(a.filter(x=>x.tier<=2&&!x.label.endsWith('(-)')).map(x=>x.cat).filter(c=>c!=='combo'))];
-  const anchorAboveAvg=(r.anchor||0)>MLB_AVG*1.10;
-  const hasPowerBase=(r.barrel_pct!=null&&r.barrel_pct>=9)||(r.pull_air_pct!=null&&r.pull_air_pct>=13)||(r.iso!=null&&r.iso>=0.185);
-  if(posCats.length>=4&&anchorAboveAvg&&hasPowerBase)
-    a.unshift({icon:'⭐',cat:'combo',tier:1,label:'Elite Spot (+)',color:'#ffd700',tip:`${posCats.length} positive categories with above-avg power base: ${posCats.join(', ')}`});
-  else if(posCats.length>=3&&r.platoon>=1.10&&anchorAboveAvg&&(l3hr>=1||(r.barrel_pct!=null&&r.barrel_pct>=12)))
-    a.unshift({icon:'🌟',cat:'combo',tier:1,label:'Prime Spot (+)',color:'#ffd700',tip:'Platoon + power + form — real talent backing the angle'});
+  // Combo — Elite/Prime Spot requires genuinely stacked conditions
+  // Count distinct positive categories (not combo, not value/edge)
+  const posCats=[...new Set(a.filter(x=>x.tier<=2&&!x.label.endsWith('(-)')&&x.cat!=='combo'&&x.cat!=='value').map(x=>x.cat))];
+  const anchorAboveAvg  = (r.anchor||0) > MLB_AVG*1.20; // 20% above avg (was 10%)
+  const strongPowerBase = (r.barrel_pct!=null&&r.barrel_pct>=11)  // was 9
+                       || (r.pull_air_pct!=null&&r.pull_air_pct>=16) // was 13
+                       || (r.iso!=null&&r.iso>=0.210);               // was 0.185
+  const strongPlatoon   = r.platoon>=1.15;   // meaningful platoon advantage
+  const softPitcher     = r.pitcher>=1.10;   // pitcher is actually hittable
+  const noFade          = !a.some(x=>x.tier<=2&&x.label.endsWith('(-)'));
+
+  // Elite Spot: 5+ positive categories, strong power base, pitcher is hittable, no red flags
+  if(posCats.length>=5 && anchorAboveAvg && strongPowerBase && softPitcher && noFade)
+    a.unshift({icon:'⭐',cat:'combo',tier:1,label:'Elite Spot (+)',color:'#ffd700',
+      tip:`${posCats.length} signals aligned + real power (barrel ${r.barrel_pct?.toFixed(0)||'--'}%) vs hittable SP: ${posCats.join(', ')}`});
+  // Prime Spot: 4 categories, must include platoon AND soft pitcher, real power
+  else if(posCats.length>=4 && strongPlatoon && softPitcher && anchorAboveAvg && strongPowerBase && noFade)
+    a.unshift({icon:'🌟',cat:'combo',tier:1,label:'Prime Spot (+)',color:'#ffd700',
+      tip:`Platoon + power + soft pitcher — ${posCats.length} signals aligned`});
 
   const best={};
   for(const x of a){if(!best[x.cat]||x.tier<best[x.cat].tier)best[x.cat]=x;}
