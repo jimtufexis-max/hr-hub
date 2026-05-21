@@ -2692,7 +2692,18 @@ async function getBatterVsPitches(pid){
             ? Math.round(sum/zone3xwobaCount[ri][ci]*1000)/1000 : 0)
         );
 
+        const gb = pitches.filter(p=>String(p.bb_type||'').toLowerCase()==='ground_ball').length;
+        const fb = pitches.filter(p=>String(p.bb_type||'').toLowerCase()==='fly_ball').length;
+        const ld = pitches.filter(p=>String(p.bb_type||'').toLowerCase()==='line_drive').length;
+        const pu = pitches.filter(p=>['popup','pop_up'].includes(String(p.bb_type||'').toLowerCase())).length;
+        const hard = pitches.filter(p=>parseFloat(p.launch_speed)>=95).length;
+        const bip = gb+fb+ld+pu || 1;
         result[pt]={pa,hr:hrs,avg,slg,iso,avgEV,whiffPct,
+          gb,fb,ld,pu,hard,bip,
+          gbPct:Math.round(gb/bip*100), fbPct:Math.round(fb/bip*100),
+          ldPct:Math.round(ld/bip*100), puPct:Math.round(pu/bip*100),
+          hardPct:Math.round(hard/Math.max(pitches.filter(p=>parseFloat(p.launch_speed)>0).length,1)*100),
+          hrFbPct:Math.round(hrs/Math.max(fb+ld+pu,1)*100),
           loc5pct, zone3xwoba:zone3xwobaAvg, zone3hr};
       }
       if(Object.keys(result).length>0){_playerCache[key]=result;return result;}
@@ -6451,66 +6462,63 @@ function renderDetail(r){
           ${arsenalHTML}
         </div>
 
-        <!-- Stats panel — Pitcher batted ball profile -->
+        <!-- Stats panel — Batter vs SP Arsenal (AB Log style) -->
         <div id="panel-stats-${r.id}" style="display:none">
           ${(()=>{
-            const fg  = pit.fgStats;
-            const bb  = pit.battedBall;
-            const savP = (_savP||{})[String(r._spId||'')];
+            const bvp = r._bvp || {};
+            const pitches = arsenal?.mix
+              ? Object.entries(arsenal.mix).filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1])
+              : [];
 
-            const gbPct   = fg?.gbPct   || bb?.gbRate         || savP?.gb_percent  || null;
-            const fbPct   = fg?.fbPct   || bb?.fbRate         || savP?.fb_percent  || null;
-            const ldPct   = fg?.ldPct                                               || null;
-            const puPct   = fg?.iffbPct                                             || null;
-            const hrFbV   = fg?.hrFb!=null?(fg.hrFb>1?fg.hrFb:fg.hrFb*100)
-                            : pit.hrFb!=null?(pit.hrFb>1?pit.hrFb:pit.hrFb*100)   : null;
-            const hardHit = savP?.hard_hit_pct                                     || null;
-            const avgEV   = savP?.avg_ev                                            || null;
-            const barrelA = pit.barrel_pct_allowed!=null
-              ? (pit.barrel_pct_allowed>1?pit.barrel_pct_allowed:pit.barrel_pct_allowed*100)
-              : null;
-
-            const hasData = gbPct||fbPct||hrFbV||hardHit||avgEV||barrelA;
-            if(!hasData) return `<div style="font-size:.70rem;color:var(--t4);padding:16px 0;text-align:center">
-              Pitcher stats loading…
-            </div>`;
-
-            // Arsenal header
+            // SP header
             const spHeader = arsenal?.mix ? `<div style="font-size:.68rem;padding:8px 10px;
               background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.6">
               <span style="font-weight:800;color:var(--t2)">${r.spNm||'SP'}</span>
               <span style="color:var(--t4)"> (${r.oppHand||'?'}HP) · Today's arsenal:</span>
-              ${Object.entries(arsenal.mix).filter(([,p])=>p>=8).sort((a,b)=>b[1]-a[1]).map(([pt,p])=>`
-                <span style="color:${PITCH_CLR[pt]||'var(--t3)'}"> ${PITCH_FULL[pt]||pt}</span> ${p.toFixed(0)}%`).join(' ·')}
+              ${pitches.slice(0,4).map(([pt,p])=>`<span style="color:${PITCH_CLR[pt]||'var(--t3)'}"> ${PITCH_FULL[pt]||pt}</span> ${p.toFixed(0)}%`).join(' ·')}
             </div>` : '';
 
-            const cell = (label, val, fmt, colorFn) => {
-              const clr = val!=null && colorFn ? colorFn(val) : 'var(--t2)';
-              return `<div style="padding:14px 8px;text-align:center;border:1px solid var(--bdr);border-radius:0">
-                <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;
-                  letter-spacing:.05em;margin-bottom:6px">${label}</div>
-                <div style="font-size:1.15rem;font-weight:900;color:${clr}">
-                  ${val!=null ? fmt(val) : '--'}
-                </div>
+            if(!pitches.length) return spHeader + `<div style="font-size:.70rem;color:var(--t4);padding:12px 0;text-align:center">No arsenal data</div>`;
+
+            const hasBvP = pitches.some(([pt])=>bvp[pt]?.pa>=5);
+            if(!hasBvP) return spHeader + `<div style="font-size:.70rem;color:var(--t4);padding:12px 0;text-align:center">
+              BvP data loading… tap player again in ~3s
+            </div>`;
+
+            // Aggregate across all SP arsenal pitches (weighted by usage)
+            let totGB=0,totFB=0,totLD=0,totPU=0,totHard=0,totHR=0;
+            let evSum=0,evN=0,totBIP=0,totPA=0;
+            for(const [pt] of pitches){
+              const d=bvp[pt]; if(!d||d.pa<1) continue;
+              totGB+=d.gb||0; totFB+=d.fb||0; totLD+=d.ld||0; totPU+=d.pu||0;
+              totHard+=d.hard||0; totHR+=d.hr||0; totBIP+=d.bip||0; totPA+=d.pa||0;
+              if(d.avgEV!=null&&d.avgEV>0){ evSum+=d.avgEV*(d.pa||1); evN+=(d.pa||1); }
+            }
+            const n = Math.max(totBIP,1);
+            const avgEV = evN>0 ? Math.round(evSum/evN*10)/10 : null;
+            const fbDenom = Math.max(totFB+totLD+totPU,1);
+
+            const pct = (x,d)=>Math.round(x/Math.max(d||n,1)*100);
+            const brl = pitches.reduce((s,[pt])=>s+(bvp[pt]?.isBrl||0),0);
+
+            const metric=(lbl,val,good=false,bad=false)=>`
+              <div class="ab-metric">
+                <div class="lbl">${lbl}</div>
+                <div class="val" style="${good?'color:var(--green)':bad?'color:var(--red)':''}">${val}</div>
               </div>`;
-            };
 
-            const pct = v => `${Math.round(v)}%`;
-            const dec = v => v.toFixed(1);
-
-            return spHeader + `<div style="border:1px solid var(--bdr);border-radius:10px;overflow:hidden">
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--bdr)">
-                ${cell('GB%',  gbPct,  pct, v=>v>52?'var(--t2)':v<32?'var(--green)':'var(--t2)')}
-                ${cell('FB%',  fbPct,  pct, v=>v>45?'var(--green)':v<30?'var(--t2)':'var(--t2)')}
-                ${cell('LD%',  ldPct,  pct, ()=>'var(--t2)')}
-                ${cell('PU%',  puPct,  pct, ()=>'var(--t2)')}
-              </div>
-              <div style="display:grid;grid-template-columns:repeat(4,1fr)">
-                ${cell('HR/FB%',  hrFbV,   pct, v=>v>=18?'var(--green)':v<=10?'var(--t2)':'var(--t2)')}
-                ${cell('Hard Hit%', hardHit, pct, v=>v>=44?'var(--green)':v<=32?'var(--t2)':'var(--t2)')}
-                ${cell('Avg EV',  avgEV,   dec, v=>v>=92?'var(--green)':v<=87?'var(--t2)':'var(--t2)')}
-                ${cell('Barrel%', barrelA, pct, v=>v>=10?'var(--green)':v<=5?'var(--t2)':'var(--t2)')}
-              </div>
+            return spHeader + `<div class="ab-metric-grid">
+              ${metric('GB%',   pct(totGB)+'%',  false, pct(totGB)>=50)}
+              ${metric('FB%',   pct(totFB)+'%',  pct(totFB)>=35)}
+              ${metric('LD%',   pct(totLD)+'%',  pct(totLD)>=25)}
+              ${metric('PU%',   pct(totPU)+'%',  pct(totPU)>=15)}
+              ${metric('HR/FB%',pct(totHR,fbDenom)+'%', pct(totHR,fbDenom)>=20)}
+              ${metric('Hard%', pct(totHard,totPA)+'%', pct(totHard,totPA)>=45)}
+              ${avgEV!=null?metric('Avg EV',avgEV+' mph',avgEV>=92,avgEV<=85):''}
+              ${totHR>0?metric('HR',totHR,totHR>=3):''}
+            </div>
+            <div style="font-size:.58rem;color:var(--t4);margin-top:6px;text-align:center">
+              ${totPA} PA vs ${r.spNm?.split(' ').pop()||'SP'}'s arsenal
             </div>`;
           })()}
         </div>
