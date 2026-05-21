@@ -4341,91 +4341,6 @@ function renderSleepersDue(){
 //  DAILY SUMMARY CARD — top of slate
 // ==================================================================
 // ==================================================================
-//  AI ANALYSIS — generates sharp write-up per player
-// ==================================================================
-async function generateAIAnalysis(playerId){
-  const r = S.allRows.find(x=>String(x.id)===String(playerId));
-  if(!r) return;
-
-  const el = document.getElementById(`ai-${playerId}`);
-  if(!el) return;
-
-  // Show loading state
-  el.innerHTML = `<div style="padding:8px 10px;background:rgba(139,92,246,.08);border-radius:8px;
-    border:1px solid rgba(139,92,246,.2)">
-    <div style="display:flex;align-items:center;gap:8px;font-size:.68rem;color:#a78bfa">
-      <div style="width:12px;height:12px;border:2px solid #a78bfa;border-top-color:transparent;
-        border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0"></div>
-      Analyzing ${r.name}…
-    </div>
-  </div>`;
-
-  // Build context for Claude
-  const posAngles = detectAngles(r).filter(a=>!a.label.endsWith('(-)'));
-  const negAngles = detectNegativeAngles(r);
-  const fdO = getFDOdds(r.name);
-  const tier = fdO ? getEdgeTier(r.prob, fdO) : null;
-
-  const prompt = `You are a sharp MLB home run prop analyst. Write a concise 2-3 sentence analysis of this player's HR prop for today. Be direct, specific, and use the actual numbers. Focus on the most important FOR signal and the most important AGAINST signal.
-
-PLAYER: ${r.name} (${r.team}, ${r.batHand}HB, #${r.lineupPos||'?'} in lineup)
-OPPONENT SP: ${r.spNm||'TBD'} (${r.oppHand||'?'}HP)
-MODEL PROBABILITY: ${(r.prob*100).toFixed(1)}%
-FAIR ODDS: ${probToAmerican(r.prob)}
-${fdO?`FD ODDS: ${fdO>0?'+':''}${fdO} (${tier?.tier||'?'} tier, ${tier?.edge?.toFixed(1)||'0'}% edge)`:''}
-
-KEY SIGNALS FOR:
-${posAngles.slice(0,4).map(a=>`• ${a.label}: ${a.tip}`).join('\n')||'• None above threshold'}
-
-KEY SIGNALS AGAINST:
-${negAngles.slice(0,3).map(a=>`• ${a.label}: ${a.tip}`).join('\n')||'• None significant'}
-
-STATS: Barrel ${r.barrel_pct||'--'}% · EV ${r.avg_ev||'--'}mph · Pull-Air ${r.pull_air_pct||'--'}% · ISO ${r.iso?.toFixed(3)||'--'} · xwOBA gap ${r.xwobaDiff!=null?(r.xwobaDiff>0?'+':'')+Math.round(r.xwobaDiff*1000)+'pts':'--'}
-MULTIPLIERS: Anchor ${(r.anchor*100).toFixed(1)}% · Platoon ${r.platoon?.toFixed(2)}x · SP ${r.pitcher?.toFixed(2)}x · Park/Wx ${r.parkwx?.toFixed(2)}x
-
-Write 2-3 tight sentences. No fluff. Lead with the verdict, then the key FOR angle, then the key AGAINST caveat. Keep under 60 words.`;
-
-  try{
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 150,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-
-    if(!resp.ok) throw new Error(`API ${resp.status}`);
-    const data = await resp.json();
-    const text = data.content?.[0]?.text?.trim() || 'Analysis unavailable.';
-
-    // Cache for today
-    const aiKey = `ai_${playerId}_${ds()}`;
-    localStorage.setItem(aiKey, text);
-
-    el.innerHTML = `<div style="font-size:.68rem;color:var(--t3);line-height:1.65;padding:8px 10px;
-      background:rgba(139,92,246,.08);border-radius:8px;border:1px solid rgba(139,92,246,.2)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-        <div style="font-size:.58rem;color:#a78bfa;font-weight:700;
-          text-transform:uppercase;letter-spacing:.05em">✦ AI Analysis</div>
-        <button onclick="event.stopPropagation();generateAIAnalysis('${playerId}')"
-          style="background:none;border:none;color:#a78bfa;cursor:pointer;font-size:.60rem;opacity:.6">
-          ↺ refresh
-        </button>
-      </div>
-      ${text}
-    </div>`;
-
-  }catch(e){
-    el.innerHTML = `<div style="font-size:.65rem;color:var(--red);padding:6px 8px;
-      background:rgba(224,80,74,.08);border-radius:8px">
-      AI analysis failed — ${e.message}
-      <button onclick="event.stopPropagation();generateAIAnalysis('${playerId}')"
-        style="background:none;border:none;color:var(--amber);cursor:pointer;margin-left:8px">retry</button>
-    </div>`;
-  }
-}
 
 
 (function setupPTR(){
@@ -5747,9 +5662,7 @@ function renderHitterCard(r,showGame){
   const pulseClass = r.prob>=0.12 ? 'pulse-gold' : r.prob>=0.09 ? 'pulse-green' : '';
   // Player headshot URL
   const headshotUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/${r.id}/headshot/67/current`;
-  // Cached AI analysis
-  const aiKey = `ai_${r.id}_${ds()}`;
-  const cachedAI = localStorage.getItem(aiKey);
+
 
   return`<div class="hitter-card grade-${gCls} ${pulseClass}" onclick="showDetail('${r.id}')">
     <div class="hc-row1">
@@ -5791,26 +5704,6 @@ function renderHitterCard(r,showGame){
       ${(()=>{ const pos=r.lineupPos; const expPA=pos?Math.max(3.5,Math.min(4.8,4.8-(pos-1)*0.15)):4.1; const xhr=r.prob*expPA; const clr=xhr>=0.35?'var(--green)':xhr>=0.20?'var(--amber)':'var(--t3)'; return`<div class="stat-chip" title="Expected HRs today (per-PA prob × expected plate appearances)"><span>xHR</span><span class="val" style="color:${clr}">${xhr.toFixed(2)}</span></div>`; })()}
     </div>
 
-    <!-- AI Analysis section -->
-    <div id="ai-${r.id}" style="margin-top:8px">
-      ${cachedAI
-        ? `<div style="font-size:.68rem;color:var(--t3);line-height:1.6;padding:8px 10px;
-            background:rgba(139,92,246,.08);border-radius:8px;border:1px solid rgba(139,92,246,.2)">
-            <div style="font-size:.58rem;color:#a78bfa;font-weight:700;margin-bottom:4px;
-              text-transform:uppercase;letter-spacing:.05em">✦ AI Analysis</div>
-            ${cachedAI}
-          </div>`
-        : `<button onclick="event.stopPropagation();generateAIAnalysis('${r.id}')"
-            style="width:100%;padding:7px;border-radius:8px;border:1px solid rgba(139,92,246,.35);
-            background:rgba(139,92,246,.08);color:#a78bfa;cursor:pointer;font-size:.68rem;
-            font-weight:600;letter-spacing:.02em;display:flex;align-items:center;justify-content:center;gap:6px">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-            </svg>
-            Generate AI Analysis
-          </button>`
-      }
-    </div>
 
     ${(()=>{
       const fdO = getFDOdds(r.name);
