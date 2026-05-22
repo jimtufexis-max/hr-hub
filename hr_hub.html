@@ -840,6 +840,19 @@ const S = {
 
 const SEASON = 2026;
 const MLB    = 'https://statsapi.mlb.com/api/v1';
+
+// ── Migrate: clear auto-tracked entries from old data on first load ──
+(function migrateTracking(){
+  try{
+    const vKey='hr_hub_track_v';
+    if(localStorage.getItem(vKey)==='2') return;
+    const stored=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+    const cleaned=stored.filter(r=>r.manualBet===true);
+    localStorage.setItem('hr_hub_results',JSON.stringify(cleaned));
+    localStorage.setItem(vKey,'2');
+    console.log(`[tracking] migrated: kept ${cleaned.length} manual, removed ${stored.length-cleaned.length} auto`);
+  }catch(e){}
+})();
 // -- Cloudflare Worker proxy — set to your deployed worker URL --------------
 // Deploy hr_hub_worker.js to Cloudflare Workers, then update this:
 const PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
@@ -3622,7 +3635,7 @@ function getModelStats(){
     const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
     if(!stored.length) return null;
     // Split tracked (actual result) vs pending (auto-queued, no result yet)
-    const tracked = stored.filter(r=>r.actual!==undefined);
+    const tracked = stored.filter(r=>r.actual!==undefined && r.manualBet===true);
     const pending = stored.filter(r=>r.actual===undefined).length;
     if(!tracked.length) return { total:0, hrRate:null, pending, autoTracked:0 };
     const total = tracked.length;
@@ -3744,6 +3757,7 @@ async function autoTrackResults(){
 //  TRACK TODAY — queue a player to be auto-tracked after game ends
 //  Called when a game loads, silently adds all loaded players to pending
 // ==================================================================
+// queueForAutoTrack — only updates existing MANUALLY tracked entries (never auto-adds)
 function queueForAutoTrack(rows){
   try{
     const key = 'hr_hub_results';
@@ -3751,35 +3765,67 @@ function queueForAutoTrack(rows){
     const stored = JSON.parse(localStorage.getItem(key)||'[]');
     let changed = 0;
     for(const r of rows){
-      const idx = stored.findIndex(x=>String(x.id)===String(r.id)&&x.date===today);
-      const fdO = typeof getFDOdds==='function' ? getFDOdds(r.name) : null;
+      // Only update rows that were MANUALLY tracked (manualBet: true)
+      const idx = stored.findIndex(x=>String(x.id)===String(r.id)&&x.date===today&&x.manualBet===true);
       if(idx>=0){
-        // Always update prob + fdOdds to latest value
+        const fdO = typeof getFDOdds==='function' ? getFDOdds(r.name) : null;
         stored[idx].prob   = r.prob;
         stored[idx].fdOdds = fdO ?? stored[idx].fdOdds;
         stored[idx].grade  = r.grade;
-        changed++;
-      } else {
-        stored.push({
-          id: String(r.id), name: r.name, prob: r.prob,
-          fdOdds: fdO,
-          actual: undefined,
-          date: today,
-          grade: r.grade,
-          team: r.team, spNm: r.spNm,
-          batHand: r.batHand, oppHand: r.oppHand,
-          pitcher: r.pitcher, platoon: r.platoon,
-          parkwx: r.parkwx, momentum: r.momentum,
-          autoQueued: true,
-        });
+        stored[idx].pitcher  = r.pitcher;
+        stored[idx].platoon  = r.platoon;
+        stored[idx].parkwx   = r.parkwx;
+        stored[idx].momentum = r.momentum;
         changed++;
       }
     }
-    if(changed>0){
-      if(stored.length>2000) stored.splice(0,stored.length-2000);
-      localStorage.setItem(key, JSON.stringify(stored));
-    }
+    if(changed>0) localStorage.setItem(key, JSON.stringify(stored));
   }catch(e){}
+}
+
+// addManualBet — called when user taps Track Bet on detail page
+function addManualBet(playerId){
+  try{
+    const r = S.allRows.find(x=>String(x.id)===String(playerId));
+    if(!r){ alert('Player not loaded — load game first'); return; }
+    const key = 'hr_hub_results';
+    const today = ds();
+    const stored = JSON.parse(localStorage.getItem(key)||'[]');
+    const existing = stored.find(x=>String(x.id)===String(r.id)&&x.date===today);
+    if(existing){
+      if(existing.manualBet){
+        if(!confirm(`${r.name} is already tracked today. Remove tracking?`)) return;
+        const idx = stored.indexOf(existing);
+        stored.splice(idx,1);
+        localStorage.setItem(key, JSON.stringify(stored));
+        renderDetail(r); // refresh button state
+        return;
+      }
+      existing.manualBet = true;
+    } else {
+      const fdO = typeof getFDOdds==='function' ? getFDOdds(r.name) : null;
+      stored.push({
+        id: String(r.id), name: r.name, prob: r.prob,
+        fdOdds: fdO, actual: undefined, date: today, grade: r.grade,
+        team: r.team, spNm: r.spNm, batHand: r.batHand, oppHand: r.oppHand,
+        pitcher: r.pitcher, platoon: r.platoon,
+        parkwx: r.parkwx, momentum: r.momentum,
+        manualBet: true,
+      });
+    }
+    if(stored.length>2000) stored.splice(0, stored.length-2000);
+    localStorage.setItem(key, JSON.stringify(stored));
+    renderDetail(r); // refresh button state
+  }catch(e){ console.error('addManualBet',e); }
+}
+
+// clearAllTracking — wipe localStorage for fresh start
+function clearAllTracking(){
+  if(!confirm('Clear ALL tracked bets and results? This cannot be undone.')) return;
+  localStorage.removeItem('hr_hub_results');
+  const el = document.getElementById('results-content');
+  if(el) el.innerHTML = '<div class="empty" style="padding:40px 0">Tracking cleared. Tap Track Bet on any player to start tracking.</div>';
+  renderModelPerf(document.getElementById('model-perf-card'));
 }
 
 // Render model performance card
@@ -3928,8 +3974,8 @@ async function renderResultsTab(){
             const pid  = String(player.person?.id||'');
             const name = player.person?.fullName||'Unknown';
 
-            // Look up our model's stored probability for this player on this date
-            const trackedEntry = stored.find(r=>String(r.id)===pid && r.date===dateStr);
+            // Only look up manually tracked bets (manualBet: true)
+            const trackedEntry = stored.find(r=>String(r.id)===pid && r.date===dateStr && r.manualBet===true);
 
             hrHitters.push({
               name, pid, hr, game: gameStr,
@@ -4005,11 +4051,18 @@ async function renderResultsTab(){
       </div>`;
     }
 
-    html += `<button onclick="renderResultsTab()"
-      style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--bdr);
-      background:var(--bg3);color:var(--t2);cursor:pointer;font-size:.72rem;margin-bottom:10px">
-      🔄 Refresh
-    </button>`;
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <button onclick="renderResultsTab()"
+        style="padding:10px;border-radius:8px;border:1px solid var(--bdr);
+        background:var(--bg3);color:var(--t2);cursor:pointer;font-size:.72rem">
+        🔄 Refresh
+      </button>
+      <button onclick="clearAllTracking()"
+        style="padding:10px;border-radius:8px;border:1px solid rgba(224,80,74,.4);
+        background:rgba(224,80,74,.08);color:var(--red);cursor:pointer;font-size:.72rem">
+        🗑️ Clear All
+      </button>
+    </div>`;
 
     el.innerHTML = html;
 
@@ -4690,7 +4743,7 @@ function renderParkHeatmap(homeTeam, batHand){
 // ==================================================================
 function getHitRateTracker(){
   const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
-  const resolved = stored.filter(r=>r.actual!==undefined && r.actual!==null && r.prob>0);
+  const resolved = stored.filter(r=>r.actual!==undefined && r.actual!==null && r.prob>0 && r.manualBet===true);
   if(resolved.length < 5) return null;
 
   // Bucket by model probability
@@ -4956,7 +5009,8 @@ function renderWhyMiss(el){
   // High-conf misses: prob >= 6%, actual = 0
   const misses = stored.filter(r=>
     r.actual===0 && r.prob!=null && r.prob>=0.060 &&
-    r.date && r.date < ds()  // past games only
+    r.manualBet===true &&
+    r.date && r.date < ds()  // past games only, manually tracked only
   ).sort((a,b)=>b.prob-a.prob).slice(0,8);
 
   if(!misses.length){
@@ -6700,10 +6754,10 @@ function renderHitterCard(r,showGame){
       </div>
       <div style="flex:1;min-width:0">
         <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}${zoneBadge}${(()=>{
-          const today=ds();const stored=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
-          const already=stored.find(x=>x.id===r.id&&x.date===today);
-          if(already&&already.actual!==undefined) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.2);color:var(--green);margin-left:4px">${already.actual>0?'✅ HR':'❌ No HR'}</span>`;
-          if(already) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(90,160,255,.15);color:var(--blue);margin-left:4px">⏳ tracking</span>`;
+          const _td=ds();const _st=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+          const _al=_st.find(x=>x.id===r.id&&x.date===_td&&x.manualBet);
+          if(_al&&_al.actual!==undefined) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.2);color:var(--green);margin-left:4px">${_al.actual>0?'✅ HR':'❌ No HR'}</span>`;
+          if(_al) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.15);color:var(--amber);margin-left:4px">📌 tracked</span>`;
           return '';
         })()}</div>
         <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <span style="color:var(--amber)">#${r.lineupPos}</span>`:''} ${gameTag}${!r.lineupConfirmed?` <span style="color:var(--red);font-size:.60rem">⚠️ lineup unconfirmed</span>`:''} ${r.postponeRisk>=0.45?`<span style="color:var(--red);font-size:.60rem">🌧️ ppd risk ${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
@@ -7216,7 +7270,22 @@ function renderDetail(r){
           <div class="detail-meta">vs ${r.spNm} (${r.oppHand}HP) · ${r.game}</div>
         </div>
       </div>
-      <div style="font-size:.70rem;color:var(--t4);font-family:'JetBrains Mono',monospace;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-top:4px;line-height:1.8">
+      ${(()=>{
+        const _today=ds();
+        const _stored=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+        const _tracked=_stored.find(x=>String(x.id)===String(r.id)&&x.date===_today&&x.manualBet);
+        const _btnClr = _tracked ? 'var(--green)' : 'var(--amber)';
+        const _btnTxt = _tracked ? '✅ Tracked' : '📌 Track Bet';
+        return `<button onclick="addManualBet('${r.id}')"
+          style="width:100%;margin-top:8px;padding:9px;border-radius:8px;cursor:pointer;
+          border:1px solid ${_btnClr};background:${_tracked?'rgba(34,201,94,.15)':'rgba(255,165,0,.1)'};
+          color:${_btnClr};font-size:.72rem;font-weight:700;letter-spacing:.03em;
+          display:flex;align-items:center;justify-content:center;gap:7px">
+          ${_btnTxt}
+          ${_tracked?'<span style="font-size:.62rem;opacity:.7">tap to remove</span>':'<span style="font-size:.62rem;opacity:.6">auto-resolves from box score</span>'}
+        </button>`;
+      })()}
+      <div style="font-size:.70rem;color:var(--t4);font-family:'JetBrains Mono',monospace;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-top:8px;line-height:1.8">
         <div>Anchor <b style="color:var(--t2)">${(r.anchor*100).toFixed(1)}%</b>${r.platoon!==1?` · Platoon <b style="color:${r.platoon>=1?'var(--green)':'var(--red)'}">${r.platoon>=1?'+':''}${((r.platoon-1)*100).toFixed(0)}%</b>`:''}${r.pitcher!==1?` · SP <b style="color:${r.pitcher>=1?'var(--green)':'var(--red)'}">${r.pitcher>=1?'+':''}${((r.pitcher-1)*100).toFixed(0)}%</b>`:''}${r.parkwx!==1?` · Park/Wx <b style="color:${r.parkwx>=1?'var(--green)':'var(--red)'}">${r.parkwx>=1?'+':''}${((r.parkwx-1)*100).toFixed(0)}%</b>`:''}${r.momentum!==1?` · Form <b style="color:${r.momentum>=1?'var(--green)':'var(--red)'}">${r.momentum>=1?'+':''}${((r.momentum-1)*100).toFixed(0)}%</b>`:''}</div>
         <div>→ Final: <b style="color:${gc}">${pct}%</b> (log-odds model)</div>
       </div>
