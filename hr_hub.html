@@ -8780,7 +8780,7 @@ function renderDetail(r){
             ${[['$50 bank', 50],['$100 bank', 100],['$250 bank', 250],
                ['$500 bank', 500],['$1k bank', 1000],['$2k bank', 2000]]
               .map(([lbl,bank])=>{
-                const bet = Math.round(bank * kelly2.fractional / 100 * 100)/100;
+                const bet = Math.round(bank * kelly2.kelly * 0.25 / 100 * 100)/100;
                 const win = Math.round(bet * (fdOdds2>0 ? fdOdds2/100 : 100/Math.abs(fdOdds2)) * 100)/100;
                 return `<div style="padding:7px 8px;background:var(--bg3);border-radius:7px;text-align:center">
                   <div style="font-size:.72rem;font-weight:800;color:${tierColor}">$${bet.toFixed(2)}</div>
@@ -8790,7 +8790,7 @@ function renderDetail(r){
               }).join('')}
           </div>
           <div style="font-size:.60rem;color:var(--t4);margin-top:6px;text-align:center">
-            Kelly: ${kelly2.kelly.toFixed(1)}% · Using ¼ Kelly = ${kelly2.fractional.toFixed(1)}% of bankroll
+            Kelly: ${kelly2.kelly.toFixed(1)}% · Using ¼ Kelly = ${(kelly2.kelly*0.25).toFixed(1)}% of bankroll
           </div>
         </div>` : tier2?.tier==='F' ? `
         <div style="padding:8px 10px;background:rgba(224,80,74,.08);border-radius:8px;
@@ -8927,8 +8927,9 @@ function calcBetEV(id,pctStr){
       html+=`<div style="font-size:.60rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Kelly Sizing</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:6px">
         ${[50,100,250,500,1000,2000].map(bank=>{
-          const bet=Math.round(bank*kelly.fractional/100*100)/100;
-          const win=Math.round(bet*(finalOdds>0?finalOdds/100:100/Math.abs(finalOdds))*100)/100;
+          const pct = kelly.kelly * 0.25 / 100; // quarter kelly as fraction of bankroll
+          const bet = Math.round(bank * pct * 100)/100;
+          const win = Math.round(bet*(finalOdds>0?finalOdds/100:100/Math.abs(finalOdds))*100)/100;
           return `<div style="padding:6px;background:var(--bg3);border-radius:6px;text-align:center">
             <div style="font-size:.70rem;font-weight:800;color:${tierColor}">$${bet.toFixed(2)}</div>
             <div style="font-size:.55rem;color:var(--t4)">$${bank} bank</div>
@@ -8937,7 +8938,7 @@ function calcBetEV(id,pctStr){
         }).join('')}
       </div>
       <div style="font-size:.58rem;color:var(--t4);text-align:center">
-        ¼ Kelly = ${kelly.fractional.toFixed(1)}% of bankroll · Full Kelly ${kelly.kelly.toFixed(1)}%
+        ¼ Kelly = ${(kelly.kelly*0.25).toFixed(1)}% of bankroll · Full Kelly ${kelly.kelly.toFixed(1)}%
       </div>`;
     } else if(tier?.tier==='F'){
       html+=`<div style="font-size:.68rem;color:var(--red);text-align:center;padding:6px">🚫 Negative edge — do not bet</div>`;
@@ -8946,7 +8947,12 @@ function calcBetEV(id,pctStr){
     }
     html+='</div>';
     el.innerHTML=html;
-  }catch(e){el.innerHTML=`<div style="color:var(--red);font-size:.8rem">Invalid odds format</div>`;}
+  }catch(e){
+    el.innerHTML=`<div style="color:var(--red);font-size:.75rem;padding:6px 0">
+      Error: ${e.message} — try format: 530 or +530
+    </div>`;
+    console.error('[calcBetEV]',e);
+  }
 }
 
 // ==================================================================
