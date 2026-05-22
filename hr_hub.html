@@ -112,7 +112,12 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
   border:2px solid var(--bdr);flex-shrink:0;background:var(--bg3)}
 .hc-headshot-wrap{position:relative;flex-shrink:0}
 
-/* ── Spray chart dot popup ────────────────────────────────────── */
+/* ── Kelly Calculator ─────────────────────────────────────────── */
+.kelly-fraction-btn{flex:1;padding:12px 0;border:none;border-radius:10px;
+  font-size:.75rem;font-weight:700;cursor:pointer;letter-spacing:.04em;
+  text-transform:uppercase;transition:all .2s;background:transparent;
+  color:rgba(255,255,255,.3)}
+.kelly-fraction-btn.active{background:var(--amber);color:#000}
 .spray-popup{position:absolute;z-index:50;pointer-events:none;
   animation:fadeInUp .15s ease-out}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -413,6 +418,12 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   </div>
 
   <!-- PARLAY PAGE -->
+
+  <!-- Kelly Calculator page -->
+  <div id="page-kelly" class="page" style="overflow-y:auto">
+    <div id="kelly-content" style="padding:16px 14px 20px"></div>
+  </div>
+
   <div id="page-parlay" class="page">
     <div class="slbl">🎰 Parlay Builder</div>
     <div class="card" style="margin-bottom:10px">
@@ -815,9 +826,9 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
     Slate
   </button>
-  <button class="nav-btn" onclick="showPage('parlay')" id="nav-parlay">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-    Parlay
+  <button class="nav-btn" onclick="showPage('kelly')" id="nav-kelly">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    Kelly
   </button>
   <button class="nav-btn" onclick="showPage('ab')" id="nav-ab">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
@@ -917,6 +928,7 @@ function showPage(name){
   if(name==='ab') populateABSelect();
   if(name==='pl') populatePitcherSelect();
   if(name==='results') renderResultsTab();
+  if(name==='kelly') renderKelly();
   if(name==='parlay') renderParlay();
   if(name==='picks') renderBestBets();
   if(name==='discover') renderDiscover();
@@ -5256,8 +5268,256 @@ function renderSleepersDue(){
 //  DAILY SUMMARY CARD — top of slate
 // ==================================================================
 // ==================================================================
-//  COPY PICKS TO CLIPBOARD — Discord-formatted daily post
+//  KELLY CALCULATOR
 // ==================================================================
+function renderKelly(){
+  const el = document.getElementById('kelly-content');
+  if(!el) return;
+
+  // Load saved prefs
+  const savedBankroll = parseFloat(localStorage.getItem('kelly_bankroll')||'1000');
+  const savedFraction = localStorage.getItem('kelly_fraction')||'quarter';
+  const savedUnitPct  = parseFloat(localStorage.getItem('kelly_unit_pct')||'1');
+
+  // Get starred/tracked players + high-prob plays for the card list
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  const today  = ds();
+  const trackedToday = stored.filter(r=>r.date===today&&r.manualBet);
+  // Combine tracked + top model plays
+  const topRows = S.allRows
+    .filter(r=>r.prob>=0.045)
+    .sort((a,b)=>b.prob-a.prob)
+    .slice(0,12);
+
+  el.innerHTML = `
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
+      <div style="width:40px;height:40px;background:rgba(255,165,0,.15);border-radius:10px;
+        display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2">
+          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>
+      </div>
+      <div>
+        <div style="font-size:.95rem;font-weight:800;color:var(--t1)">Kelly Calculator</div>
+        <div style="font-size:.65rem;color:var(--t4);margin-top:1px">Math-driven bet sizing for tonight's plays</div>
+      </div>
+    </div>
+
+    <!-- Bankroll -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:.62rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+        letter-spacing:.09em;margin-bottom:8px">Bankroll</div>
+      <div style="position:relative">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);
+          font-size:1rem;color:var(--t3);font-weight:700">$</span>
+        <input type="number" id="kelly-bankroll" value="${savedBankroll}"
+          oninput="updateKellyCalc()"
+          style="width:100%;padding:16px 16px 16px 32px;background:var(--bg3);
+          border:1px solid var(--bdr);border-radius:12px;color:var(--t1);
+          font-size:1.1rem;font-weight:800;-webkit-appearance:none">
+      </div>
+      <div style="font-size:.62rem;color:var(--t4);margin-top:6px">Total funds you're managing</div>
+    </div>
+
+    <!-- Unit Size -->
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:.62rem;font-weight:700;color:var(--t4);
+          text-transform:uppercase;letter-spacing:.09em">Unit Size</div>
+        <div style="display:flex;gap:6px">
+          ${[1,2,5].map(pct=>`
+            <button onclick="setUnitPct(${pct})" id="unit-pct-${pct}"
+              style="padding:3px 10px;border-radius:99px;border:1px solid ${pct===savedUnitPct?'var(--amber)':'var(--bdr)'};
+              background:${pct===savedUnitPct?'var(--amber)':'transparent'};
+              color:${pct===savedUnitPct?'#000':'var(--t4)'};
+              font-size:.62rem;font-weight:700;cursor:pointer">
+              ${pct}%
+            </button>`).join('')}
+          <span style="font-size:.58rem;color:var(--amber);font-weight:700;
+            align-self:center;margin-left:2px">RECOMMENDED</span>
+        </div>
+      </div>
+      <div style="position:relative">
+        <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);
+          font-size:1rem;color:var(--t3);font-weight:700">$</span>
+        <input type="number" id="kelly-unit" value="${(savedBankroll*savedUnitPct/100).toFixed(2)}"
+          style="width:100%;padding:16px 16px 16px 32px;background:var(--bg3);
+          border:1px solid var(--bdr);border-radius:12px;color:var(--t1);
+          font-size:1.1rem;font-weight:800;-webkit-appearance:none" readonly>
+      </div>
+      <div style="font-size:.62rem;color:var(--t4);margin-top:6px">Auto-derived · 1 unit = ${savedUnitPct}% of bankroll</div>
+    </div>
+
+    <!-- Kelly Fraction -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:.62rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+        letter-spacing:.09em;margin-bottom:8px">Kelly Fraction</div>
+      <div style="display:flex;gap:4px;background:var(--bg3);border-radius:12px;padding:5px;
+        border:1px solid var(--bdr)">
+        ${['full','half','quarter'].map(f=>`
+          <button class="kelly-fraction-btn ${f===savedFraction?'active':''}"
+            id="kf-${f}" onclick="setKellyFraction('${f}')">
+            ${f.charAt(0).toUpperCase()+f.slice(1)}
+          </button>`).join('')}
+      </div>
+      <div style="text-align:right;margin-top:4px">
+        <span style="font-size:.60rem;color:var(--amber);font-weight:700">RECOMMENDED: QUARTER</span>
+      </div>
+    </div>
+
+    <!-- What's the difference expandable -->
+    <div id="kelly-explainer" style="background:var(--bg3);border-radius:12px;
+      border:1px solid var(--bdr);margin-bottom:20px;overflow:hidden">
+      <button onclick="toggleKellyExplainer()"
+        style="width:100%;padding:14px 16px;background:none;border:none;cursor:pointer;
+        display:flex;align-items:center;justify-content:space-between;text-align:left">
+        <span style="font-size:.72rem;color:var(--amber);font-weight:700">
+          What's the difference between Full, Half, and Quarter Kelly?
+        </span>
+        <svg id="kelly-explainer-arrow" width="16" height="16" viewBox="0 0 24 24"
+          fill="none" stroke="var(--amber)" stroke-width="2">
+          <polyline points="9,18 15,12 9,6"/>
+        </svg>
+      </button>
+      <div id="kelly-explainer-body" style="display:none;padding:0 16px 14px;
+        font-size:.68rem;color:var(--t3);line-height:1.7">
+        <b style="color:var(--t2)">Full Kelly</b> — bets the mathematically optimal % of bankroll. Maximizes long-run growth but causes huge swings. Not recommended for most bettors.<br><br>
+        <b style="color:var(--t2)">Half Kelly</b> — bets 50% of Full Kelly. Reduces variance by 75% while keeping ~75% of the growth rate. Good middle ground.<br><br>
+        <b style="color:var(--t2)">Quarter Kelly (recommended)</b> — bets 25% of Full Kelly. Very low variance, sustainable long term. Most sharp bettors use ¼ or ⅕ Kelly to survive downswings.
+      </div>
+    </div>
+
+    <!-- Player Cards -->
+    <div style="font-size:.62rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+      letter-spacing:.09em;margin-bottom:10px">Tonight's Plays</div>
+    <div id="kelly-cards" style="display:flex;flex-direction:column;gap:8px">
+      ${topRows.length ? topRows.map(r=>renderKellyCard(r, savedBankroll, savedFraction, savedUnitPct)).join('') :
+        '<div style="font-size:.70rem;color:var(--t4);padding:20px 0;text-align:center">Load games on the Slate tab to see plays</div>'}
+    </div>`;
+
+  // Wire bankroll input
+  document.getElementById('kelly-bankroll').addEventListener('input', updateKellyCalc);
+}
+
+function renderKellyCard(r, bankroll, fraction, unitPct){
+  const fdO = getFDOdds(r.name);
+  const tier = fdO ? getEdgeTier(r.prob, fdO) : null;
+  if(!tier || tier.edge < 0) return '';
+
+  const kelly = tier?.kelly;
+  const fractionMultiplier = fraction==='full'?1 : fraction==='half'?0.5 : 0.25;
+
+  // Dollar amount = bankroll × full kelly % × fraction
+  const fullKellyPct = kelly?.kelly || 0;
+  const betPct = fullKellyPct * fractionMultiplier;
+  const betDollars = (bankroll * betPct / 100);
+  const unitSize = bankroll * unitPct / 100;
+  const units = betDollars / unitSize;
+  const potentialWin = fdO > 0
+    ? betDollars * fdO / 100
+    : betDollars * 100 / Math.abs(fdO);
+
+  if(betDollars < 0.50) return ''; // skip negative/zero edge
+
+  const [,gc] = probGrade(r.prob);
+  const tierClr = tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':'var(--amber)';
+  const headshotUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_80,q_auto:best/v1/people/${r.id}/headshot/67/current`;
+
+  return `<div style="background:var(--bg2);border:1px solid var(--bdr);border-radius:14px;
+    padding:14px 16px;cursor:pointer" onclick="showDetail('${r.id}')">
+    <div style="display:flex;align-items:center;gap:12px">
+      <!-- Headshot -->
+      <img src="${headshotUrl}" style="width:46px;height:46px;border-radius:50%;
+        object-fit:cover;flex-shrink:0;border:2px solid ${tierClr}33"
+        onerror="this.style.display='none'">
+      <!-- Info -->
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.82rem;font-weight:800;color:var(--t1);margin-bottom:2px">
+          ${r.name}
+        </div>
+        <div style="font-size:.62rem;color:var(--t4)">
+          ${r.game||r.team} · ${(r.prob*100).toFixed(1)}%
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
+          ${fdO!=null?`<span style="font-size:.65rem;color:var(--t3);font-weight:700">
+            ${fdO>0?'+':''}${fdO}</span>`:''}
+          ${tier?`<span style="font-size:.63rem;color:${tierClr};font-weight:700">
+            +${tier.edge.toFixed(1)}% edge</span>`:''}
+          ${tier?`<span style="font-size:.63rem;color:var(--green);font-weight:700">
+            +${tier.ev?.toFixed(1)||'0'}% EV</span>`:''}
+        </div>
+      </div>
+      <!-- Bet amount -->
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:1.3rem;font-weight:900;color:${tierClr}">
+          $${betDollars.toFixed(2)}
+        </div>
+        <div style="font-size:.62rem;color:var(--t4);margin-top:1px">
+          ${units.toFixed(2)}u
+        </div>
+        ${potentialWin>0?`<div style="font-size:.60rem;color:var(--green);margin-top:2px;font-weight:700">
+          win +$${potentialWin.toFixed(0)}</div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+function updateKellyCalc(){
+  const bankroll = parseFloat(document.getElementById('kelly-bankroll')?.value||'1000');
+  if(isNaN(bankroll)||bankroll<=0) return;
+  localStorage.setItem('kelly_bankroll', bankroll);
+  const unitPct  = parseFloat(localStorage.getItem('kelly_unit_pct')||'1');
+  const fraction = localStorage.getItem('kelly_fraction')||'quarter';
+  // Update unit display
+  const unitEl = document.getElementById('kelly-unit');
+  if(unitEl) unitEl.value = (bankroll*unitPct/100).toFixed(2);
+  // Re-render cards
+  const cardsEl = document.getElementById('kelly-cards');
+  if(cardsEl && S.allRows.length){
+    const topRows = S.allRows.filter(r=>r.prob>=0.045).sort((a,b)=>b.prob-a.prob).slice(0,12);
+    cardsEl.innerHTML = topRows.map(r=>renderKellyCard(r,bankroll,fraction,unitPct)).join('') ||
+      '<div style="font-size:.70rem;color:var(--t4);padding:20px 0;text-align:center">No plays found</div>';
+  }
+}
+
+function setUnitPct(pct){
+  localStorage.setItem('kelly_unit_pct', pct);
+  [1,2,5].forEach(p=>{
+    const btn = document.getElementById(`unit-pct-${p}`);
+    if(!btn) return;
+    btn.style.background = p===pct?'var(--amber)':'transparent';
+    btn.style.color = p===pct?'#000':'var(--t4)';
+    btn.style.borderColor = p===pct?'var(--amber)':'var(--bdr)';
+  });
+  const bankroll = parseFloat(document.getElementById('kelly-bankroll')?.value||'1000');
+  const unitEl = document.getElementById('kelly-unit');
+  if(unitEl) unitEl.value = (bankroll*pct/100).toFixed(2);
+  const subEl = unitEl?.nextElementSibling;
+  if(subEl) subEl.textContent = `Auto-derived · 1 unit = ${pct}% of bankroll`;
+  updateKellyCalc();
+}
+
+function setKellyFraction(f){
+  localStorage.setItem('kelly_fraction', f);
+  ['full','half','quarter'].forEach(fr=>{
+    const btn = document.getElementById(`kf-${fr}`);
+    if(!btn) return;
+    btn.classList.toggle('active', fr===f);
+  });
+  updateKellyCalc();
+}
+
+function toggleKellyExplainer(){
+  const body  = document.getElementById('kelly-explainer-body');
+  const arrow = document.getElementById('kelly-explainer-arrow');
+  if(!body) return;
+  const open = body.style.display==='block';
+  body.style.display  = open?'none':'block';
+  if(arrow) arrow.style.transform = open?'':'rotate(90deg)';
+}
+
+
 function copyPicksToClipboard(){
   if(!S.allRows.length) return;
   const today = S.date || new Date();
@@ -5273,6 +5533,14 @@ function copyPicksToClipboard(){
 
   const allPlays = [...plays,...highProb].slice(0,8);
   if(!allPlays.length){ alert('No plays found — load games and FD odds first.'); return; }
+
+  // Sleeper: uses detectSleeper, max 1, not already in main plays, different team
+  const usedTeams = new Set(allPlays.map(p=>p.r.team));
+  const sleeperPick = S.allRows
+    .map(r=>({r, s:detectSleeper(r)}))
+    .filter(({s,r})=>s!=null && !allPlays.find(p=>p.r.id===r.id))
+    .sort((a,b)=>b.s.score-a.s.score)
+    .find(({r})=>!usedTeams.has(r.team));
 
   const tierEmoji = t=>t==='S'?'🔥':t==='A'?'✅':t==='B'?'📌':'📊';
 
@@ -5290,6 +5558,23 @@ function copyPicksToClipboard(){
     return [`${tierEmoji(tier?.tier)} ${r.name.toUpperCase()}`,`   ${[oddsStr,edgeStr,kellyStr].filter(Boolean).join(' | ')}`,`   ${matchup}`,angles?`   📍 ${angles}`:null,stats?`   📊 ${stats}`:null,`   ${minOdds}`].filter(Boolean).join('\n');
   };
 
+  const formatSleeper = ({r, s}) => {
+    const fdO = getFDOdds(r.name);
+    const spName = r.spNm?r.spNm.split(' ').pop():'?';
+    const matchup = `${r.team} · ${r.batHand}HB vs ${spName} (${r.oppHand||'?'}HP)`;
+    const oddsStr = fdO!=null?`FD ${fdO>0?'+':''}${fdO}`:`Model ${(r.prob*100).toFixed(1)}%`;
+    const reason  = s.reasons?.[0]||'Power profile under the radar';
+    const stats   = [r.barrel_pct!=null?`Barrel ${r.barrel_pct.toFixed(0)}%`:null, r.avg_ev!=null?`EV ${r.avg_ev.toFixed(0)}mph`:null].filter(Boolean).join(' · ');
+    return [
+      `💤 ${r.name.toUpperCase()}`,
+      `   ${oddsStr} · Model ${(r.prob*100).toFixed(1)}%`,
+      `   ${matchup}`,
+      `   💡 ${reason}`,
+      stats?`   📊 ${stats}`:null,
+      `   → SMALL UNIT — long odds, real power`,
+    ].filter(Boolean).join('\n');
+  };
+
   const sTier=allPlays.filter(p=>p.tier?.tier==='S');
   const aTier=allPlays.filter(p=>p.tier?.tier==='A');
   const bTier=allPlays.filter(p=>p.tier?.tier==='B');
@@ -5300,6 +5585,14 @@ function copyPicksToClipboard(){
   if(aTier.length){ lines.push('✅ A-TIER — STRONG PLAYS',''); aTier.forEach(p=>{lines.push(formatPlay(p),'');}); }
   if(bTier.length){ lines.push('📌 B-TIER — LEANS',''); bTier.forEach(p=>{lines.push(formatPlay(p),'');}); }
   if(noOdds.length){ lines.push('📊 WATCH — No odds yet',''); noOdds.forEach(p=>{lines.push(formatPlay(p),'');}); }
+
+  // Sleeper section
+  if(sleeperPick){
+    lines.push('💤 SLEEPER OF THE DAY','');
+    lines.push(formatSleeper(sleeperPick),'');
+    lines.push('   ⚠️ High odds, small unit only — model sees hidden value','');
+  }
+
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',`📈 ${plays.length} value plays today · 🤖 Powered by HR Hub`,'⚠️ Bet responsibly. Model prob ≠ guarantee.');
 
   const text=lines.join('\n');
