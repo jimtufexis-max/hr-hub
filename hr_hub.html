@@ -372,6 +372,23 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <div id="hr-projection-strip"></div>
     <div id="ptr-indicator"><div id="ptr-spinner"></div>Refreshing…</div>
     <div id="daily-summary"></div>
+
+    <!-- Copy Picks Button — only shown when plays are loaded -->
+    <div id="copy-picks-bar" style="display:none;margin-bottom:10px">
+      <button onclick="copyPicksToClipboard()"
+        style="width:100%;padding:11px;border-radius:10px;border:1px solid rgba(255,215,0,.4);
+        background:rgba(255,215,0,.08);color:#ffd700;cursor:pointer;font-size:.75rem;
+        font-weight:700;letter-spacing:.04em;display:flex;align-items:center;
+        justify-content:center;gap:8px">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+        </svg>
+        📋 Copy Today's Picks for Discord
+      </button>
+      <div id="copy-confirm" style="display:none;text-align:center;font-size:.65rem;
+        color:var(--green);margin-top:5px">✅ Copied to clipboard!</div>
+    </div>
+
     <div id="hitter-list"></div>
   </div>
 
@@ -2610,6 +2627,9 @@ async function loadSelectedGames(){
   renderSlate();
   renderDailySummary();
   checkLineupLockAlert();
+  // Show copy picks bar when we have plays
+  const cpBar = document.getElementById('copy-picks-bar');
+  if(cpBar) cpBar.style.display = S.allRows.length ? 'block' : 'none';
   // Persist final probs to localStorage so Results tab always matches slate
   if(S.allRows.length) queueForAutoTrack(S.allRows);
   populateABSelect();
@@ -5235,6 +5255,73 @@ function renderSleepersDue(){
 // ==================================================================
 //  DAILY SUMMARY CARD — top of slate
 // ==================================================================
+// ==================================================================
+//  COPY PICKS TO CLIPBOARD — Discord-formatted daily post
+// ==================================================================
+function copyPicksToClipboard(){
+  if(!S.allRows.length) return;
+  const today = S.date || new Date();
+  const dateStr = today.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+
+  const plays = S.allRows
+    .map(r=>{ const fdO=getFDOdds(r.name); if(fdO==null) return null; const tier=getEdgeTier(r.prob,fdO); if(!tier||tier.edge<2) return null; return{r,tier,fdO}; })
+    .filter(Boolean).sort((a,b)=>b.tier.edge-a.tier.edge);
+
+  const highProb = S.allRows
+    .filter(r=>r.prob>=0.070&&!plays.find(p=>p.r.id===r.id))
+    .sort((a,b)=>b.prob-a.prob).slice(0,3).map(r=>({r,tier:null,fdO:null}));
+
+  const allPlays = [...plays,...highProb].slice(0,8);
+  if(!allPlays.length){ alert('No plays found — load games and FD odds first.'); return; }
+
+  const tierEmoji = t=>t==='S'?'🔥':t==='A'?'✅':t==='B'?'📌':'📊';
+
+  const formatPlay = ({r,tier,fdO}) => {
+    const kelly = tier?.kelly;
+    const angles = detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).slice(0,3).map(a=>a.label.replace(' (+)','')).join(' · ');
+    const pctStr  = (r.prob*100).toFixed(1)+'%';
+    const oddsStr = fdO!=null?`FD ${fdO>0?'+':''}${fdO}`:`Model ${pctStr}`;
+    const edgeStr = tier?`Edge +${tier.edge.toFixed(1)}%`:'';
+    const kellyStr= kelly?.units>=0.5?`Kelly ${kelly.units}u`:'';
+    const spName  = r.spNm?r.spNm.split(' ').pop():'?';
+    const matchup = `${r.team} · ${r.batHand}HB vs ${spName} (${r.oppHand||'?'}HP)`;
+    const stats   = [r.barrel_pct!=null?`Barrel ${r.barrel_pct.toFixed(0)}%`:null, r.avg_ev!=null?`EV ${r.avg_ev.toFixed(0)}mph`:null, r.pull_air_pct!=null?`Pull-Air ${r.pull_air_pct.toFixed(0)}%`:null].filter(Boolean).join(' · ');
+    const minOdds = fdO!=null?`→ BET at ${fdO>0?'+':''}${Math.round(Math.abs(fdO)*0.90)} or better`:`→ PLAY if line appears`;
+    return [`${tierEmoji(tier?.tier)} ${r.name.toUpperCase()}`,`   ${[oddsStr,edgeStr,kellyStr].filter(Boolean).join(' | ')}`,`   ${matchup}`,angles?`   📍 ${angles}`:null,stats?`   📊 ${stats}`:null,`   ${minOdds}`].filter(Boolean).join('\n');
+  };
+
+  const sTier=allPlays.filter(p=>p.tier?.tier==='S');
+  const aTier=allPlays.filter(p=>p.tier?.tier==='A');
+  const bTier=allPlays.filter(p=>p.tier?.tier==='B');
+  const noOdds=allPlays.filter(p=>!p.tier);
+
+  const lines=[`⚾ HR HUB PICKS — ${dateStr.toUpperCase()}`,'━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',''];
+  if(sTier.length){ lines.push('🔥 S-TIER — MAX CONFIDENCE',''); sTier.forEach(p=>{lines.push(formatPlay(p),'');}); }
+  if(aTier.length){ lines.push('✅ A-TIER — STRONG PLAYS',''); aTier.forEach(p=>{lines.push(formatPlay(p),'');}); }
+  if(bTier.length){ lines.push('📌 B-TIER — LEANS',''); bTier.forEach(p=>{lines.push(formatPlay(p),'');}); }
+  if(noOdds.length){ lines.push('📊 WATCH — No odds yet',''); noOdds.forEach(p=>{lines.push(formatPlay(p),'');}); }
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',`📈 ${plays.length} value plays today · 🤖 Powered by HR Hub`,'⚠️ Bet responsibly. Model prob ≠ guarantee.');
+
+  const text=lines.join('\n');
+  if(navigator.clipboard?.writeText){ navigator.clipboard.writeText(text).then(()=>showCopyConfirm()).catch(()=>fallbackCopy(text)); }
+  else{ fallbackCopy(text); }
+}
+
+function fallbackCopy(text){
+  const ta=document.createElement('textarea');
+  ta.value=text; ta.style.cssText='position:fixed;opacity:0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{ document.execCommand('copy'); showCopyConfirm(); }
+  catch(e){ alert('Copy failed — copy manually:\n\n'+text.slice(0,300)+'…'); }
+  document.body.removeChild(ta);
+}
+
+function showCopyConfirm(){
+  const el=document.getElementById('copy-confirm');
+  if(el){ el.style.display='block'; setTimeout(()=>el.style.display='none',2500); }
+  navigator.vibrate?.(30);
+}
+
 // ==================================================================
 
 
