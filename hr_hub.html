@@ -3752,6 +3752,8 @@ function queueForAutoTrack(rows){
           grade: r.grade,
           team: r.team, spNm: r.spNm,
           batHand: r.batHand, oppHand: r.oppHand,
+          pitcher: r.pitcher, platoon: r.platoon,
+          parkwx: r.parkwx, momentum: r.momentum,
           autoQueued: true,
         });
         changed++;
@@ -3994,6 +3996,15 @@ async function renderResultsTab(){
     </button>`;
 
     el.innerHTML = html;
+
+    // Inject personal hit rate tracker + why did I miss
+    const hrtEl = document.createElement('div');
+    el.appendChild(hrtEl);
+    renderHitRateTracker(hrtEl);
+
+    const wmEl = document.createElement('div');
+    el.appendChild(wmEl);
+    renderWhyMiss(wmEl);
 
   }catch(e){
     el.innerHTML = `<div class="card" style="color:var(--red);font-size:.75rem">${e.message}</div>`;
@@ -4415,6 +4426,471 @@ const MAX_KELLY_PCT = 3; // never bet more than 3% of bankroll per play
 //  4. NOT overpriced by books (they haven't noticed either)
 //  5. Reasonable park factor
 // ==================================================================
+// ==================================================================
+//  PARK HR HEATMAP — overhead diamond with HR landing zones
+// ==================================================================
+function renderParkHeatmap(homeTeam, batHand){
+  const d = STADIUM_DIMS[homeTeam];
+  if(!d) return '';
+  const [lf, cf, rf, lfWall, rfWall] = d;
+
+  // Scale: 400ft = 140px radius from home plate
+  const scale = 140/400;
+  const cx = 160, cy = 175; // center = home plate position in SVG
+  const svgW = 320, svgH = 200;
+
+  // Convert field distance + angle to SVG coords
+  // 0° = CF, -45° = LF foul, +45° = RF foul (from batter's perspective)
+  const toXY = (dist, angleDeg) => {
+    const rad = (angleDeg - 90) * Math.PI / 180;
+    return [cx + dist*scale*Math.cos(rad), cy + dist*scale*Math.sin(rad)];
+  };
+
+  // Field outline arc
+  const [lfx, lfy] = toXY(lf, -45);
+  const [cfx, cfy] = toXY(cf, 0);
+  const [rfx, rfy] = toXY(rf, 45);
+  const r = cf * scale;
+
+  // HR hot zone arcs by handedness
+  // LHB: pulls to RF (right side), goes oppo to LF
+  // RHB: pulls to LF (left side), goes oppo to RF
+  const isPull  = batHand === 'L'; // LHB pulls to RF (+angle side)
+  const pullArc = isPull
+    ? { start: 10, end: 45, dist: rf*0.88, label: 'Pull (RF)' }
+    : { start: -45, end: -10, dist: lf*0.88, label: 'Pull (LF)' };
+  const oppoArc = isPull
+    ? { start: -45, end: -10, dist: lf*0.88, label: 'Oppo (LF)' }
+    : { start: 10, end: 45, dist: rf*0.88, label: 'Oppo (RF)' };
+  const centerArc = { start: -15, end: 15, dist: cf*0.92, label: 'Center' };
+
+  const arcPath = (startAng, endAng, dist, innerDist=dist*0.55) => {
+    const [ox1, oy1] = toXY(innerDist, startAng);
+    const [ox2, oy2] = toXY(innerDist, endAng);
+    const [ix1, iy1] = toXY(dist, startAng);
+    const [ix2, iy2] = toXY(dist, endAng);
+    const sweepDeg = endAng - startAng;
+    const large = sweepDeg > 180 ? 1 : 0;
+    return `M ${ox1.toFixed(1)} ${oy1.toFixed(1)}
+      L ${ix1.toFixed(1)} ${iy1.toFixed(1)}
+      A ${(dist*scale).toFixed(1)} ${(dist*scale).toFixed(1)} 0 ${large} 1 ${ix2.toFixed(1)} ${iy2.toFixed(1)}
+      L ${ox2.toFixed(1)} ${oy2.toFixed(1)}
+      A ${(innerDist*scale).toFixed(1)} ${(innerDist*scale).toFixed(1)} 0 ${large} 0 ${ox1.toFixed(1)} ${oy1.toFixed(1)} Z`;
+  };
+
+  // Foul lines
+  const [fl1x, fl1y] = toXY(320, -45);
+  const [fl2x, fl2y] = toXY(320, 45);
+
+  const TEAM_NAMES = {
+    NYY:'Yankee Stadium',BOS:'Fenway Park',CHC:'Wrigley Field',PHI:'Citizens Bank Park',
+    CIN:'Great American BP',COL:'Coors Field',TEX:'Globe Life Field',HOU:'Minute Maid Park',
+    MIN:'Target Field',ARI:"Chase Field",ATL:'Truist Park',MIL:'American Family Field',
+    STL:'Busch Stadium',PIT:'PNC Park',SF:'Oracle Park',SD:'Petco Park',
+    LAD:'Dodger Stadium',MIA:'loanDepot Park',TB:'Tropicana Field',BAL:'Camden Yards',
+    DET:'Comerica Park',KC:'Kauffman Stadium',CLE:'Progressive Field',CHW:'Guaranteed Rate',
+    OAK:'Sutter Health Park',SEA:'T-Mobile Park',LAA:'Angel Stadium',
+    TOR:'Rogers Centre',NYM:'Citi Field',WSH:'Nationals Park',
+  };
+
+  return `<div style="padding:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="font-size:.68rem;font-weight:700;color:var(--t2)">${TEAM_NAMES[homeTeam]||homeTeam}</div>
+      <div style="font-size:.60rem;color:var(--t4)">${batHand}HB hot zones</div>
+    </div>
+    <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}"
+      style="width:100%;max-width:${svgW}px;display:block;margin:0 auto">
+      <!-- Field grass -->
+      <path d="M ${cx} ${cy} L ${lfx.toFixed(1)} ${lfy.toFixed(1)}
+        A ${r.toFixed(1)} ${r.toFixed(1)} 0 0 1 ${rfx.toFixed(1)} ${rfy.toFixed(1)} Z"
+        fill="#0f2c0f" stroke="#1a4a1a" stroke-width="1"/>
+      <!-- Foul lines -->
+      <line x1="${cx}" y1="${cy}" x2="${fl1x.toFixed(1)}" y2="${fl1y.toFixed(1)}"
+        stroke="rgba(255,255,255,.15)" stroke-width="1"/>
+      <line x1="${cx}" y1="${cy}" x2="${fl2x.toFixed(1)}" y2="${fl2y.toFixed(1)}"
+        stroke="rgba(255,255,255,.15)" stroke-width="1"/>
+      <!-- Infield dirt circle -->
+      <circle cx="${cx}" cy="${cy}" r="42" fill="#2a1a0a" opacity=".7"/>
+      <!-- Bases -->
+      <rect x="${cx-4}" y="${cy-60}" width="8" height="8" fill="white" opacity=".8"
+        transform="rotate(45 ${cx} ${cy-56})"/>
+      <rect x="${cx+38}" y="${cy-16}" width="8" height="8" fill="white" opacity=".8"
+        transform="rotate(45 ${cx+42} ${cy-12})"/>
+      <rect x="${cx-46}" y="${cy-16}" width="8" height="8" fill="white" opacity=".8"
+        transform="rotate(45 ${cx-42} ${cy-12})"/>
+      <!-- Pull zone (highest HR rate) -->
+      <path d="${arcPath(pullArc.start, pullArc.end, pullArc.dist*1.1)}"
+        fill="rgba(255,100,50,.35)" stroke="rgba(255,120,60,.6)" stroke-width="1"/>
+      <!-- Center zone -->
+      <path d="${arcPath(centerArc.start, centerArc.end, centerArc.dist*1.05)}"
+        fill="rgba(255,215,0,.18)" stroke="rgba(255,215,0,.4)" stroke-width="1"/>
+      <!-- Oppo zone (lower rate) -->
+      <path d="${arcPath(oppoArc.start, oppoArc.end, oppoArc.dist)}"
+        fill="rgba(34,201,94,.12)" stroke="rgba(34,201,94,.3)" stroke-width="1"/>
+      <!-- Distance labels -->
+      <text x="${lfx.toFixed(1)}" y="${(lfy-5).toFixed(1)}" text-anchor="middle"
+        font-size="10" fill="rgba(255,255,255,.6)">${lf}'</text>
+      <text x="${cfx.toFixed(1)}" y="${(cfy-5).toFixed(1)}" text-anchor="middle"
+        font-size="10" fill="rgba(255,255,255,.6)">${cf}'</text>
+      <text x="${rfx.toFixed(1)}" y="${(rfy-5).toFixed(1)}" text-anchor="middle"
+        font-size="10" fill="rgba(255,255,255,.6)">${rf}'</text>
+      <!-- Home plate -->
+      <polygon points="${cx},${cy+4} ${cx-4},${cy} ${cx-4},${cy-5} ${cx+4},${cy-5} ${cx+4},${cy}"
+        fill="white" opacity=".9"/>
+    </svg>
+    <!-- Legend -->
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:6px">
+      <div style="display:flex;align-items:center;gap:4px;font-size:.60rem;color:var(--t4)">
+        <div style="width:10px;height:10px;background:rgba(255,100,50,.5);border-radius:2px"></div>
+        Pull power zone
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;font-size:.60rem;color:var(--t4)">
+        <div style="width:10px;height:10px;background:rgba(255,215,0,.35);border-radius:2px"></div>
+        Center gap
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;font-size:.60rem;color:var(--t4)">
+        <div style="width:10px;height:10px;background:rgba(34,201,94,.25);border-radius:2px"></div>
+        Oppo field
+      </div>
+    </div>
+  </div>`;
+}
+
+
+// ==================================================================
+//  PERSONAL HIT RATE TRACKER — full calibration breakdown
+// ==================================================================
+function getHitRateTracker(){
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  const resolved = stored.filter(r=>r.actual!==undefined && r.actual!==null && r.prob>0);
+  if(resolved.length < 5) return null;
+
+  // Bucket by model probability
+  const buckets = [
+    { label:'<3%',   min:0,    max:0.030, bets:[], hits:[] },
+    { label:'3-5%',  min:0.030,max:0.050, bets:[], hits:[] },
+    { label:'5-7%',  min:0.050,max:0.070, bets:[], hits:[] },
+    { label:'7-10%', min:0.070,max:0.100, bets:[], hits:[] },
+    { label:'>10%',  min:0.100,max:1.000, bets:[], hits:[] },
+  ];
+
+  for(const r of resolved){
+    const b = buckets.find(b=>r.prob>=b.min && r.prob<b.max);
+    if(!b) continue;
+    b.bets.push(r);
+    if(r.actual>0) b.hits.push(r);
+  }
+
+  // Per-tier breakdown
+  const tiers = { S:[], A:[], B:[], C:[] };
+  for(const r of resolved){
+    const g = r.grade || (r.prob>=0.08?'S':r.prob>=0.06?'A':r.prob>=0.04?'B':'C');
+    if(tiers[g]) tiers[g].push(r);
+  }
+
+  // Calibration: is the model over/under-predicting?
+  const totalExpected = resolved.reduce((s,r)=>s+r.prob,0);
+  const totalActual   = resolved.filter(r=>r.actual>0).length;
+  const calibration   = totalExpected > 0 ? totalActual/totalExpected : 1;
+
+  // Best/worst performers
+  const hits   = resolved.filter(r=>r.actual>0);
+  const misses = resolved.filter(r=>r.actual===0 && r.prob>=0.07);
+
+  return { resolved, buckets, tiers, calibration, hits, misses,
+    totalExpected:totalExpected.toFixed(1), totalActual };
+}
+
+function renderHitRateTracker(el){
+  if(!el) return;
+  const data = getHitRateTracker();
+  if(!data || data.resolved.length < 5){
+    el.innerHTML = `<div class="card" style="margin-bottom:10px">
+      <div class="slbl">📊 Personal Hit Rate</div>
+      <div style="font-size:.68rem;color:var(--t4);padding:8px 0">
+        Track ${Math.max(0,5-((data?.resolved?.length)||0))} more results to unlock calibration stats.
+        <br><span style="font-size:.60rem">Results auto-track overnight from box scores.</span>
+      </div>
+    </div>`;
+    return;
+  }
+
+  const { resolved, buckets, tiers, calibration, totalExpected, totalActual } = data;
+  const overallRate = Math.round(totalActual/resolved.length*100);
+  const calText = calibration > 1.15 ? '🔴 Under-predicting' :
+                  calibration < 0.85 ? '🟡 Over-predicting' : '🟢 Well calibrated';
+
+  // Tier table
+  const tierRows = ['S','A','B','C'].map(t=>{
+    const arr = tiers[t];
+    if(!arr.length) return '';
+    const hitCount = arr.filter(r=>r.actual>0).length;
+    const rate = Math.round(hitCount/arr.length*100);
+    const exp = (arr.reduce((s,r)=>s+r.prob,0)/arr.length*100).toFixed(1);
+    const clr = rate>=parseFloat(exp)?'var(--green)':'var(--red)';
+    return `<tr style="border-bottom:1px solid var(--bg3)">
+      <td style="padding:5px 6px;font-size:.68rem;font-weight:700;color:var(--amber)">${t}</td>
+      <td style="padding:5px 6px;font-size:.65rem;color:var(--t3);text-align:center">${arr.length}</td>
+      <td style="padding:5px 6px;font-size:.65rem;color:var(--t4);text-align:center">${exp}%</td>
+      <td style="padding:5px 6px;font-size:.70rem;font-weight:700;color:${clr};text-align:center">${rate}%</td>
+      <td style="padding:5px 6px;text-align:right">
+        <div style="background:var(--bg3);border-radius:99px;height:6px;width:80px;overflow:hidden">
+          <div style="height:6px;border-radius:99px;width:${Math.min(rate,30)/30*100}%;
+            background:${clr}"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Probability bucket calibration chart
+  const bucketBars = buckets.filter(b=>b.bets.length>0).map(b=>{
+    const actual = b.hits.length/b.bets.length*100;
+    const mid = (b.min+b.max)/2*100;
+    const clr = actual>=mid*0.8?'var(--green)':'var(--red)';
+    return `<div style="flex:1;text-align:center">
+      <div style="font-size:.55rem;color:var(--t4);margin-bottom:3px">${b.label}</div>
+      <div style="height:48px;display:flex;align-items:flex-end;justify-content:center;gap:1px">
+        <div title="Expected ${mid.toFixed(1)}%" style="width:8px;background:rgba(255,215,0,.3);border-radius:2px 2px 0 0;height:${Math.min(mid/15*100,100)}%"></div>
+        <div title="Actual ${actual.toFixed(1)}%" style="width:8px;background:${clr};border-radius:2px 2px 0 0;height:${Math.min(actual/15*100,100)}%"></div>
+      </div>
+      <div style="font-size:.55rem;color:${clr};margin-top:2px">${actual.toFixed(0)}%</div>
+      <div style="font-size:.50rem;color:var(--t4)">${b.bets.length}b</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="card" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="slbl" style="margin:0">📊 Personal Hit Rate</div>
+      <span style="font-size:.60rem;color:var(--t4)">${resolved.length} resolved</span>
+    </div>
+
+    <!-- Summary row -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px">
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        <div style="font-size:1.1rem;font-weight:900;color:${overallRate>=8?'var(--green)':'var(--amber)'}">${overallRate}%</div>
+        <div style="font-size:.58rem;color:var(--t4)">Actual HR%</div>
+      </div>
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        <div style="font-size:1.1rem;font-weight:900;color:var(--t2)">${totalActual}/${resolved.length}</div>
+        <div style="font-size:.58rem;color:var(--t4)">Hits/Tracked</div>
+      </div>
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        <div style="font-size:.75rem;font-weight:700;color:${calibration>1.1?'var(--green)':calibration<0.9?'var(--red)':'var(--amber)'}">${calText.split(' ').slice(1).join(' ')}</div>
+        <div style="font-size:.58rem;color:var(--t4)">Calibration</div>
+      </div>
+    </div>
+
+    <!-- Tier breakdown -->
+    <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">By Tier</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <thead><tr style="border-bottom:1px solid var(--bdr)">
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:left">Tier</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Bets</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Exp%</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Hit%</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:right">Bar</th>
+      </tr></thead>
+      <tbody>${tierRows}</tbody>
+    </table>
+
+    <!-- Calibration chart -->
+    <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">
+      Calibration by Probability Bucket
+      <span style="font-size:.55rem;margin-left:6px">🟡 expected · colored = actual</span>
+    </div>
+    <div style="display:flex;gap:4px;align-items:flex-end;padding:0 4px">${bucketBars}</div>
+  </div>`;
+}
+
+
+// ==================================================================
+//  SHARE CARD GENERATOR — canvas-based shareable image
+// ==================================================================
+function generateShareCard(playerId){
+  const r = S.allRows.find(x=>String(x.id)===String(playerId));
+  if(!r) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = 600;
+  canvas.height = 340;
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  const grad = ctx.createLinearGradient(0,0,600,340);
+  grad.addColorStop(0,'#0d1117');
+  grad.addColorStop(1,'#161b22');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,600,340);
+
+  // Accent border
+  const [,gc] = probGrade(r.prob);
+  const accentHex = gc==='#ffd700'?'#ffd700':gc==='#22c95e'?'#22c95e':'#e0504a';
+  ctx.strokeStyle = accentHex;
+  ctx.lineWidth = 3;
+  ctx.strokeRect(2,2,596,336);
+
+  // Prob circle (right side)
+  const probPct = (r.prob*100).toFixed(1);
+  ctx.beginPath();
+  ctx.arc(520,90,60,0,Math.PI*2);
+  ctx.strokeStyle = accentHex;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = accentHex;
+  ctx.font = 'bold 28px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(probPct+'%', 520, 82);
+  ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.font = '13px sans-serif';
+  ctx.fillText('HR PROB', 520, 105);
+
+  // Player name
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 32px sans-serif';
+  ctx.fillText(r.name, 24, 60);
+
+  // Team / matchup
+  ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.font = '16px sans-serif';
+  ctx.fillText(`${r.team}  ·  ${r.batHand}HB vs ${r.oppHand||'?'}HP${r.spNm?' vs '+r.spNm:''}`, 24, 90);
+
+  // Divider
+  ctx.strokeStyle = 'rgba(255,255,255,.1)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(24,110); ctx.lineTo(440,110); ctx.stroke();
+
+  // Stat row
+  const stats = [
+    ['Barrel%', r.barrel_pct!=null?r.barrel_pct.toFixed(0)+'%':'--'],
+    ['Hard%',   r.hard_hit_pct!=null?r.hard_hit_pct.toFixed(0)+'%':'--'],
+    ['Avg EV',  r.avg_ev!=null?r.avg_ev.toFixed(1):'--'],
+    ['ISO',     r.iso!=null?r.iso.toFixed(3):'--'],
+    ['xHR',     (r.prob*4.2).toFixed(2)],
+  ];
+  stats.forEach(([lbl,val],i)=>{
+    const x = 24 + i*90;
+    ctx.fillStyle = accentHex;
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(val, x, 145);
+    ctx.fillStyle = 'rgba(255,255,255,.4)';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(lbl, x, 162);
+  });
+
+  // Multiplier bars
+  const mults = [
+    ['Platoon', r.platoon], ['SP', r.pitcher],
+    ['Park/Wx', r.parkwx],  ['Anchor', r.anchor/0.035]
+  ];
+  mults.forEach(([lbl,val],i)=>{
+    const y = 185 + i*32;
+    ctx.fillStyle = 'rgba(255,255,255,.12)';
+    ctx.roundRect?.(24, y, 420, 18, 4) || ctx.fillRect(24, y, 420, 18);
+    ctx.fill();
+    const barW = Math.min(420, Math.max(0, (val-0.7)/(1.5-0.7)*420));
+    ctx.fillStyle = val>=1.0?'rgba(34,201,94,.6)':'rgba(224,80,74,.6)';
+    ctx.fillRect(24, y, barW, 18);
+    ctx.fillStyle = 'rgba(255,255,255,.6)';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(lbl, 30, y+13);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(val.toFixed(2)+'×', 434, y+13);
+  });
+
+  // Branding
+  ctx.fillStyle = 'rgba(255,255,255,.25)';
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('⚾ HR Hub', 576, 325);
+  ctx.fillStyle = 'rgba(255,255,255,.15)';
+  ctx.fillText(new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}), 576, 310);
+
+  // Download
+  const link = document.createElement('a');
+  link.download = `${r.name.replace(/\s+/g,'_')}_HRHub.png`;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+
+// ==================================================================
+//  WHY DID I MISS — post-game model breakdown for missed HRs
+//  Shows which signal was wrong for each high-prob miss
+// ==================================================================
+function renderWhyMiss(el){
+  if(!el) return;
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  // High-conf misses: prob >= 6%, actual = 0
+  const misses = stored.filter(r=>
+    r.actual===0 && r.prob!=null && r.prob>=0.060 &&
+    r.date && r.date < ds()  // past games only
+  ).sort((a,b)=>b.prob-a.prob).slice(0,8);
+
+  if(!misses.length){
+    el.innerHTML=''; return;
+  }
+
+  const rows = misses.map(m=>{
+    // Reconstruct which signals were flagged
+    const flags = [];
+    if(m.pitcher!=null && m.pitcher<0.95)
+      flags.push({ icon:'⚾', txt:`SP was tougher than expected (${m.pitcher?.toFixed(2)||'?'}×)`, bad:true});
+    if(m.platoon!=null && m.platoon<1.0)
+      flags.push({ icon:'🔀', txt:`Platoon mismatch vs ${m.oppHand||'?'}HP`, bad:true});
+    if(m.parkwx!=null && m.parkwx<0.95)
+      flags.push({ icon:'🏟️', txt:`Park/weather suppressed HR (${m.parkwx?.toFixed(2)||'?'}×)`, bad:true});
+    if(m.momentum!=null && m.momentum<0.97)
+      flags.push({ icon:'📉', txt:'Cold recent form — momentum negative', bad:true});
+    if(!flags.length)
+      flags.push({ icon:'🎲', txt:'No clear signal failure — outcome variance', bad:false});
+
+    const fdImp = m.fdOdds!=null
+      ? (m.fdOdds>0?100/(m.fdOdds+100):Math.abs(m.fdOdds)/(Math.abs(m.fdOdds)+100))
+      : null;
+    const edgeStr = fdImp!=null
+      ? `Model ${(m.prob*100).toFixed(1)}% vs book ${(fdImp*100).toFixed(1)}%`
+      : `Model: ${(m.prob*100).toFixed(1)}%`;
+
+    return `<div style="border:1px solid rgba(224,80,74,.2);border-radius:10px;padding:10px 12px;
+      margin-bottom:7px;background:rgba(224,80,74,.04)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div>
+          <div style="font-size:.75rem;font-weight:800;color:var(--t1)">${m.name}</div>
+          <div style="font-size:.60rem;color:var(--t4)">${m.date} · ${m.team||''}${m.spNm?' vs '+m.spNm:''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:.80rem;font-weight:900;color:var(--red)">${(m.prob*100).toFixed(1)}%</div>
+          <div style="font-size:.58rem;color:var(--t4)">no HR</div>
+        </div>
+      </div>
+      <div style="font-size:.60rem;color:var(--t4);margin-bottom:5px">${edgeStr}</div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        ${flags.map(f=>`<div style="display:flex;align-items:center;gap:6px;font-size:.63rem;
+          color:${f.bad?'var(--red)':'var(--t4)'}">
+          <span>${f.icon}</span><span>${f.txt}</span>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="card" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="slbl" style="margin:0">🔍 Why Did I Miss?</div>
+      <span style="font-size:.60rem;color:var(--t4)">${misses.length} high-conf miss${misses.length!==1?'es':''}</span>
+    </div>
+    <div style="font-size:.65rem;color:var(--t4);margin-bottom:10px">
+      High-probability plays (≥6%) that didn't hit — what the model got wrong
+    </div>
+    ${rows}
+  </div>`;
+}
+
+
 function detectSleeper(r){
   const reasons = [];
   let score = 0;
@@ -5655,6 +6131,7 @@ async function loadGame(g){
         _batterStats:  batterStats,
         _pf:           pf,
         _wx:           wx,
+        homeTeam:      isHome ? team : oppTeam,
         _recentGames:  recent,
         _platoon: plat,
         _oppHand: oppHand,
@@ -6103,9 +6580,15 @@ function renderHitterCard(r,showGame){
         })()}</div>
         <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <span style="color:var(--amber)">#${r.lineupPos}</span>`:''} ${gameTag}${!r.lineupConfirmed?` <span style="color:var(--red);font-size:.60rem">⚠️ lineup unconfirmed</span>`:''} ${r.postponeRisk>=0.45?`<span style="color:var(--red);font-size:.60rem">🌧️ ppd risk ${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
       </div>
-      <div class="prob-circle" style="border-color:${gc};color:${gc}">
-        <span class="pct">${pct}%</span>
-        <span class="lbl">${(()=>{const dc=calcDataConfidence(r);return grd+' '+dc.grade;})()}</span>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:5px;flex-shrink:0">
+        <div class="prob-circle" style="border-color:${gc};color:${gc}">
+          <span class="pct">${pct}%</span>
+          <span class="lbl">${(()=>{const dc=calcDataConfidence(r);return grd+' '+dc.grade;})()}</span>
+        </div>
+        <button onclick="event.stopPropagation();generateShareCard('${r.id}')"
+          style="font-size:.52rem;padding:2px 6px;border-radius:4px;
+          border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);
+          cursor:pointer;white-space:nowrap">📤 Share</button>
       </div>
     </div>
     <div class="mult-row">
@@ -7159,6 +7642,12 @@ function renderDetail(r){
 
       return html;
     })()}
+
+    <!-- Park HR Heatmap -->
+    ${r.homeTeam||r._homeTeam ? `<div class="card" style="margin-bottom:10px">
+      <div class="slbl" style="margin-bottom:10px">🏟️ Park HR Map</div>
+      ${renderParkHeatmap(r.homeTeam||r._homeTeam||r.home||r.team, r.batHand)}
+    </div>` : ''}
 
     <!-- Count Splits — lazy loaded, always present -->
     <div id="count-splits-${r.id}" style="margin-bottom:10px">
