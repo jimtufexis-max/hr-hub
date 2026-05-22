@@ -2882,6 +2882,20 @@ async function getBatterVsPitches(pid){
         const ld = pitches.filter(p=>String(p.bb_type||'').toLowerCase()==='line_drive').length;
         const pu = pitches.filter(p=>['popup','pop_up'].includes(String(p.bb_type||'').toLowerCase())).length;
         const hard = pitches.filter(p=>parseFloat(p.launch_speed)>=95).length;
+        // ── Spray chart data: hc_x / hc_y hit coordinates ──────────
+        // Statcast hc_x: 0=LF foul line, 125=CF, 250=RF foul
+        // hc_y: 0=near home plate, 250=deep outfield
+        // Store only balls in play with valid coords
+        const sprayPts = pitches
+          .map(p=>({
+            x: parseFloat(p.hc_x), y: parseFloat(p.hc_y),
+            ev: parseFloat(p.launch_speed)||0,
+            la: parseFloat(p.launch_angle)||0,
+            evt: (p.events||'').toLowerCase(),
+            pt,
+          }))
+          .filter(p=>!isNaN(p.x)&&!isNaN(p.y)&&p.x>0&&p.y>0);
+
         const bip = gb+fb+ld+pu || 1;
         result[pt]={pa,hr:hrs,avg,slg,iso,avgEV,whiffPct,
           gb,fb,ld,pu,hard,bip,
@@ -2889,7 +2903,9 @@ async function getBatterVsPitches(pid){
           ldPct:Math.round(ld/bip*100), puPct:Math.round(pu/bip*100),
           hardPct:Math.round(hard/Math.max(pitches.filter(p=>parseFloat(p.launch_speed)>0).length,1)*100),
           hrFbPct:Math.round(hrs/Math.max(fb+ld+pu,1)*100),
-          loc5pct, zone3xwoba:zone3xwobaAvg, zone3hr};
+          loc5pct, zone3xwoba:zone3xwobaAvg, zone3hr,
+          spray: sprayPts,
+        };
       }
       if(Object.keys(result).length>0){_playerCache[key]=result;return result;}
     }catch(e){}
@@ -4427,8 +4443,120 @@ const MAX_KELLY_PCT = 3; // never bet more than 3% of bankroll per play
 //  5. Reasonable park factor
 // ==================================================================
 // ==================================================================
-//  PARK HR HEATMAP — overhead diamond with HR landing zones
+//  SPRAY CHART — overhead field diagram with hit landing spots
+//  hc_x: 0=LF foul, 125=CF, 250=RF foul  (Statcast coordinates)
+//  hc_y: 0=home plate, 250=deep outfield
 // ==================================================================
+function renderSprayChart(sprayPts, title, batHand){
+  if(!sprayPts||!sprayPts.length) return `<div style="font-size:.68rem;color:var(--t4);padding:16px 0;text-align:center">No batted ball data for this pitch type</div>`;
+
+  const W=280, H=230;
+  // Field dimensions in SVG units — map Statcast coords
+  // hc_x 0-250 maps to SVG 0-W, hc_y 0-250 maps to SVG 0-H (y=0 is deep)
+  const toSVG = (hcx, hcy) => ({
+    x: (hcx/250)*W,
+    y: H - (hcy/250)*H, // flip y: deep = top in SVG
+  });
+
+  // Home plate position in SVG
+  const hp = { x: W/2, y: H-8 };
+
+  // Field outline: foul lines + arc
+  const lfFoul  = toSVG(0,   208);
+  const rfFoul  = toSVG(250, 208);
+  const cfPoint = toSVG(125, 15);
+  const lfWall  = toSVG(22,  60);
+  const rfWall  = toSVG(228, 60);
+
+  // Count by result type
+  const hrs    = sprayPts.filter(p=>p.evt==='home_run');
+  const xbh    = sprayPts.filter(p=>['double','triple'].includes(p.evt));
+  const singles= sprayPts.filter(p=>p.evt==='single');
+  const outs   = sprayPts.filter(p=>p.evt&&p.evt!=='home_run'&&p.evt!=='single'&&p.evt!=='double'&&p.evt!=='triple'&&p.evt!=='walk'&&p.evt!=='hit_by_pitch');
+
+  const dot = (p, color, r=3, opacity=0.8) => {
+    const {x,y} = toSVG(p.x, p.y);
+    // Clamp to field area
+    if(y>H-5||y<5||x<5||x>W-5) return '';
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}"
+      fill="${color}" opacity="${opacity}" stroke="rgba(0,0,0,.3)" stroke-width=".5">
+      <title>${p.evt||'out'} · EV ${p.ev.toFixed(0)}mph · LA ${p.la.toFixed(0)}°</title>
+    </circle>`;
+  };
+
+  // Pull tendency calculation
+  const bip = sprayPts.filter(p=>p.x>0&&p.y>0);
+  const pullSide = batHand==='L' ? bip.filter(p=>p.x>140) : bip.filter(p=>p.x<110);
+  const pullPct  = bip.length>0 ? Math.round(pullSide.length/bip.length*100) : null;
+
+  return `<div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="font-size:.68rem;font-weight:700;color:var(--t2)">${title}</div>
+      <div style="font-size:.60rem;color:var(--t4)">${sprayPts.length} BIP${pullPct!=null?` · Pull ${pullPct}%`:''}</div>
+    </div>
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
+      style="width:100%;max-width:${W}px;display:block;margin:0 auto;border-radius:8px;overflow:hidden">
+
+      <!-- Sky/grass background -->
+      <rect width="${W}" height="${H}" fill="#0a1f0a"/>
+
+      <!-- Outfield grass arc -->
+      <path d="M ${hp.x} ${hp.y}
+        L ${lfFoul.x.toFixed(1)} ${lfFoul.y.toFixed(1)}
+        Q ${cfPoint.x} ${cfPoint.y} ${rfFoul.x.toFixed(1)} ${rfFoul.y.toFixed(1)} Z"
+        fill="#0d2a0d"/>
+
+      <!-- Warning track -->
+      <path d="M ${hp.x} ${hp.y}
+        L ${lfWall.x.toFixed(1)} ${lfWall.y.toFixed(1)}
+        Q ${cfPoint.x} ${(cfPoint.y+18).toFixed(1)} ${rfWall.x.toFixed(1)} ${rfWall.y.toFixed(1)} Z"
+        fill="#0f2f0f"/>
+
+      <!-- Infield dirt -->
+      <path d="M ${hp.x} ${hp.y}
+        L ${(hp.x-52).toFixed(1)} ${(hp.y-52).toFixed(1)}
+        L ${hp.x} ${(hp.y-105).toFixed(1)}
+        L ${(hp.x+52).toFixed(1)} ${(hp.y-52).toFixed(1)} Z"
+        fill="#2a1a0a" opacity=".8"/>
+
+      <!-- Foul lines -->
+      <line x1="${hp.x}" y1="${hp.y}" x2="${lfFoul.x.toFixed(1)}" y2="${lfFoul.y.toFixed(1)}"
+        stroke="rgba(255,255,255,.25)" stroke-width="1.5"/>
+      <line x1="${hp.x}" y1="${hp.y}" x2="${rfFoul.x.toFixed(1)}" y2="${rfFoul.y.toFixed(1)}"
+        stroke="rgba(255,255,255,.25)" stroke-width="1.5"/>
+
+      <!-- Bases -->
+      <rect x="${hp.x-4}" y="${(hp.y-106)}" width="7" height="7"
+        fill="rgba(255,255,255,.7)" transform="rotate(45 ${hp.x} ${hp.y-102.5})"/>
+      <rect x="${(hp.x-54)}" y="${(hp.y-56)}" width="6" height="6"
+        fill="rgba(255,255,255,.7)" transform="rotate(45 ${hp.x-51} ${hp.y-53})"/>
+      <rect x="${(hp.x+48)}" y="${(hp.y-56)}" width="6" height="6"
+        fill="rgba(255,255,255,.7)" transform="rotate(45 ${hp.x+51} ${hp.y-53})"/>
+
+      <!-- Outs (small grey) -->
+      ${outs.map(p=>dot(p,'rgba(120,120,120,.5)',2.5,0.6)).join('')}
+      <!-- Singles (white) -->
+      ${singles.map(p=>dot(p,'#ffffff',3,0.85)).join('')}
+      <!-- XBH (blue) -->
+      ${xbh.map(p=>dot(p,'#60a5fa',4,0.9)).join('')}
+      <!-- HRs (gold, bigger) -->
+      ${hrs.map(p=>dot(p,'#ffd700',5,1.0)).join('')}
+
+      <!-- Home plate marker -->
+      <polygon points="${hp.x},${hp.y+3} ${hp.x-4},${hp.y-1} ${hp.x-4},${hp.y-7} ${hp.x+4},${hp.y-7} ${hp.x+4},${hp.y-1}"
+        fill="rgba(255,255,255,.9)"/>
+    </svg>
+
+    <!-- Legend -->
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:7px;flex-wrap:wrap">
+      ${[['⚫','Out',`${outs.length}`],['⚪','Single',`${singles.length}`],['🔵','XBH',`${xbh.length}`],['🟡','HR',`${hrs.length}`]]
+        .map(([dot,lbl,n])=>`<div style="display:flex;align-items:center;gap:4px;font-size:.60rem;color:var(--t4)">
+          <span>${dot}</span><span>${lbl} ${n}</span></div>`).join('')}
+    </div>
+  </div>`;
+}
+
+
 function renderParkHeatmap(homeTeam, batHand){
   const d = STADIUM_DIMS[homeTeam];
   if(!d) return '';
@@ -6668,39 +6796,57 @@ function renderWeather(wx,homeTeam){
 // ==================================================================
 //  PLAYER DETAIL
 // ==================================================================
+function filterSprayChart(sprayId, pitchType, playerId){
+  const data = window._sprayCache?.[sprayId];
+  if(!data) return;
+  const pts = pitchType==='ALL' ? data.all : (data.per[pitchType]||[]);
+  const PITCH_FULL_S={FF:'4-Seam FB',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curveball',CH:'Changeup',FS:'Splitter'};
+  const title = pitchType==='ALL' ? 'All Pitches — BIP' : `vs ${PITCH_FULL_S[pitchType]||pitchType}`;
+  const chartEl = document.getElementById(`${sprayId}-chart`);
+  if(chartEl) chartEl.innerHTML = renderSprayChart(pts, title, data.batHand);
+
+  // Update pill active states
+  const PITCH_CLR2={FF:'#dc2626',SI:'#b91c1c',FC:'#ea580c',SL:'#2563eb',ST:'#1d4ed8',CU:'#7c3aed',CH:'#16a34a',FS:'#15803d'};
+  ['ALL',...Object.keys(data.per)].forEach(pt=>{
+    const btn=document.getElementById(`${sprayId}-${pt}`);
+    if(!btn) return;
+    if(pt===pitchType){
+      btn.style.background = pt==='ALL'?'var(--green)':(PITCH_CLR2[pt]||'var(--amber)');
+      btn.style.color='#000';
+    } else {
+      btn.style.background='transparent';
+      btn.style.color = pt==='ALL'?'var(--green)':(PITCH_CLR2[pt]||'var(--t3)');
+    }
+  });
+}
+
 function switchMatchupTab(playerId, tab){
-  const arsenalPanel = document.getElementById(`panel-arsenal-${playerId}`);
-  const splitsPanel  = document.getElementById(`panel-splits-${playerId}`);
-  const statsPanel   = document.getElementById(`panel-stats-${playerId}`);
-  const arsenalBtn   = document.getElementById(`tab-arsenal-${playerId}`);
-  const splitsBtn    = document.getElementById(`tab-splits-${playerId}`);
-  const statsBtn     = document.getElementById(`tab-stats-${playerId}`);
-  if(!arsenalPanel) return;
+  const panels = ['arsenal','stats','spray','splits'];
+  const colors  = {arsenal:'var(--green)',stats:'#3b82f6',spray:'#06b6d4',splits:'var(--amber)'};
+  const textClr = {arsenal:'#000',stats:'#fff',spray:'#000',splits:'#000'};
 
-  // Hide all panels, reset all buttons
-  [arsenalPanel,splitsPanel,statsPanel].forEach(p=>{ if(p) p.style.display='none'; });
-  if(arsenalBtn){ arsenalBtn.style.background='var(--bg3)'; arsenalBtn.style.color='var(--t3)'; }
-  if(splitsBtn) { splitsBtn.style.background='var(--bg3)';  splitsBtn.style.color='var(--t3)'; }
-  if(statsBtn)  { statsBtn.style.background='var(--bg3)';   statsBtn.style.color='var(--t3)'; }
+  panels.forEach(p=>{
+    const panel = document.getElementById(`panel-${p}-${playerId}`);
+    const btn   = document.getElementById(`tab-${p}-${playerId}`);
+    if(panel) panel.style.display = p===tab ? 'block' : 'none';
+    if(btn){
+      btn.style.background = p===tab ? colors[p] : 'var(--bg3)';
+      btn.style.color      = p===tab ? textClr[p] : 'var(--t3)';
+    }
+  });
 
+  // Splits: re-render if data just arrived
   if(tab==='splits'){
-    if(splitsPanel) splitsPanel.style.display='block';
-    if(splitsBtn){ splitsBtn.style.background='var(--amber)'; splitsBtn.style.color='#000'; }
     const r=S.allRows.find(x=>String(x.id)===String(playerId));
-    if(r && splitsPanel){
+    const splitsPanel=document.getElementById(`panel-splits-${playerId}`);
+    if(r&&splitsPanel){
       const hasData=r.platoonSplits?.vsLFull||r.platoonSplits?.vsRFull||
                     r.homeAwaySplits?.homeFull||r.homeAwaySplits?.awayFull;
-      if(hasData && splitsPanel.textContent.includes('Splits loading')){
+      if(hasData&&splitsPanel.textContent.includes('Splits loading')){
         renderDetail(r);
         setTimeout(()=>switchMatchupTab(playerId,'splits'),50);
       }
     }
-  } else if(tab==='stats'){
-    if(statsPanel) statsPanel.style.display='block';
-    if(statsBtn){ statsBtn.style.background='#3b82f6'; statsBtn.style.color='#fff'; }
-  } else {
-    arsenalPanel.style.display='block';
-    if(arsenalBtn){ arsenalBtn.style.background='var(--green)'; arsenalBtn.style.color='#000'; }
   }
 }
 
@@ -7271,6 +7417,10 @@ function renderDetail(r){
             style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
             font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
             📊 Stats</button>
+          <button id="tab-spray-${r.id}" onclick="switchMatchupTab('${r.id}','spray')"
+            style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
+            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
+            🗺️ Spray</button>
           <button id="tab-splits-${r.id}" onclick="switchMatchupTab('${r.id}','splits')"
             style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
             font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
@@ -7371,6 +7521,57 @@ function renderDetail(r){
                 <div style="font-size:.58rem;color:var(--t4);margin-top:6px;text-align:center"
                   id="${statsId}-label">${allStats.totPA} PA vs all pitches</div>
               </div>`;
+          })()}
+        </div>
+
+        <!-- Spray chart panel -->
+        <div id="panel-spray-${r.id}" style="display:none">
+          ${(()=>{
+            const bvp = r._bvp || {};
+            const pitches = arsenal?.mix
+              ? Object.entries(arsenal.mix).filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1])
+              : [];
+            const allPts = pitches.map(([pt])=>pt);
+            const hasBvP = allPts.some(pt=>bvp[pt]?.spray?.length>0);
+
+            if(!allPts.length) return `<div style="font-size:.70rem;color:var(--t4);padding:16px 0;text-align:center">No arsenal data</div>`;
+            if(!hasBvP) return `<div style="font-size:.70rem;color:var(--t4);padding:12px 0;text-align:center">
+              Spray data loading… tap player again in ~3s
+            </div>`;
+
+            const sprayId = `spray-${r.id}`;
+
+            // Pitch selector pills
+            const pills = `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+              <button onclick="filterSprayChart('${sprayId}','ALL','${r.id}')"
+                id="${sprayId}-ALL"
+                style="padding:4px 10px;border-radius:99px;border:1px solid var(--green);
+                background:var(--green);color:#000;font-size:.65rem;font-weight:700;cursor:pointer">
+                All
+              </button>
+              ${pitches.filter(([pt])=>bvp[pt]?.spray?.length>0).map(([pt,pct])=>`
+                <button onclick="filterSprayChart('${sprayId}','${pt}','${r.id}')"
+                  id="${sprayId}-${pt}"
+                  style="padding:4px 10px;border-radius:99px;border:1px solid ${PITCH_CLR[pt]||'var(--bdr)'};
+                  background:transparent;color:${PITCH_CLR[pt]||'var(--t3)'};
+                  font-size:.65rem;font-weight:700;cursor:pointer">
+                  ${pt} <span style="opacity:.6">${pct.toFixed(0)}%</span>
+                </button>`).join('')}
+            </div>`;
+
+            // Aggregate ALL spray points
+            const allSpray = allPts.flatMap(pt=>bvp[pt]?.spray||[]);
+            const PITCH_FULL_S={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Changeup',FS:'Split'};
+
+            // Store in global cache
+            if(!window._sprayCache) window._sprayCache={};
+            const perPtSpray = {};
+            allPts.forEach(pt=>{ if(bvp[pt]?.spray?.length>0) perPtSpray[pt]=bvp[pt].spray; });
+            window._sprayCache[sprayId] = { all:allSpray, per:perPtSpray, batHand:r.batHand };
+
+            return pills + `<div id="${sprayId}-chart">
+              ${renderSprayChart(allSpray, 'All Pitches — BIP', r.batHand)}
+            </div>`;
           })()}
         </div>
 
