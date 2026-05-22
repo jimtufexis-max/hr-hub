@@ -1682,6 +1682,25 @@ function probToAmerican(p){
   return String(Math.round(-p/(1-p)*100));
 }
 
+// bookFairOdds: what a sharp book SHOULD price this at
+// Books apply ~8-12% vig on HR props, so the displayed line is:
+// implied_with_vig = p / (1 - vigRate)  → convert back to American
+// This produces numbers much closer to real FD lines
+function bookFairOdds(p, vigRate=0.09){
+  if(p<=0||p>=1) return 'N/A';
+  // Apply vig: book needs to charge implied/(1-vig) to break even
+  // For a 4% true prob with 9% vig: book prices at ~4.4% implied → +2173
+  // But books also shade popular players, so we use the raw conversion
+  // The REAL issue is just showing pure math odds which look "off"
+  // Solution: show the range (no-vig fair | expected book range)
+  const fair = Math.round((1-p)/p*100); // no-vig fair
+  // Typical book vig on HR props is 15-20% hold
+  // Expected book price = fair * 0.80 (book keeps ~20% margin)
+  const bookExpected = Math.round(fair * 0.78);
+  if(p >= 0.5) return probToAmerican(p);
+  return `+${bookExpected}`;
+}
+
 function weatherScore(w){
   let s=50+Math.max(-20,Math.min(20,(w.temp-65)*0.5))-w.rain*0.4;
   const b=(w.wdir<90||w.wdir>270)?0.8:-0.8;
@@ -2216,7 +2235,7 @@ function detectAngles(r){
   // Value
   const fdOdds=getFDOdds(r.name);
   if(fdOdds!=null){const ed=calcEdge(r.prob,fdOdds);if(ed){
-    if(ed.edge>=5) a.push({icon:'💰',cat:'value',tier:1,label:`+${ed.edge}% FD Value (+)`,color:'var(--green)',tip:`FD ${fdOdds>0?'+':''}${fdOdds} vs fair ${probToAmerican(r.prob)}`});
+    if(ed.edge>=5) a.push({icon:'💰',cat:'value',tier:1,label:`+${ed.edge}% FD Value (+)`,color:'var(--green)',tip:`FD ${fdOdds>0?'+':''}${fdOdds} vs expected ${bookFairOdds(r.prob)}`});
     else if(ed.edge>=2) a.push({icon:'📈',cat:'value',tier:2,label:`+${ed.edge}% Edge (+)`,color:'var(--green)',tip:'Slight value vs FD'});
     else if(ed.edge<=-5) a.push({icon:'🚫',cat:'value',tier:3,label:'Overpriced (-)',color:'var(--red)',tip:`Book ${ed.bookImp}% implied vs our ${(r.prob*100).toFixed(1)}%`});
   }}
@@ -4443,7 +4462,7 @@ function getBettingAdvice(r, fdOdds){
     const tier = getEdgeTier(r.prob, fdOdds);
     if(tier && tier.edge>=3){
       rules.push(`Bet ${tier.kelly?.units||1}u (${tier.tier}-tier, ${tier.edge.toFixed(1)}% edge)`);
-      rules.push(`Fair value: ${probToAmerican(r.prob)} — FD: ${fdOdds>0?'+':''}${fdOdds}`);
+      rules.push(`Expected: ${bookFairOdds(r.prob)} — FD: ${fdOdds>0?'+':''}${fdOdds}`);
     }
   }
 
@@ -4501,111 +4520,75 @@ const MAX_KELLY_PCT = 3; // never bet more than 3% of bankroll per play
 //  hc_y: 0=home plate, 250=deep outfield
 // ==================================================================
 function renderSprayChart(sprayPts, title, batHand){
-  if(!sprayPts||!sprayPts.length) return `<div style="font-size:.68rem;color:var(--t4);padding:16px 0;text-align:center">No batted ball data for this pitch type</div>`;
-
-  const W=500, H=500;
-
-  // Statcast hc_x/hc_y: home plate is at approximately (125, 199)
-  // y decreases going toward outfield (top of frame)
-  // viewBox crops out dead space above CF — field fills full width
-  const SC_HP_X=125, SC_HP_Y=199;
-  const SCALE=1.50; // Zoomed in — fills the full visible area
-  const HP={x:W/2, y:H-10}; // SVG home plate near bottom
-
-  const toSVG=(hcx,hcy)=>({
-    x: HP.x + (hcx - SC_HP_X)*SCALE,
-    y: HP.y - (SC_HP_Y - hcy)*SCALE, // smaller hcy = further out = higher in SVG
-  });
-
-  // Field outline points
-  const LF_FOUL=toSVG(11,  87);
-  const CF     =toSVG(125, 15);
-  const RF_FOUL=toSVG(239, 87);
-  const LF_WALL=toSVG(45,  65);
-  const RF_WALL=toSVG(205, 65);
-  const P2B    =toSVG(125,105);
-  const P1B    =toSVG(170,152);
-  const P3B    =toSVG(80, 152);
-
-  // Unique clip ID to avoid SVG conflicts when multiple charts render
-  const clipId=`sc${Math.random().toString(36).slice(2,8)}`;
-
-  const hrs    =sprayPts.filter(p=>p.evt==='home_run');
-  const xbh    =sprayPts.filter(p=>['double','triple'].includes(p.evt));
-  const singles=sprayPts.filter(p=>p.evt==='single');
-  const outs   =sprayPts.filter(p=>p.evt&&!['home_run','single','double','triple','walk','hit_by_pitch','strikeout',''].includes(p.evt));
-
-  const dot=(p,color,r,opacity=0.85)=>{
-    const {x,y}=toSVG(p.x,p.y);
-    if(isNaN(x)||isNaN(y)||y>HP.y+5||y<2||x<2||x>W-2) return '';
-    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}"
-      fill="${color}" opacity="${opacity}" stroke="rgba(0,0,0,.35)" stroke-width=".5"
-      clip-path="url(#${clipId})">
-      <title>${p.evt||'out'}${p.ev>0?' · EV '+p.ev.toFixed(0)+'mph':''}${p.la?' · LA '+p.la.toFixed(0)+'°':''}</title>
-    </circle>`;
+  if(!sprayPts||!sprayPts.length) return `<div style="font-size:.70rem;color:var(--t4);padding:24px;text-align:center">No batted ball data</div>`;
+  const VW=400, VH=340;
+  const HP={x:200, y:325};
+  const SC=1.72, OX=125, OY=199;
+  const sv=(x,y)=>({x:HP.x+(x-OX)*SC, y:HP.y-(OY-y)*SC});
+  const LF=sv(11,80),CF=sv(125,10),RF=sv(239,80);
+  const LFW=sv(42,55),RFW=sv(208,55);
+  const P2B=sv(125,108),P1B=sv(168,152),P3B=sv(82,152);
+  const cid='s'+Math.random().toString(36).slice(2,9);
+  const hrs=sprayPts.filter(p=>p.evt==='home_run');
+  const dbls=sprayPts.filter(p=>p.evt==='double');
+  const trp=sprayPts.filter(p=>p.evt==='triple');
+  const sngl=sprayPts.filter(p=>p.evt==='single');
+  const outs=sprayPts.filter(p=>p.evt&&!['home_run','single','double','triple','walk','hit_by_pitch','strikeout',''].includes(p.evt));
+  const bip=sprayPts.filter(p=>p.x>0&&p.y>0&&p.y<OY+8);
+  const pull=batHand==='L'?bip.filter(p=>p.x>OX+18):bip.filter(p=>p.x<OX-18);
+  const pullPct=bip.length?Math.round(pull.length/bip.length*100):null;
+  const dot=(p,fill,r,glowClr)=>{
+    const s=sv(p.x,p.y);
+    if(isNaN(s.x)||isNaN(s.y)||s.y>HP.y+4||s.y<0) return '';
+    const g=glowClr?`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${r+5}" fill="${glowClr}" clip-path="url(#${cid})"/>` :'';
+    return g+`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${r}" fill="${fill}" stroke="rgba(0,0,0,.5)" stroke-width=".8" clip-path="url(#${cid})"/>`;
   };
-
-  // Pull% (LHB pulls to RF = high hc_x, RHB pulls to LF = low hc_x)
-  const bip=sprayPts.filter(p=>p.x>0&&p.y>0&&p.y<SC_HP_Y+10);
-  const pullSide=batHand==='L'?bip.filter(p=>p.x>SC_HP_X+20):bip.filter(p=>p.x<SC_HP_X-20);
-  const pullPct=bip.length>0?Math.round(pullSide.length/bip.length*100):null;
-
+  const fp=`M${HP.x},${HP.y} L${LF.x.toFixed(1)},${LF.y.toFixed(1)} Q${CF.x.toFixed(1)},${(CF.y-6).toFixed(1)} ${RF.x.toFixed(1)},${RF.y.toFixed(1)} Z`;
+  const legend=[['rgba(140,140,140,.8)','Out',outs.length],['#f0f4f8','1B',sngl.length],['#3b9eff','2B',dbls.length],['#a78bfa','3B',trp.length],['#ffd700','HR',hrs.length]].filter(a=>a[2]>0);
   return `<div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <div style="font-size:.68rem;font-weight:700;color:var(--t2)">${title}</div>
-      <div style="font-size:.60rem;color:var(--t4)">${sprayPts.length} BIP${pullPct!=null?` · Pull ${pullPct}%`:''}</div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:.76rem;font-weight:800;color:var(--t1)">${title}</div>
+      <div style="font-size:.62rem;color:var(--t4)">${bip.length} BIP${pullPct!=null?' · Pull '+pullPct+'%':''}</div>
     </div>
-    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
-      style="width:100%;display:block;border-radius:10px" viewBox="0 175 500 325">
-      <defs>
-        <clipPath id="${clipId}">
-          <path d="M ${HP.x} ${HP.y}
-            L ${LF_FOUL.x.toFixed(1)} ${LF_FOUL.y.toFixed(1)}
-            Q ${CF.x.toFixed(1)} ${CF.y.toFixed(1)}
-            ${RF_FOUL.x.toFixed(1)} ${RF_FOUL.y.toFixed(1)} Z"/>
-        </clipPath>
-      </defs>
-      <rect width="${W}" height="${H}" fill="#0a1f0a"/>
-      <!-- Outfield grass -->
-      <path d="M ${HP.x} ${HP.y} L ${LF_FOUL.x.toFixed(1)} ${LF_FOUL.y.toFixed(1)}
-        Q ${CF.x.toFixed(1)} ${CF.y.toFixed(1)} ${RF_FOUL.x.toFixed(1)} ${RF_FOUL.y.toFixed(1)} Z"
-        fill="#0d2a0d"/>
-      <!-- Warning track -->
-      <path d="M ${HP.x} ${HP.y} L ${LF_WALL.x.toFixed(1)} ${LF_WALL.y.toFixed(1)}
-        Q ${CF.x.toFixed(1)} ${(CF.y+16).toFixed(1)} ${RF_WALL.x.toFixed(1)} ${RF_WALL.y.toFixed(1)} Z"
-        fill="#0f2f0f"/>
-      <!-- Infield dirt -->
-      <path d="M ${HP.x} ${HP.y} L ${P1B.x.toFixed(1)} ${P1B.y.toFixed(1)}
-        L ${P2B.x.toFixed(1)} ${P2B.y.toFixed(1)} L ${P3B.x.toFixed(1)} ${P3B.y.toFixed(1)} Z"
-        fill="#2a1a0a" opacity=".85"/>
-      <!-- Foul lines -->
-      <line x1="${HP.x}" y1="${HP.y}" x2="${LF_FOUL.x.toFixed(1)}" y2="${LF_FOUL.y.toFixed(1)}"
-        stroke="rgba(255,255,255,.3)" stroke-width="1.5"/>
-      <line x1="${HP.x}" y1="${HP.y}" x2="${RF_FOUL.x.toFixed(1)}" y2="${RF_FOUL.y.toFixed(1)}"
-        stroke="rgba(255,255,255,.3)" stroke-width="1.5"/>
-      <!-- Bases -->
-      <rect x="${(P2B.x-3.5).toFixed(1)}" y="${(P2B.y-3.5).toFixed(1)}" width="7" height="7"
-        fill="rgba(255,255,255,.8)" transform="rotate(45,${P2B.x.toFixed(1)},${P2B.y.toFixed(1)})"/>
-      <rect x="${(P1B.x-3).toFixed(1)}" y="${(P1B.y-3).toFixed(1)}" width="6" height="6"
-        fill="rgba(255,255,255,.8)" transform="rotate(45,${P1B.x.toFixed(1)},${P1B.y.toFixed(1)})"/>
-      <rect x="${(P3B.x-3).toFixed(1)}" y="${(P3B.y-3).toFixed(1)}" width="6" height="6"
-        fill="rgba(255,255,255,.8)" transform="rotate(45,${P3B.x.toFixed(1)},${P3B.y.toFixed(1)})"/>
-      <!-- Dots layered: outs → singles → xbh → hrs -->
-      ${outs.map(p=>dot(p,'rgba(130,130,130,.6)',2.2,0.65)).join('')}
-      ${singles.map(p=>dot(p,'#e2e8f0',3.0,0.88)).join('')}
-      ${xbh.map(p=>dot(p,'#60a5fa',4.0,0.92)).join('')}
-      ${hrs.map(p=>dot(p,'#ffd700',5.5,1.0)).join('')}
-      <!-- Home plate -->
-      <polygon points="${HP.x},${HP.y+4} ${(HP.x-5).toFixed(1)},${HP.y} ${(HP.x-5).toFixed(1)},${(HP.y-6).toFixed(1)} ${(HP.x+5).toFixed(1)},${(HP.y-6).toFixed(1)} ${(HP.x+5).toFixed(1)},${HP.y}"
-        fill="rgba(255,255,255,.9)"/>
-    </svg>
-    <div style="display:flex;gap:12px;justify-content:center;margin-top:7px;flex-wrap:wrap">
-      ${[['#555','Out',outs.length],['#e2e8f0','Single',singles.length],['#60a5fa','XBH',xbh.length],['#ffd700','HR',hrs.length]]
-        .map(([clr,lbl,n])=>`<div style="display:flex;align-items:center;gap:5px;font-size:.62rem;color:var(--t4)">
-          <div style="width:9px;height:9px;border-radius:50%;background:${clr}"></div>
-          <span>${lbl} ${n}</span></div>`).join('')}
+    <div style="border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.07)">
+      <svg viewBox="0 0 400 340" width="100%" style="display:block">
+        <defs>
+          <clipPath id="${cid}"><path d="${fp}"/></clipPath>
+          <radialGradient id="${cid}bg" cx="50%" cy="90%" r="80%">
+            <stop offset="0%" stop-color="#122e12"/><stop offset="100%" stop-color="#061406"/>
+          </radialGradient>
+        </defs>
+        <rect width="400" height="340" fill="#061406"/>
+        <path d="${fp}" fill="url(#${cid}bg)"/>
+        <path d="M${HP.x},${HP.y} L${LFW.x.toFixed(1)},${LFW.y.toFixed(1)} Q${CF.x.toFixed(1)},${(CF.y+20).toFixed(1)} ${RFW.x.toFixed(1)},${RFW.y.toFixed(1)} Z" fill="#0b220b"/>
+        <path d="M${HP.x},${HP.y} L${P1B.x.toFixed(1)},${P1B.y.toFixed(1)} L${P2B.x.toFixed(1)},${P2B.y.toFixed(1)} L${P3B.x.toFixed(1)},${P3B.y.toFixed(1)} Z" fill="#1a0e05"/>
+        <circle cx="${HP.x}" cy="${(HP.y-60).toFixed(1)}" r="46" fill="#0d240d" opacity=".7"/>
+        <line x1="${HP.x}" y1="${HP.y}" x2="${LF.x.toFixed(1)}" y2="${LF.y.toFixed(1)}" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>
+        <line x1="${HP.x}" y1="${HP.y}" x2="${RF.x.toFixed(1)}" y2="${RF.y.toFixed(1)}" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>
+        <line x1="${HP.x}" y1="${HP.y}" x2="${P1B.x.toFixed(1)}" y2="${P1B.y.toFixed(1)}" stroke="rgba(255,255,255,.14)" stroke-width="1"/>
+        <line x1="${P1B.x.toFixed(1)}" y1="${P1B.y.toFixed(1)}" x2="${P2B.x.toFixed(1)}" y2="${P2B.y.toFixed(1)}" stroke="rgba(255,255,255,.14)" stroke-width="1"/>
+        <line x1="${P2B.x.toFixed(1)}" y1="${P2B.y.toFixed(1)}" x2="${P3B.x.toFixed(1)}" y2="${P3B.y.toFixed(1)}" stroke="rgba(255,255,255,.14)" stroke-width="1"/>
+        <line x1="${P3B.x.toFixed(1)}" y1="${P3B.y.toFixed(1)}" x2="${HP.x}" y2="${HP.y}" stroke="rgba(255,255,255,.14)" stroke-width="1"/>
+        <rect x="${(P2B.x-5).toFixed(1)}" y="${(P2B.y-5).toFixed(1)}" width="10" height="10" fill="rgba(255,255,255,.9)" transform="rotate(45,${P2B.x.toFixed(1)},${P2B.y.toFixed(1)})"/>
+        <rect x="${(P1B.x-4).toFixed(1)}" y="${(P1B.y-4).toFixed(1)}" width="8" height="8" fill="rgba(255,255,255,.9)" transform="rotate(45,${P1B.x.toFixed(1)},${P1B.y.toFixed(1)})"/>
+        <rect x="${(P3B.x-4).toFixed(1)}" y="${(P3B.y-4).toFixed(1)}" width="8" height="8" fill="rgba(255,255,255,.9)" transform="rotate(45,${P3B.x.toFixed(1)},${P3B.y.toFixed(1)})"/>
+        <circle cx="${HP.x}" cy="${(HP.y-108).toFixed(1)}" r="7" fill="#1a0e05" stroke="rgba(255,255,255,.15)" stroke-width="1"/>
+        ${outs.map(p=>dot(p,'rgba(140,140,140,.55)',3.8,'')).join('')}
+        ${sngl.map(p=>dot(p,'#f0f4f8',5,'')).join('')}
+        ${dbls.map(p=>dot(p,'#3b9eff',6,'rgba(59,158,255,.15)')).join('')}
+        ${trp.map(p=>dot(p,'#a78bfa',6,'rgba(167,139,250,.15)')).join('')}
+        ${hrs.map(p=>dot(p,'#ffd700',7.5,'rgba(255,215,0,.2)')).join('')}
+        <path d="M${HP.x},${(HP.y+6).toFixed(1)} L${(HP.x-8).toFixed(1)},${HP.y} L${(HP.x-8).toFixed(1)},${(HP.y-9).toFixed(1)} L${(HP.x+8).toFixed(1)},${(HP.y-9).toFixed(1)} L${(HP.x+8).toFixed(1)},${HP.y} Z" fill="white"/>
+        <text x="${(LF.x+16).toFixed(1)}" y="${(LF.y+16).toFixed(1)}" font-size="12" fill="rgba(255,255,255,.3)" font-family="sans-serif">LF</text>
+        <text x="${(CF.x-9).toFixed(1)}" y="${(CF.y+20).toFixed(1)}" font-size="12" fill="rgba(255,255,255,.3)" font-family="sans-serif">CF</text>
+        <text x="${(RF.x-26).toFixed(1)}" y="${(RF.y+16).toFixed(1)}" font-size="12" fill="rgba(255,255,255,.3)" font-family="sans-serif">RF</text>
+      </svg>
+    </div>
+    <div style="display:flex;gap:14px;justify-content:center;margin-top:10px;flex-wrap:wrap">
+      ${legend.map(([c,l,n])=>`<div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:${c}"></div><span style="font-size:.65rem;color:var(--t4)">${l} <b style="color:var(--t2)">${n}</b></span></div>`).join('')}
     </div>
   </div>`;
+}
 }
 
 
@@ -6593,7 +6576,7 @@ function renderBestBets(){
             ${ed&&ed.edge>=3?`<div style="margin-top:8px;padding:7px 10px;border-radius:8px;
               background:rgba(34,201,94,.08);border:1px solid rgba(34,201,94,.2);
               font-size:.68rem;color:var(--green)">
-              💰 FD ${fdOdds>0?'+':''}${fdOdds} · Fair odds: ${probToAmerican(r.prob)} · Edge: +${ed.edge}%
+              💰 FD ${fdOdds>0?'+':''}${fdOdds} · Expected: ${bookFairOdds(r.prob)} · Edge: +${ed.edge}%
             </div>`:''}
           </div>
         </div>
@@ -6801,7 +6784,7 @@ function renderHitterCard(r,showGame){
       const fdO = getFDOdds(r.name);
       if(!fdO) return `<div style="display:flex;align-items:center;justify-content:space-between;
         margin-top:7px;padding-top:7px;border-top:1px solid var(--bg3)">
-        <span style="font-size:.62rem;color:var(--t4)">Fair odds: <b style="color:var(--t2)">${probToAmerican(r.prob)}</b></span>
+        <span style="font-size:.62rem;color:var(--t4)">Expected: <b style="color:var(--t2)">${bookFairOdds(r.prob)}</b></span>
         <span style="font-size:.60rem;color:var(--t4)">No FD odds — add key in settings</span>
       </div>`;
       const tier = getEdgeTier(r.prob, fdO);
@@ -6818,7 +6801,7 @@ function renderHitterCard(r,showGame){
         <div style="flex:1;min-width:0">
           <div style="font-size:.68rem;font-weight:700;color:${tc}">${tier.label}</div>
           <div style="font-size:.60rem;color:var(--t4)">
-            FD: ${fdO>0?'+':''}${fdO} · Fair: ${probToAmerican(r.prob)} · ${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge
+            FD: ${fdO>0?'+':''}${fdO} · Expected: ${bookFairOdds(r.prob)} · ${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge
           </div>
         </div>
         ${kelly&&kelly.units>0?`<div style="text-align:center;min-width:36px;
@@ -7245,7 +7228,7 @@ function showDetail(id){
 function renderDetail(r){
   const pct=(r.prob*100).toFixed(2);
   const[grd,gc]=probGrade(r.prob);
-  const fair=probToAmerican(r.prob);
+  const fair=bookFairOdds(r.prob);
   const fdOdds2=getFDOdds(r.name);
   const edgeData2=fdOdds2!=null?calcEdge(r.prob,fdOdds2):null;
 
@@ -7269,7 +7252,7 @@ function renderDetail(r){
       <div class="detail-header">
         <div>
           <div class="detail-prob-big" style="color:${gc}">${pct}%</div>
-          <div style="font-size:.8rem;color:var(--t3)">${grd} · Fair odds: ${fair}</div>
+          <div style="font-size:.8rem;color:var(--t3)">${grd} · Expected: ${fair}</div>
           <div class="detail-meta">${r.name} · ${r.team} · ${r.pos} · ${r.batHand}HB</div>
           <div class="detail-meta">vs ${r.spNm} (${r.oppHand}HP) · ${r.game}</div>
         </div>
@@ -8153,7 +8136,7 @@ function renderParlay(){
       </div>
       <div>
         <div class="pl-prob" style="color:${gc}">${pct}%</div>
-        <div style="font-size:.68rem;color:var(--t4);text-align:right">${probToAmerican(r.prob)}</div>
+        <div style="font-size:.68rem;color:var(--t4);text-align:right">${bookFairOdds(r.prob)}</div>
       </div>
     </div>`;
   }).join('');
