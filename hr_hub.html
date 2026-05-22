@@ -4503,13 +4503,14 @@ const MAX_KELLY_PCT = 3; // never bet more than 3% of bankroll per play
 function renderSprayChart(sprayPts, title, batHand){
   if(!sprayPts||!sprayPts.length) return `<div style="font-size:.68rem;color:var(--t4);padding:16px 0;text-align:center">No batted ball data for this pitch type</div>`;
 
-  const W=480, H=420;
+  const W=500, H=500;
 
   // Statcast hc_x/hc_y: home plate is at approximately (125, 199)
   // y decreases going toward outfield (top of frame)
+  // viewBox crops out dead space above CF — field fills full width
   const SC_HP_X=125, SC_HP_Y=199;
-  const SCALE=1.15; // Statcast pixels → SVG pixels
-  const HP={x:W/2, y:H-20}; // SVG home plate position
+  const SCALE=1.50; // Zoomed in — fills the full visible area
+  const HP={x:W/2, y:H-10}; // SVG home plate near bottom
 
   const toSVG=(hcx,hcy)=>({
     x: HP.x + (hcx - SC_HP_X)*SCALE,
@@ -4555,7 +4556,7 @@ function renderSprayChart(sprayPts, title, batHand){
       <div style="font-size:.60rem;color:var(--t4)">${sprayPts.length} BIP${pullPct!=null?` · Pull ${pullPct}%`:''}</div>
     </div>
     <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
-      style="width:100%;display:block;border-radius:10px;overflow:hidden">
+      style="width:100%;display:block;border-radius:10px" viewBox="0 175 500 325">
       <defs>
         <clipPath id="${clipId}">
           <path d="M ${HP.x} ${HP.y}
