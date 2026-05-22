@@ -112,7 +112,10 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
   border:2px solid var(--bdr);flex-shrink:0;background:var(--bg3)}
 .hc-headshot-wrap{position:relative;flex-shrink:0}
 
-/* ── Pitch drill-down ──────────────────────────────────────────── */
+/* ── Spray chart dot popup ────────────────────────────────────── */
+.spray-popup{position:absolute;z-index:50;pointer-events:none;
+  animation:fadeInUp .15s ease-out}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .pitch-row-btn{width:100%;background:none;border:none;cursor:pointer;
   padding:0;text-align:left;border-radius:8px;transition:background .1s}
 .pitch-row-btn:active{background:rgba(255,255,255,.04)}
@@ -2923,6 +2926,7 @@ async function getBatterVsPitches(pid){
             x: parseFloat(p.hc_x), y: parseFloat(p.hc_y),
             ev: parseFloat(p.launch_speed)||0,
             la: parseFloat(p.launch_angle)||0,
+            dist: parseFloat(p.hit_distance_sc)||0,
             evt: (p.events||'').toLowerCase(),
             pt,
           }))
@@ -4529,23 +4533,44 @@ function renderSprayChart(sprayPts, title, batHand){
   const LFW=sv(42,55),RFW=sv(208,55);
   const P2B=sv(125,108),P1B=sv(168,152),P3B=sv(82,152);
   const cid='s'+Math.random().toString(36).slice(2,9);
+  const chartId='chart-'+cid;
+
   const hrs=sprayPts.filter(p=>p.evt==='home_run');
   const dbls=sprayPts.filter(p=>p.evt==='double');
   const trp=sprayPts.filter(p=>p.evt==='triple');
   const sngl=sprayPts.filter(p=>p.evt==='single');
   const outs=sprayPts.filter(p=>p.evt&&!['home_run','single','double','triple','walk','hit_by_pitch','strikeout',''].includes(p.evt));
+
   const bip=sprayPts.filter(p=>p.x>0&&p.y>0&&p.y<OY+8);
   const pull=batHand==='L'?bip.filter(p=>p.x>OX+18):bip.filter(p=>p.x<OX-18);
   const pullPct=bip.length?Math.round(pull.length/bip.length*100):null;
+
+  const fp=`M${HP.x},${HP.y} L${LF.x.toFixed(1)},${LF.y.toFixed(1)} Q${CF.x.toFixed(1)},${(CF.y-6).toFixed(1)} ${RF.x.toFixed(1)},${RF.y.toFixed(1)} Z`;
+
+  // Dot + tap target renderer
   const dot=(p,fill,r,glowClr)=>{
     const s=sv(p.x,p.y);
     if(isNaN(s.x)||isNaN(s.y)||s.y>HP.y+4||s.y<0) return '';
-    const g=glowClr?`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${r+5}" fill="${glowClr}" clip-path="url(#${cid})"/>` :'';
-    return g+`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${r}" fill="${fill}" stroke="rgba(0,0,0,.5)" stroke-width=".8" clip-path="url(#${cid})"/>`;
+    const g=glowClr?`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${r+5}" fill="${glowClr}" clip-path="url(#${cid})"/>`:'';
+    // Build data payload for popup
+    const evStr=p.ev>0?p.ev.toFixed(0):'--';
+    const laStr=p.la?p.la.toFixed(0):'--';
+    const distStr=p.dist>0?Math.round(p.dist)+'ft':'--';
+    const evtLabel=p.evt==='home_run'?'Home Run':p.evt==='double'?'Double':p.evt==='triple'?'Triple':p.evt==='single'?'Single':'Out';
+    const safeEvt=encodeURIComponent(JSON.stringify({evt:evtLabel,ev:evStr,la:laStr,dist:distStr,pt:p.pt||''}));
+    return g
+      // Visible dot
+      +`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="${r}" fill="${fill}" stroke="rgba(0,0,0,.5)" stroke-width=".8" clip-path="url(#${cid})"/>`
+      // Large invisible tap target (22px radius for easy mobile tap)
+      +`<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="18"
+          fill="transparent" clip-path="url(#${cid})"
+          style="cursor:pointer"
+          onclick="showSprayPopup(event,'${chartId}','${safeEvt}')"/>`;
   };
-  const fp=`M${HP.x},${HP.y} L${LF.x.toFixed(1)},${LF.y.toFixed(1)} Q${CF.x.toFixed(1)},${(CF.y-6).toFixed(1)} ${RF.x.toFixed(1)},${RF.y.toFixed(1)} Z`;
+
   const legend=[['rgba(140,140,140,.8)','Out',outs.length],['#f0f4f8','1B',sngl.length],['#3b9eff','2B',dbls.length],['#a78bfa','3B',trp.length],['#ffd700','HR',hrs.length]].filter(a=>a[2]>0);
-  return `<div>
+
+  return `<div id="${chartId}" style="position:relative">
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px">
       <div style="font-size:.76rem;font-weight:800;color:var(--t1)">${title}</div>
       <div style="font-size:.62rem;color:var(--t4)">${bip.length} BIP${pullPct!=null?' · Pull '+pullPct+'%':''}</div>
@@ -4582,11 +4607,15 @@ function renderSprayChart(sprayPts, title, batHand){
         <text x="${(LF.x+16).toFixed(1)}" y="${(LF.y+16).toFixed(1)}" font-size="12" fill="rgba(255,255,255,.3)" font-family="sans-serif">LF</text>
         <text x="${(CF.x-9).toFixed(1)}" y="${(CF.y+20).toFixed(1)}" font-size="12" fill="rgba(255,255,255,.3)" font-family="sans-serif">CF</text>
         <text x="${(RF.x-26).toFixed(1)}" y="${(RF.y+16).toFixed(1)}" font-size="12" fill="rgba(255,255,255,.3)" font-family="sans-serif">RF</text>
+        <!-- Tap hint -->
+        <text x="200" y="334" font-size="9" fill="rgba(255,255,255,.2)" text-anchor="middle" font-family="sans-serif">tap a dot for details</text>
       </svg>
     </div>
     <div style="display:flex;gap:14px;justify-content:center;margin-top:10px;flex-wrap:wrap">
       ${legend.map(([c,l,n])=>`<div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:${c}"></div><span style="font-size:.65rem;color:var(--t4)">${l} <b style="color:var(--t2)">${n}</b></span></div>`).join('')}
     </div>
+    <!-- Popup anchor -->
+    <div id="${chartId}-popup"></div>
   </div>`;
 }
 
@@ -6836,6 +6865,97 @@ function renderWeather(wx,homeTeam){
 // ==================================================================
 //  PLAYER DETAIL
 // ==================================================================
+// ==================================================================
+//  SPRAY CHART DOT POPUP — shows hit detail on tap
+// ==================================================================
+function showSprayPopup(event, chartId, encodedData){
+  event.stopPropagation();
+
+  // Remove any existing popup
+  document.querySelectorAll('.spray-popup').forEach(el=>el.remove());
+
+  let data;
+  try{ data=JSON.parse(decodeURIComponent(encodedData)); }catch{ return; }
+
+  const chart = document.getElementById(chartId);
+  if(!chart) return;
+
+  const rect   = chart.getBoundingClientRect();
+  const tapX   = event.clientX - rect.left;
+  const tapY   = event.clientY - rect.top;
+
+  // Result color
+  const evtClr = data.evt==='Home Run'?'#ffd700':
+                 data.evt==='Double'?'#60a5fa':
+                 data.evt==='Triple'?'#a78bfa':
+                 data.evt==='Single'?'#e2e8f0':'rgba(180,180,180,.8)';
+
+  // Build popup
+  const popup = document.createElement('div');
+  popup.className = 'spray-popup';
+
+  // EV color coding
+  const ev = parseFloat(data.ev)||0;
+  const evClr = ev>=105?'#ffd700':ev>=100?'var(--green)':ev>=95?'var(--amber)':'var(--t3)';
+  const la = parseFloat(data.la)||0;
+  const laLabel = la>=25&&la<=35?'Optimal':la>=10&&la<25?'Line Drive':la>35?'Pop Up':'Ground Ball';
+  const laClr   = la>=25&&la<=35?'var(--green)':la>=10&&la<25?'var(--amber)':'var(--t4)';
+
+  popup.innerHTML = `
+    <div style="background:#1a2332;border:1px solid ${evtClr}55;border-radius:12px;
+      padding:12px 14px;min-width:160px;box-shadow:0 8px 32px rgba(0,0,0,.6);
+      pointer-events:auto">
+      <!-- Close -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:.75rem;font-weight:800;color:${evtClr}">${data.evt}</span>
+        <button onclick="this.closest('.spray-popup').remove()"
+          style="background:none;border:none;color:var(--t4);cursor:pointer;
+          font-size:1rem;padding:0 0 0 8px;line-height:1">×</button>
+      </div>
+      ${data.pt?`<div style="font-size:.60rem;color:var(--t4);margin-bottom:8px">vs ${data.pt}</div>`:''}
+      <!-- Stats grid -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+        <div style="text-align:center;background:rgba(255,255,255,.05);border-radius:7px;padding:7px 4px">
+          <div style="font-size:.88rem;font-weight:900;color:${evClr}">${data.ev!=='--'?data.ev:'--'}</div>
+          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">mph EV</div>
+        </div>
+        <div style="text-align:center;background:rgba(255,255,255,.05);border-radius:7px;padding:7px 4px">
+          <div style="font-size:.88rem;font-weight:900;color:${laClr}">${data.la!=='--'?data.la+'°':'--'}</div>
+          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">${laLabel}</div>
+        </div>
+        <div style="text-align:center;background:rgba(255,255,255,.05);border-radius:7px;padding:7px 4px">
+          <div style="font-size:.88rem;font-weight:900;color:var(--t2)">${data.dist!=='--'?data.dist:'--'}</div>
+          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">Distance</div>
+        </div>
+      </div>
+    </div>`;
+
+  // Position popup above tap point, clamp to chart bounds
+  const PW=180, PH=110;
+  let left = tapX - PW/2;
+  let top  = tapY - PH - 14;
+  // Clamp horizontal
+  left = Math.max(4, Math.min(rect.width-PW-4, left));
+  // If too close to top, flip below
+  if(top < 4) top = tapY + 18;
+
+  popup.style.left  = left + 'px';
+  popup.style.top   = top  + 'px';
+
+  chart.appendChild(popup);
+
+  // Auto-dismiss after 4s
+  setTimeout(()=>popup.remove(), 4000);
+
+  // Tap anywhere else to dismiss
+  setTimeout(()=>{
+    const dismiss=()=>{ popup.remove(); document.removeEventListener('touchstart',dismiss); document.removeEventListener('click',dismiss); };
+    document.addEventListener('touchstart', dismiss, {once:true, passive:true});
+    document.addEventListener('click', dismiss, {once:true});
+  }, 100);
+}
+
+
 function filterSprayChart(sprayId, pitchType, playerId){
   const data = window._sprayCache?.[sprayId];
   if(!data) return;
