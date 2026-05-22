@@ -4201,9 +4201,12 @@ function renderModelPerf(el){
       </button>
     </div>
     <div class="stat-scroll">
-      <div class="stat-box">
+      <!-- Tracked — tappable -->
+      <div class="stat-box" onclick="showTrackedList('tracked')"
+        style="cursor:pointer;border:1px solid rgba(255,255,255,.06);border-radius:8px;
+        transition:background .15s;active:background:var(--bg3)">
         <span class="sb-val">${stats.total}</span>
-        <span class="sb-lbl">Tracked</span>
+        <span class="sb-lbl" style="color:var(--amber)">Tracked ›</span>
       </div>
       <div class="stat-box">
         <span class="sb-val" style="color:${stats.hrRate>=8?'var(--green)':'var(--red)'}">
@@ -4215,16 +4218,98 @@ function renderModelPerf(el){
         <span class="sb-val" style="color:var(--amber)">${pct(stats.highConfHitRate)}</span>
         <span class="sb-lbl">A-grade HR%</span>
       </div>`:''}
-      <div class="stat-box">
+      <!-- Pending — tappable -->
+      <div class="stat-box" onclick="showTrackedList('pending')"
+        style="cursor:pointer;border:1px solid rgba(255,255,255,.06);border-radius:8px;
+        transition:background .15s">
         <span class="sb-val">${stats.pending||0}</span>
-        <span class="sb-lbl">Pending</span>
+        <span class="sb-lbl" style="color:var(--amber)">Pending ›</span>
       </div>
     </div>
     <div style="font-size:.62rem;color:var(--t4);margin-top:6px">
       Results auto-tracked after games finish. Tap 🔄 to refresh.
       ${stats.autoTracked?`<span style="color:var(--green)"> ${stats.autoTracked} auto-tracked ✓</span>`:''}
     </div>
+    <!-- Expandable pick list -->
+    <div id="tracked-list-panel" style="display:none;margin-top:10px;
+      border-top:1px solid var(--bdr);padding-top:10px"></div>
   </div>`;
+}
+
+function showTrackedList(filter){
+  const panel = document.getElementById('tracked-list-panel');
+  if(!panel) return;
+
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  const today  = ds();
+
+  // Toggle off if already showing same filter
+  if(panel.dataset.filter===filter && panel.style.display!=='none'){
+    panel.style.display='none';
+    panel.dataset.filter='';
+    return;
+  }
+  panel.dataset.filter=filter;
+  panel.style.display='block';
+
+  let picks;
+  if(filter==='pending'){
+    picks = stored.filter(r=>r.actual===undefined||r.actual===null);
+  } else {
+    picks = stored.filter(r=>r.actual!==undefined&&r.actual!==null);
+  }
+
+  picks.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  if(!picks.length){
+    panel.innerHTML=`<div style="font-size:.70rem;color:var(--t4);padding:8px 0;text-align:center">
+      No ${filter} picks yet
+    </div>`;
+    return;
+  }
+
+  const rows = picks.map(p=>{
+    const resultIcon = p.actual===undefined||p.actual===null ? '⏳'
+      : p.actual>0 ? '✅' : '❌';
+    const resultClr  = p.actual===undefined||p.actual===null ? 'var(--t4)'
+      : p.actual>0 ? 'var(--green)' : 'var(--red)';
+    const fdStr = p.fdOdds!=null ? `${p.fdOdds>0?'+':''}${p.fdOdds}` : '--';
+    const tier = p.fdOdds ? getEdgeTier(p.prob, p.fdOdds) : null;
+    const tierBadge = tier && tier.tier!=='C' && tier.tier!=='F'
+      ? `<span style="font-size:.55rem;font-weight:700;padding:1px 5px;border-radius:3px;
+          background:${tier.color}18;color:${tier.color}">${tier.tier}</span>` : '';
+
+    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;
+      border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer"
+      onclick="showPage('slate');setTimeout(()=>{ const r=S.allRows.find(x=>String(x.id)==='${p.id}');if(r)showDetail('${p.id}');},200)">
+      <span style="font-size:1rem;flex-shrink:0">${resultIcon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.73rem;font-weight:700;color:var(--t1);
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${p.name} ${tierBadge}
+        </div>
+        <div style="font-size:.60rem;color:var(--t4)">${p.date||''}${p.team?' · '+p.team:''}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:.70rem;font-weight:700;color:${resultClr}">
+          ${p.actual!==undefined&&p.actual!==null?(p.actual>0?'HR':'No HR'):'Pending'}
+        </div>
+        <div style="font-size:.58rem;color:var(--t4)">${fdStr} · ${(p.prob*100).toFixed(1)}%</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const title = filter==='pending'
+    ? `⏳ ${picks.length} Pending Result${picks.length!==1?'s':''}`
+    : `📋 ${picks.length} Tracked Pick${picks.length!==1?'s':''}`;
+
+  panel.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="font-size:.68rem;font-weight:700;color:var(--t2)">${title}</div>
+      <button onclick="document.getElementById('tracked-list-panel').style.display='none'"
+        style="font-size:.70rem;color:var(--t4);background:none;border:none;cursor:pointer;padding:2px 6px">✕</button>
+    </div>
+    ${rows}`;
 }
 
 
