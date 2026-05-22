@@ -4698,111 +4698,220 @@ function renderDiscover(){
   }
 
   try{
-    const sleepers = S.allRows
-      .map(r=>({r, s:detectSleeper(r)}))
-      .filter(({s})=>s!=null)
-      .sort((a,b)=>b.s.score-a.s.score)
-      .slice(0,10);
-
-    const due = S.allRows
-      .map(r=>({r, d:detectDue(r)}))
-      .filter(({d})=>d!=null)
-      .sort((a,b)=>b.d.score-a.d.score)
-      .slice(0,5);
-
-    if(!sleepers.length && !due.length){
-      el.innerHTML='<div class="empty" style="padding:40px 0">No sleepers or due players found today</div>';
-      return;
-    }
-
-    const renderDiscoverCard = (r, reasons, score, accentColor, icon, badge) => {
-      const [,gc] = probGrade(r.prob);
-      const fdO = getFDOdds(r.name);
-      const tier = fdO ? getEdgeTier(r.prob, fdO) : null;
-      const edgeStr = tier && tier.edge >= 2
-        ? `<span style="font-size:.60rem;font-weight:700;color:var(--green);
-            padding:1px 5px;background:rgba(34,201,94,.12);border-radius:4px">
-            ${tier.tier} +${tier.edge.toFixed(0)}%</span>` : '';
-
-      return `<div style="border:1px solid ${accentColor}33;border-radius:12px;
-        padding:12px;background:${accentColor}07;margin-bottom:8px;cursor:pointer"
-        onclick="showDetail('${r.id}')">
-        <!-- Header row -->
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
-          <div style="display:flex;align-items:center;gap:8px;min-width:0;flex:1">
-            <span style="font-size:1.1rem;flex-shrink:0">${icon}</span>
-            <div style="min-width:0">
-              <div style="font-size:.82rem;font-weight:800;color:var(--t1);
-                white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                ${r.name} ${edgeStr}
-              </div>
-              <div style="font-size:.62rem;color:var(--t4);margin-top:1px">
-                ${r.team} · ${r.batHand}HB vs ${r.oppHand||'?'}HP
-                ${r.spNm?` · ${r.spNm}`:''}
-              </div>
+    // ── Shared card renderer ────────────────────────────────────────
+    const discCard = (r, reasons, accentColor, badge, extraRight='') => {
+      const [,gc]=probGrade(r.prob);
+      const fdO=getFDOdds(r.name);
+      const tier=fdO?getEdgeTier(r.prob,fdO):null;
+      const edgeStr=tier&&tier.edge>=2
+        ?`<span style="font-size:.58rem;font-weight:700;color:var(--green);padding:1px 5px;
+            background:rgba(34,201,94,.12);border-radius:4px">${tier.tier} +${tier.edge.toFixed(0)}%</span>`:'' ;
+      const headshotUrl=`https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_80,q_auto:best/v1/people/${r.id}/headshot/67/current`;
+      return `<div style="border:1px solid ${accentColor}33;border-radius:12px;padding:11px 12px;
+        background:${accentColor}08;margin-bottom:7px;cursor:pointer;
+        border-left:3px solid ${accentColor}" onclick="showDetail('${r.id}')">
+        <div style="display:flex;align-items:center;gap:9px">
+          <img src="${headshotUrl}" style="width:34px;height:34px;border-radius:50%;
+            object-fit:cover;flex-shrink:0;border:1px solid ${accentColor}44"
+            onerror="this.style.display='none'">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:2px">
+              <span style="font-size:.78rem;font-weight:800;color:var(--t1)">${r.name}</span>
+              ${edgeStr}
+              <span style="font-size:.58rem;font-weight:700;color:${accentColor};padding:1px 6px;
+                background:${accentColor}18;border-radius:99px">${badge}</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4)">
+              ${r.team} · ${r.batHand}HB vs ${r.oppHand||'?'}HP${r.spNm?` · ${r.spNm}`:''}
             </div>
           </div>
-          <div style="text-align:right;flex-shrink:0;padding-left:8px">
-            <div style="font-size:1.05rem;font-weight:900;color:${gc}">${(r.prob*100).toFixed(1)}%</div>
-            ${fdO!=null?`<div style="font-size:.60rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:1.0rem;font-weight:900;color:${gc}">${(r.prob*100).toFixed(1)}%</div>
+            ${fdO!=null?`<div style="font-size:.58rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
+            ${extraRight}
           </div>
         </div>
-        <!-- Signal badge -->
-        <div style="display:inline-block;font-size:.60rem;font-weight:700;letter-spacing:.04em;
-          text-transform:uppercase;color:${accentColor};margin-bottom:7px;
-          padding:2px 7px;background:${accentColor}15;border-radius:4px">${badge}</div>
-        <!-- Reason bullets -->
-        <div style="display:flex;flex-direction:column;gap:3px">
-          ${reasons.slice(0,3).map(reason=>
-            `<div style="display:flex;align-items:flex-start;gap:6px;font-size:.65rem;color:var(--t3)">
-              <span style="color:${accentColor};flex-shrink:0;margin-top:1px">▸</span>
-              <span>${reason}</span>
-            </div>`
-          ).join('')}
-        </div>
+        ${reasons.length?`<div style="margin-top:7px;display:flex;flex-direction:column;gap:2px;
+          padding-top:7px;border-top:1px solid ${accentColor}20">
+          ${reasons.slice(0,2).map(rx=>`<div style="display:flex;align-items:flex-start;
+            gap:5px;font-size:.62rem;color:var(--t3)">
+            <span style="color:${accentColor};flex-shrink:0">▸</span><span>${rx}</span></div>`).join('')}
+        </div>`:''}
       </div>`;
     };
 
+    // ── Helper: max 1 per team ──────────────────────────────────────
+    const onePerTeam = (arr, limit) => {
+      const seen = new Set();
+      const out = [];
+      for(const item of arr){
+        const team = item.r?.team || item.team || '';
+        if(!seen.has(team)){ seen.add(team); out.push(item); }
+        if(out.length>=limit) break;
+      }
+      return out;
+    };
+
+    // ── Section header ──────────────────────────────────────────────
+    const sectionHdr = (icon, title, subtitle, count) =>
+      `<div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:6px">
+        <div>
+          <div style="font-size:.80rem;font-weight:800;color:var(--t1)">${icon} ${title}</div>
+          <div style="font-size:.62rem;color:var(--t4);margin-top:1px">${subtitle}</div>
+        </div>
+        <span style="font-size:.60rem;color:var(--t4);background:var(--bg3);
+          padding:2px 8px;border-radius:99px">${count}</span>
+      </div>`;
+
     let html = '';
 
-    // ── Sleepers ──────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════
+    // 1. 💤 SLEEPERS — undervalued power bats the market is ignoring
+    // ══════════════════════════════════════════════════════════════
+    const sleeperRaw = S.allRows
+      .map(r=>({r, s:detectSleeper(r)}))
+      .filter(({s})=>s!=null)
+      .sort((a,b)=>b.s.score-a.s.score);
+    const sleepers = onePerTeam(sleeperRaw, 5);
+
     if(sleepers.length){
-      html += `<div style="margin-bottom:16px">
-        <div style="font-size:.62rem;color:var(--t4);letter-spacing:.08em;
-          text-transform:uppercase;margin-bottom:4px">💤 Sleepers (${sleepers.length})</div>
-        <div style="font-size:.68rem;color:var(--t4);margin-bottom:10px">
-          Power profiles the market is undervaluing today
-        </div>`;
-      sleepers.forEach(({r,s},i)=>{
-        const badge = s.fdOdds!=null && getEdgeTier(r.prob,s.fdOdds)?.edge>=4
-          ? 'Book Value Play' : r.pitcher>=1.10 ? 'SP Mismatch' : r.platoon>=1.12
-          ? 'Platoon Edge' : 'Power Profile';
-        html += renderDiscoverCard(r, s.reasons, s.score, '#a78bfa', '💤', badge);
+      html += `<div style="margin-bottom:18px">
+        ${sectionHdr('💤','Sleepers','Power profiles the market is ignoring today',sleepers.length)}`;
+      sleepers.forEach(({r,s})=>{
+        const badge = s.fdOdds!=null&&getEdgeTier(r.prob,s.fdOdds)?.edge>=4?'Value'
+          : r.pitcher>=1.10?'SP Mismatch'
+          : r.platoon>=1.12?'Platoon Edge':'Power Profile';
+        html += discCard(r, s.reasons, '#a78bfa', badge);
       });
       html += `</div>`;
     }
 
-    // ── Due ───────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════
+    // 2. ⏰ HE'S DUE — hard contact, HRs haven't fallen yet
+    // ══════════════════════════════════════════════════════════════
+    const dueRaw = S.allRows
+      .map(r=>({r, d:detectDue(r)}))
+      .filter(({d})=>d!=null)
+      .sort((a,b)=>b.d.score-a.d.score);
+    const due = onePerTeam(dueRaw, 5);
+
     if(due.length){
-      html += `<div style="margin-bottom:16px">
-        <div style="font-size:.62rem;color:var(--t4);letter-spacing:.08em;
-          text-transform:uppercase;margin-bottom:4px">⏰ Due (${due.length})</div>
-        <div style="font-size:.68rem;color:var(--t4);margin-bottom:10px">
-          Hitting the ball hard — HRs haven't caught up to contact quality yet
-        </div>`;
+      html += `<div style="margin-bottom:18px">
+        ${sectionHdr('⏰','He\'s Due','Hitting the ball hard — HRs haven\'t caught up yet',due.length)}`;
       due.forEach(({r,d})=>{
-        const badge = r.xwobaDiff>=0.040 ? 'Highly Unlucky' : r.xwobaDiff>=0.025
-          ? 'xwOBA Gap' : 'Below Pace';
-        html += renderDiscoverCard(r, d.reasons, d.score, 'var(--amber)', '⏰', badge);
+        const badge = r.xwobaDiff>=0.040?'Highly Unlucky':r.xwobaDiff>=0.025?'xwOBA Gap':'Below Pace';
+        const xwStr = r.xwobaDiff!=null
+          ? `<div style="font-size:.58rem;color:var(--amber)">+${Math.round(r.xwobaDiff*1000)}pt gap</div>`:'';
+        html += discCard(r, d.reasons, 'var(--amber)', badge, xwStr);
       });
       html += `</div>`;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 3. 🔥 HOT RIGHT NOW — genuine L15 momentum + favorable matchup
+    // ══════════════════════════════════════════════════════════════
+    const hotRaw = S.allRows
+      .filter(r=>{
+        const recent = r._recentGames||[];
+        const l10HR = recent.slice(0,10).reduce((s,g)=>s+(g.hr||0),0);
+        return l10HR>=3 && r.momentum>=1.05 && r.prob>=0.03 && r.pitcher>=0.98;
+      })
+      .map(r=>{
+        const recent=r._recentGames||[];
+        const l10HR=recent.slice(0,10).reduce((s,g)=>s+(g.hr||0),0);
+        const l7=recent.slice(0,7).map(g=>g.hr>0?'🟡':'⚫').join('');
+        const reasons=[
+          `${l10HR} HR in last 10 games — active power streak`,
+          r.platoon>=1.12?`Favorable ${r.batHand}HB vs ${r.oppHand||'?'}HP matchup today`:'',
+          r.barrel_pct!=null?`${r.barrel_pct.toFixed(0)}% barrel rate sustains the pace`:'',
+        ].filter(Boolean);
+        return {r, l10HR, l7, reasons};
+      })
+      .sort((a,b)=>b.l10HR-a.l10HR || b.r.momentum-a.r.momentum);
+    const hot = onePerTeam(hotRaw, 5);
+
+    if(hot.length){
+      html += `<div style="margin-bottom:18px">
+        ${sectionHdr('🔥','Hot Right Now','Active HR streaks with a favorable matchup today',hot.length)}`;
+      hot.forEach(({r,l10HR,l7,reasons})=>{
+        const badge = l10HR>=5?'On Fire':l10HR>=4?'Streaking':'In Form';
+        html += discCard(r, reasons, '#f97316', badge,
+          `<div style="font-size:.58rem;letter-spacing:1px;margin-top:2px">${l7}</div>`);
+      });
+      html += `</div>`;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 4. 🎯 SHARP ANGLES — best pitcher mismatches on the slate
+    //    SP is hittable (pitcher mult ≥1.12) AND batter has power
+    // ══════════════════════════════════════════════════════════════
+    const sharpRaw = S.allRows
+      .filter(r=>r.pitcher>=1.12 && r.prob>=0.04 &&
+        ((r.barrel_pct!=null&&r.barrel_pct>=10)||(r.iso!=null&&r.iso>=0.190)))
+      .map(r=>{
+        const reasons=[
+          r.spNm?`${r.spNm} showing ${((r.pitcher-1)*100).toFixed(0)}% HR-prone (${r.pitcher.toFixed(2)}x)`:null,
+          r.platoon>=1.10?`${r.batHand}HB vs ${r.oppHand||'?'}HP platoon edge (${r.platoon.toFixed(2)}x)`:null,
+          r.barrel_pct!=null?`${r.barrel_pct.toFixed(0)}% barrel rate — real power threat`:null,
+        ].filter(Boolean);
+        return {r, reasons};
+      })
+      .sort((a,b)=>b.r.pitcher-a.r.pitcher || b.r.prob-a.r.prob);
+    const sharp = onePerTeam(sharpRaw, 5);
+
+    if(sharp.length){
+      html += `<div style="margin-bottom:18px">
+        ${sectionHdr('🎯','Sharp Angles','Best pitcher mismatches on today\'s slate',sharp.length)}`;
+      sharp.forEach(({r,reasons})=>{
+        const badge = r.pitcher>=1.20?'Elite Mismatch':r.pitcher>=1.15?'SP Fade':'SP Angle';
+        html += discCard(r, reasons, '#22c95e', badge);
+      });
+      html += `</div>`;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 5. 💰 VALUE PLAYS — model prob significantly above FD implied
+    // ══════════════════════════════════════════════════════════════
+    const valueRaw = S.allRows
+      .map(r=>{
+        const fdO=getFDOdds(r.name);
+        if(fdO==null) return null;
+        const tier=getEdgeTier(r.prob,fdO);
+        if(!tier||tier.edge<4) return null;
+        const implied=fdO>0?100/(fdO+100):-fdO/(-fdO+100);
+        const reasons=[
+          `Model: ${(r.prob*100).toFixed(1)}% vs book implied: ${(implied*100).toFixed(1)}% (+${tier.edge.toFixed(1)}% edge)`,
+          r.platoon>=1.10?`Favorable ${r.batHand}HB vs ${r.oppHand||'?'}HP platoon`:'',
+          r.pitcher>=1.05?`SP matchup boosting probability (${r.pitcher.toFixed(2)}x)`:'',
+        ].filter(Boolean);
+        return {r, tier, fdO, edge:tier.edge, reasons};
+      })
+      .filter(Boolean)
+      .sort((a,b)=>b.edge-a.edge);
+    const value = onePerTeam(valueRaw, 5);
+
+    if(value.length){
+      html += `<div style="margin-bottom:18px">
+        ${sectionHdr('💰','Value Plays','Model probability significantly above FD implied odds',value.length)}`;
+      value.forEach(({r,tier,fdO,edge,reasons})=>{
+        const badge = edge>=8?'Big Value':edge>=6?'Strong Value':'Value';
+        const oddsStr=`<div style="font-size:.68rem;font-weight:800;color:var(--green)">${fdO>0?'+':''}${fdO}</div>`;
+        html += discCard(r, reasons, '#22c95e', badge, oddsStr);
+      });
+      html += `</div>`;
+    }
+
+    if(!html){
+      html = `<div class="empty" style="padding:40px 0">
+        No standout plays found yet — load more games or check back after lineups confirm
+      </div>`;
     }
 
     el.innerHTML = html;
 
   }catch(e){
     console.error('[renderDiscover]', e);
-    el.innerHTML = `<div class="card" style="color:var(--red);font-size:.75rem">${e.message}</div>`;
+    el.innerHTML=`<div class="card" style="color:var(--red);font-size:.75rem">${e.message}</div>`;
   }
 }
 
