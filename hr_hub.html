@@ -1113,6 +1113,7 @@ async function getWeather(venue, gameTimeUTC){
       wdir: h.winddirection_10m?.[idx]    ?? 0,
       humidity: h.relativehumidity_2m?.[idx] ?? 50,
       hourUsed: idx,
+      isNight: hourIdx >= 17, // game starts at or after 5pm local = night game
       venue,
     };
   }catch{ return{temp:72,rain:0,wind:0,wdir:0,humidity:50}; }
@@ -8468,7 +8469,19 @@ function renderDetail(r){
             // ── Day / Night splits ────────────────────────────────────
             const dayNight = r._batterStats?.dayNightSplits;
             if(dayNight){
-              const isNightGame = r._wx?.isNight ?? (r.gameTime ? parseInt(r.gameTime)>=17 : true);
+              // Use wx.isNight (set from actual game UTC time) — most reliable
+              // Fallback: gameTime ISO string parsed to local hour
+              let isNightGame = r._wx?.isNight;
+              if(isNightGame === undefined){
+                const gt = r.gameTime || r._wx?.gameTime;
+                if(gt){
+                  const d = new Date(gt);
+                  const utcH = d.getUTCHours();
+                  isNightGame = utcH >= 20 || utcH <= 3; // 8pm+ UTC ≈ afternoon+ ET
+                } else {
+                  isNightGame = true; // safe default
+                }
+              }
               const todaySplit = isNightGame ? dayNight.night : dayNight.day;
               const otherSplit = isNightGame ? dayNight.day   : dayNight.night;
               const todayLabel = isNightGame ? '🌙 Night' : '☀️ Day';
@@ -8518,12 +8531,14 @@ function renderDetail(r){
               const tempEffect   = wx.temp>=85?'🔥 Hot — ball carries well':wx.temp<=50?'🥶 Cold — ball dies':'🌡️ Neutral temperature';
               const tempClr      = wx.temp>=85?'var(--green)':wx.temp<=50?'var(--red)':'var(--t3)';
               const domeTeams    = new Set(['TB','TOR','MIA','HOU','SEA','ARI','MIL','MIN']);
-              const isDome       = domeTeams.has(r.home||r.team);
+              // Always use HOME team for venue (away team plays at home team's park)
+              const homeTeam     = r.homeTeam || r.home || r.game?.split('@')?.[1]?.trim() || r.team;
+              const isDome       = domeTeams.has(homeTeam);
 
               html+=`<div style="margin-top:14px">
                 <div style="font-size:.60rem;font-weight:700;color:var(--t4);
                   text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">
-                  🏟️ Venue & Weather — ${r._pitcherStats?.venue||r.home||r.team||'Today'}
+                  🏟️ Venue & Weather — ${homeTeam}
                 </div>
                 <div style="background:var(--bg3);border-radius:10px;
                   border:1px solid var(--bdr);padding:12px">
@@ -8543,8 +8558,10 @@ function renderDetail(r){
                       <div style="font-size:.60rem;color:${windClr};margin-top:3px">${windEffect}</div>
                     </div>
                   </div>
-                  ${wx.rain?`<div style="font-size:.65rem;color:var(--red);margin-top:8px;
-                    text-align:center">🌧️ Rain probability ${Math.round(wx.rain)}% — watch for delays</div>`:''}
+                  ${wx.rain>=30?`<div style="font-size:.65rem;color:var(--red);margin-top:8px;
+                    text-align:center">🌧️ Rain probability ${Math.round(wx.rain)}% — watch for delays</div>`
+                    :wx.rain>=15?`<div style="font-size:.65rem;color:var(--amber);margin-top:8px;
+                    text-align:center">🌦️ Rain chance ${Math.round(wx.rain)}% — monitor closer to first pitch</div>`:''}
                   <div style="font-size:.60rem;color:var(--t4);margin-top:8px;text-align:center">
                     Park factor: ${r.pf!=null?(r.pf>=1.05?'🟢 '+r.pf.toFixed(2)+'x':r.pf>=0.96?'⚪ '+r.pf.toFixed(2)+'x':'🔴 '+r.pf.toFixed(2)+'x'):'--'}
                     · wxMult: ${r.parkwx!=null?r.parkwx.toFixed(2)+'x':'--'}
