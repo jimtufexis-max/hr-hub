@@ -7179,7 +7179,7 @@ function renderBestBets(){
             ${ed&&ed.edge>=3?`<div style="margin-top:8px;padding:7px 10px;border-radius:8px;
               background:rgba(34,201,94,.08);border:1px solid rgba(34,201,94,.2);
               font-size:.68rem;color:var(--green)">
-              💰 FD ${fdOdds>0?'+':''}${fdOdds} · Expected: ${(r.prob*100).toFixed(1)+'%'} · Edge: +${ed.edge}%
+              💰 FD ${fdOdds>0?'+':''}${fdOdds} · +${ed.edge.toFixed(1)}% edge · Edge: +${ed.edge}%
             </div>`:''}
           </div>
         </div>
@@ -7403,8 +7403,10 @@ function renderHitterCard(r,showGame){
         </div>
         <div style="flex:1;min-width:0">
           <div style="font-size:.68rem;font-weight:700;color:${tc}">${tier.label}</div>
-          <div style="font-size:.60rem;color:var(--t4)">
-            FD: ${fdO>0?'+':''}${fdO} · Expected: ${(r.prob*100).toFixed(1)+'%'} · ${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px;flex-wrap:wrap">
+            <span style="font-size:.62rem;color:var(--t4)">FD ${fdO>0?'+':''}${fdO}</span>
+            <span style="font-size:.65rem;font-weight:800;color:${tc}">${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge</span>
+            ${tier.ev>0?`<span style="font-size:.62rem;color:var(--green)">· +${tier.ev.toFixed(1)}% EV</span>`:''}
           </div>
         </div>
         ${kelly&&kelly.units>0?`<div style="text-align:center;min-width:36px;
@@ -8876,47 +8878,59 @@ function renderDetail(r){
 }
 
 function calcBetEV(id,pctStr){
-  const odds=document.getElementById('det-odds').value.trim();
+  const raw=document.getElementById('det-odds').value.trim();
   const el=document.getElementById('det-ev-result');
-  if(!odds){el.innerHTML='';return;}
+  if(!raw){el.innerHTML='';return;}
   try{
-    const r2=S.allRows.find(x=>x.id===id);
-    const o=parseInt(odds);
-    if(isNaN(o)){el.innerHTML=`<div style="color:var(--red);font-size:.8rem">Invalid odds format</div>`;return;}
+    // Accept: 440, +440, -110 — strip spaces and leading +
+    const cleaned = raw.replace(/\s/g,'').replace(/^\+/,'');
+    const o = parseInt(cleaned, 10);
+    if(isNaN(o) || o===0){
+      el.innerHTML=`<div style="color:var(--red);font-size:.75rem;padding:6px 0">
+        Enter American odds: <b>440</b> or <b>+440</b> for underdogs, <b>-110</b> for favorites
+      </div>`;
+      return;
+    }
+    // Re-apply sign: if original had '-', keep negative; else positive
+    const finalOdds = raw.trim().startsWith('-') ? -Math.abs(o) : Math.abs(o);
     const prob=parseFloat(pctStr)/100;
-    const tier=getEdgeTier(prob,o);
+    const tier=getEdgeTier(prob,finalOdds);
     const kelly=tier?.kelly;
-    const implied=o>0?100/(o+100):Math.abs(o)/(Math.abs(o)+100);
+    const implied=finalOdds>0?100/(finalOdds+100):Math.abs(finalOdds)/(Math.abs(finalOdds)+100);
     const tierColor=tier?.tier==='S'?'#ffd700':tier?.tier==='A'?'var(--green)':tier?.tier==='B'?'var(--amber)':tier?.tier==='F'?'var(--red)':'var(--t4)';
 
     let html=`<div style="margin-top:10px">
       <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
         background:${tierColor}18;border-radius:8px;border:1px solid ${tierColor}30;margin-bottom:8px">
         <div style="font-size:1.1rem;font-weight:900;color:${tierColor};width:28px;text-align:center">${tier?.tier||'?'}</div>
-        <div>
+        <div style="flex:1">
           <div style="font-size:.72rem;font-weight:700;color:${tierColor}">${tier?.label||''}</div>
           <div style="font-size:.60rem;color:var(--t4)">${tier?.desc||''}</div>
         </div>
-        <div style="margin-left:auto;text-align:right">
-          <div style="font-size:.72rem;font-weight:700;color:${tier?.edge>=0?'var(--green)':'var(--red)'}">
+        <div style="text-align:right">
+          <div style="font-size:.82rem;font-weight:800;color:${tier?.edge>=0?'var(--green)':'var(--red)'}">
             ${tier?.edge>=0?'+':''}${tier?.edge?.toFixed(1)||'0'}%
           </div>
-          <div style="font-size:.58rem;color:var(--t4)">edge</div>
+          <div style="font-size:.55rem;color:var(--t4)">edge</div>
         </div>
+      </div>
+      <div style="font-size:.62rem;color:var(--t4);text-align:center;margin-bottom:8px;
+        padding:5px;background:var(--bg3);border-radius:7px">
+        Model ${(prob*100).toFixed(1)}% vs ${finalOdds>0?'+':''}${finalOdds} (${(implied*100).toFixed(1)}% implied · ${(implied/1.08*100).toFixed(1)}% no-vig)
       </div>`;
 
     if(kelly&&kelly.units>0){
       html+=`<div style="font-size:.60rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Kelly Sizing</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:6px">
-        ${[[50,100,250,500,1000,2000].map(bank=>{
+        ${[50,100,250,500,1000,2000].map(bank=>{
           const bet=Math.round(bank*kelly.fractional/100*100)/100;
-          const win=Math.round(bet*(o>0?o/100:100/Math.abs(o))*100)/100;
+          const win=Math.round(bet*(finalOdds>0?finalOdds/100:100/Math.abs(finalOdds))*100)/100;
           return `<div style="padding:6px;background:var(--bg3);border-radius:6px;text-align:center">
             <div style="font-size:.70rem;font-weight:800;color:${tierColor}">$${bet.toFixed(2)}</div>
             <div style="font-size:.55rem;color:var(--t4)">$${bank} bank</div>
             <div style="font-size:.55rem;color:var(--green)">+$${win.toFixed(0)}</div>
           </div>`;
-        }).join('')]}
+        }).join('')}
       </div>
       <div style="font-size:.58rem;color:var(--t4);text-align:center">
         ¼ Kelly = ${kelly.fractional.toFixed(1)}% of bankroll · Full Kelly ${kelly.kelly.toFixed(1)}%
