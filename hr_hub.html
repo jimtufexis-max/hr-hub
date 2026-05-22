@@ -4503,44 +4503,51 @@ const MAX_KELLY_PCT = 3; // never bet more than 3% of bankroll per play
 function renderSprayChart(sprayPts, title, batHand){
   if(!sprayPts||!sprayPts.length) return `<div style="font-size:.68rem;color:var(--t4);padding:16px 0;text-align:center">No batted ball data for this pitch type</div>`;
 
-  const W=280, H=230;
-  // Field dimensions in SVG units — map Statcast coords
-  // hc_x 0-250 maps to SVG 0-W, hc_y 0-250 maps to SVG 0-H (y=0 is deep)
-  const toSVG = (hcx, hcy) => ({
-    x: (hcx/250)*W,
-    y: H - (hcy/250)*H, // flip y: deep = top in SVG
+  const W=280, H=240;
+
+  // Statcast hc_x/hc_y: home plate is at approximately (125, 199)
+  // y decreases going toward outfield (top of frame)
+  const SC_HP_X=125, SC_HP_Y=199;
+  const SCALE=0.62; // Statcast pixels → SVG pixels
+  const HP={x:W/2, y:H-15}; // SVG home plate position
+
+  const toSVG=(hcx,hcy)=>({
+    x: HP.x + (hcx - SC_HP_X)*SCALE,
+    y: HP.y - (SC_HP_Y - hcy)*SCALE, // smaller hcy = further out = higher in SVG
   });
 
-  // Home plate position in SVG
-  const hp = { x: W/2, y: H-8 };
+  // Field outline points
+  const LF_FOUL=toSVG(11,  87);
+  const CF     =toSVG(125, 15);
+  const RF_FOUL=toSVG(239, 87);
+  const LF_WALL=toSVG(45,  65);
+  const RF_WALL=toSVG(205, 65);
+  const P2B    =toSVG(125,105);
+  const P1B    =toSVG(170,152);
+  const P3B    =toSVG(80, 152);
 
-  // Field outline: foul lines + arc
-  const lfFoul  = toSVG(0,   208);
-  const rfFoul  = toSVG(250, 208);
-  const cfPoint = toSVG(125, 15);
-  const lfWall  = toSVG(22,  60);
-  const rfWall  = toSVG(228, 60);
+  // Unique clip ID to avoid SVG conflicts when multiple charts render
+  const clipId=`sc${Math.random().toString(36).slice(2,8)}`;
 
-  // Count by result type
-  const hrs    = sprayPts.filter(p=>p.evt==='home_run');
-  const xbh    = sprayPts.filter(p=>['double','triple'].includes(p.evt));
-  const singles= sprayPts.filter(p=>p.evt==='single');
-  const outs   = sprayPts.filter(p=>p.evt&&p.evt!=='home_run'&&p.evt!=='single'&&p.evt!=='double'&&p.evt!=='triple'&&p.evt!=='walk'&&p.evt!=='hit_by_pitch');
+  const hrs    =sprayPts.filter(p=>p.evt==='home_run');
+  const xbh    =sprayPts.filter(p=>['double','triple'].includes(p.evt));
+  const singles=sprayPts.filter(p=>p.evt==='single');
+  const outs   =sprayPts.filter(p=>p.evt&&!['home_run','single','double','triple','walk','hit_by_pitch','strikeout',''].includes(p.evt));
 
-  const dot = (p, color, r=3, opacity=0.8) => {
-    const {x,y} = toSVG(p.x, p.y);
-    // Clamp to field area
-    if(y>H-5||y<5||x<5||x>W-5) return '';
+  const dot=(p,color,r,opacity=0.85)=>{
+    const {x,y}=toSVG(p.x,p.y);
+    if(isNaN(x)||isNaN(y)||y>HP.y+5||y<2||x<2||x>W-2) return '';
     return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}"
-      fill="${color}" opacity="${opacity}" stroke="rgba(0,0,0,.3)" stroke-width=".5">
-      <title>${p.evt||'out'} · EV ${p.ev.toFixed(0)}mph · LA ${p.la.toFixed(0)}°</title>
+      fill="${color}" opacity="${opacity}" stroke="rgba(0,0,0,.35)" stroke-width=".5"
+      clip-path="url(#${clipId})">
+      <title>${p.evt||'out'}${p.ev>0?' · EV '+p.ev.toFixed(0)+'mph':''}${p.la?' · LA '+p.la.toFixed(0)+'°':''}</title>
     </circle>`;
   };
 
-  // Pull tendency calculation
-  const bip = sprayPts.filter(p=>p.x>0&&p.y>0);
-  const pullSide = batHand==='L' ? bip.filter(p=>p.x>140) : bip.filter(p=>p.x<110);
-  const pullPct  = bip.length>0 ? Math.round(pullSide.length/bip.length*100) : null;
+  // Pull% (LHB pulls to RF = high hc_x, RHB pulls to LF = low hc_x)
+  const bip=sprayPts.filter(p=>p.x>0&&p.y>0&&p.y<SC_HP_Y+10);
+  const pullSide=batHand==='L'?bip.filter(p=>p.x>SC_HP_X+20):bip.filter(p=>p.x<SC_HP_X-20);
+  const pullPct=bip.length>0?Math.round(pullSide.length/bip.length*100):null;
 
   return `<div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -4549,62 +4556,53 @@ function renderSprayChart(sprayPts, title, batHand){
     </div>
     <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"
       style="width:100%;max-width:${W}px;display:block;margin:0 auto;border-radius:8px;overflow:hidden">
-
-      <!-- Sky/grass background -->
+      <defs>
+        <clipPath id="${clipId}">
+          <path d="M ${HP.x} ${HP.y}
+            L ${LF_FOUL.x.toFixed(1)} ${LF_FOUL.y.toFixed(1)}
+            Q ${CF.x.toFixed(1)} ${CF.y.toFixed(1)}
+            ${RF_FOUL.x.toFixed(1)} ${RF_FOUL.y.toFixed(1)} Z"/>
+        </clipPath>
+      </defs>
       <rect width="${W}" height="${H}" fill="#0a1f0a"/>
-
-      <!-- Outfield grass arc -->
-      <path d="M ${hp.x} ${hp.y}
-        L ${lfFoul.x.toFixed(1)} ${lfFoul.y.toFixed(1)}
-        Q ${cfPoint.x} ${cfPoint.y} ${rfFoul.x.toFixed(1)} ${rfFoul.y.toFixed(1)} Z"
+      <!-- Outfield grass -->
+      <path d="M ${HP.x} ${HP.y} L ${LF_FOUL.x.toFixed(1)} ${LF_FOUL.y.toFixed(1)}
+        Q ${CF.x.toFixed(1)} ${CF.y.toFixed(1)} ${RF_FOUL.x.toFixed(1)} ${RF_FOUL.y.toFixed(1)} Z"
         fill="#0d2a0d"/>
-
       <!-- Warning track -->
-      <path d="M ${hp.x} ${hp.y}
-        L ${lfWall.x.toFixed(1)} ${lfWall.y.toFixed(1)}
-        Q ${cfPoint.x} ${(cfPoint.y+18).toFixed(1)} ${rfWall.x.toFixed(1)} ${rfWall.y.toFixed(1)} Z"
+      <path d="M ${HP.x} ${HP.y} L ${LF_WALL.x.toFixed(1)} ${LF_WALL.y.toFixed(1)}
+        Q ${CF.x.toFixed(1)} ${(CF.y+16).toFixed(1)} ${RF_WALL.x.toFixed(1)} ${RF_WALL.y.toFixed(1)} Z"
         fill="#0f2f0f"/>
-
       <!-- Infield dirt -->
-      <path d="M ${hp.x} ${hp.y}
-        L ${(hp.x-52).toFixed(1)} ${(hp.y-52).toFixed(1)}
-        L ${hp.x} ${(hp.y-105).toFixed(1)}
-        L ${(hp.x+52).toFixed(1)} ${(hp.y-52).toFixed(1)} Z"
-        fill="#2a1a0a" opacity=".8"/>
-
+      <path d="M ${HP.x} ${HP.y} L ${P1B.x.toFixed(1)} ${P1B.y.toFixed(1)}
+        L ${P2B.x.toFixed(1)} ${P2B.y.toFixed(1)} L ${P3B.x.toFixed(1)} ${P3B.y.toFixed(1)} Z"
+        fill="#2a1a0a" opacity=".85"/>
       <!-- Foul lines -->
-      <line x1="${hp.x}" y1="${hp.y}" x2="${lfFoul.x.toFixed(1)}" y2="${lfFoul.y.toFixed(1)}"
-        stroke="rgba(255,255,255,.25)" stroke-width="1.5"/>
-      <line x1="${hp.x}" y1="${hp.y}" x2="${rfFoul.x.toFixed(1)}" y2="${rfFoul.y.toFixed(1)}"
-        stroke="rgba(255,255,255,.25)" stroke-width="1.5"/>
-
+      <line x1="${HP.x}" y1="${HP.y}" x2="${LF_FOUL.x.toFixed(1)}" y2="${LF_FOUL.y.toFixed(1)}"
+        stroke="rgba(255,255,255,.3)" stroke-width="1.5"/>
+      <line x1="${HP.x}" y1="${HP.y}" x2="${RF_FOUL.x.toFixed(1)}" y2="${RF_FOUL.y.toFixed(1)}"
+        stroke="rgba(255,255,255,.3)" stroke-width="1.5"/>
       <!-- Bases -->
-      <rect x="${hp.x-4}" y="${(hp.y-106)}" width="7" height="7"
-        fill="rgba(255,255,255,.7)" transform="rotate(45 ${hp.x} ${hp.y-102.5})"/>
-      <rect x="${(hp.x-54)}" y="${(hp.y-56)}" width="6" height="6"
-        fill="rgba(255,255,255,.7)" transform="rotate(45 ${hp.x-51} ${hp.y-53})"/>
-      <rect x="${(hp.x+48)}" y="${(hp.y-56)}" width="6" height="6"
-        fill="rgba(255,255,255,.7)" transform="rotate(45 ${hp.x+51} ${hp.y-53})"/>
-
-      <!-- Outs (small grey) -->
-      ${outs.map(p=>dot(p,'rgba(120,120,120,.5)',2.5,0.6)).join('')}
-      <!-- Singles (white) -->
-      ${singles.map(p=>dot(p,'#ffffff',3,0.85)).join('')}
-      <!-- XBH (blue) -->
-      ${xbh.map(p=>dot(p,'#60a5fa',4,0.9)).join('')}
-      <!-- HRs (gold, bigger) -->
-      ${hrs.map(p=>dot(p,'#ffd700',5,1.0)).join('')}
-
-      <!-- Home plate marker -->
-      <polygon points="${hp.x},${hp.y+3} ${hp.x-4},${hp.y-1} ${hp.x-4},${hp.y-7} ${hp.x+4},${hp.y-7} ${hp.x+4},${hp.y-1}"
+      <rect x="${(P2B.x-3.5).toFixed(1)}" y="${(P2B.y-3.5).toFixed(1)}" width="7" height="7"
+        fill="rgba(255,255,255,.8)" transform="rotate(45,${P2B.x.toFixed(1)},${P2B.y.toFixed(1)})"/>
+      <rect x="${(P1B.x-3).toFixed(1)}" y="${(P1B.y-3).toFixed(1)}" width="6" height="6"
+        fill="rgba(255,255,255,.8)" transform="rotate(45,${P1B.x.toFixed(1)},${P1B.y.toFixed(1)})"/>
+      <rect x="${(P3B.x-3).toFixed(1)}" y="${(P3B.y-3).toFixed(1)}" width="6" height="6"
+        fill="rgba(255,255,255,.8)" transform="rotate(45,${P3B.x.toFixed(1)},${P3B.y.toFixed(1)})"/>
+      <!-- Dots layered: outs → singles → xbh → hrs -->
+      ${outs.map(p=>dot(p,'rgba(130,130,130,.6)',2.2,0.65)).join('')}
+      ${singles.map(p=>dot(p,'#e2e8f0',3.0,0.88)).join('')}
+      ${xbh.map(p=>dot(p,'#60a5fa',4.0,0.92)).join('')}
+      ${hrs.map(p=>dot(p,'#ffd700',5.5,1.0)).join('')}
+      <!-- Home plate -->
+      <polygon points="${HP.x},${HP.y+4} ${(HP.x-5).toFixed(1)},${HP.y} ${(HP.x-5).toFixed(1)},${(HP.y-6).toFixed(1)} ${(HP.x+5).toFixed(1)},${(HP.y-6).toFixed(1)} ${(HP.x+5).toFixed(1)},${HP.y}"
         fill="rgba(255,255,255,.9)"/>
     </svg>
-
-    <!-- Legend -->
     <div style="display:flex;gap:12px;justify-content:center;margin-top:7px;flex-wrap:wrap">
-      ${[['⚫','Out',`${outs.length}`],['⚪','Single',`${singles.length}`],['🔵','XBH',`${xbh.length}`],['🟡','HR',`${hrs.length}`]]
-        .map(([dot,lbl,n])=>`<div style="display:flex;align-items:center;gap:4px;font-size:.60rem;color:var(--t4)">
-          <span>${dot}</span><span>${lbl} ${n}</span></div>`).join('')}
+      ${[['#555','Out',outs.length],['#e2e8f0','Single',singles.length],['#60a5fa','XBH',xbh.length],['#ffd700','HR',hrs.length]]
+        .map(([clr,lbl,n])=>`<div style="display:flex;align-items:center;gap:5px;font-size:.62rem;color:var(--t4)">
+          <div style="width:9px;height:9px;border-radius:50%;background:${clr}"></div>
+          <span>${lbl} ${n}</span></div>`).join('')}
     </div>
   </div>`;
 }
