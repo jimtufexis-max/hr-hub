@@ -889,7 +889,7 @@ const MLB    = 'https://statsapi.mlb.com/api/v1';
 const PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
 // The Odds API key — get free at https://the-odds-api.com (500 req/month free)
 // Enables FanDuel live HR prop odds + edge on every hitter card
-const ODDS_API_KEY = 'bf91db045e38231e73ae42c9be422163'; // <-- paste your key between these quotes
+const ODDS_API_KEY = ''; // <-- paste your key between these quotes
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
   ATL:1.04,CHC:1.03,TEX:1.03,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
   WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.97,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
@@ -1696,15 +1696,28 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
          homeAwayMult,paMultiplier,umpMult,hvhMult};
 }
 
+// Convert per-PA probability to per-GAME probability
+// This is what books price — a player with 7% per-PA gets ~4PA → 25% per game
+// perPAtoGame(0.07, 4.2) = 1 - (0.93^4.2) = 25.8% → +288 fair odds
+function perPAtoGame(perPA, lineupPos){
+  const expPA = lineupPos ? clamp(4.8-(lineupPos-1)*0.15, 3.2, 4.8) : 4.1;
+  const gameProb = 1 - Math.pow(1 - perPA, expPA);
+  return clamp(gameProb, 0.005, 0.60); // realistic game cap ~55%
+}
+
 
 // ── GRADES ────────────────────────────────────────────────────────
 function probGrade(p){
-  if(p>=0.150)return['A+','#22c95e','a'];
-  if(p>=0.115)return['A', '#22c95e','a'];
-  if(p>=0.088)return['B+','#5fffb0','b'];
-  if(p>=0.068)return['B', '#f0a500','b'];
-  if(p>=0.050)return['C+','#f0a500','c'];
-  if(p>=0.035)return['C', '#e0504a','c'];
+  // Per-game probability thresholds (books price per game)
+  // MLB avg HR/game ≈ 12.7% (3.5%/PA × 3.8PA)
+  // Elite: Judge, Schwarber ~28-35%
+  if(p>=0.320)return['A+','#22c95e','a'];  // elite — +213 fair
+  if(p>=0.240)return['A', '#22c95e','a'];  // great  — +317 fair
+  if(p>=0.180)return['B+','#5fffb0','b'];  // good   — +456 fair
+  if(p>=0.140)return['B', '#f0a500','b'];  // above avg — +614 fair
+  if(p>=0.105)return['C+','#f0a500','c'];  // avg    — +852 fair
+  if(p>=0.070)return['C', '#e0504a','c'];  // below avg — +1329 fair
+  return              ['D', '#888',   'd'];
   return['D','#607080','c'];
 }
 
@@ -1855,6 +1868,36 @@ async function getPlayerPlatoonSplits(pid){
       vsLFull: toSplit(vsL),
       vsRFull: toSplit(vsR),
     };
+    _playerCache[key] = result;
+    return result;
+  }catch{ _playerCache[key]=null; return null; }
+}
+
+// ==================================================================
+//  DAY / NIGHT SPLITS — MLB Stats API sitCode d=day, n=night
+// ==================================================================
+async function getDayNightSplits(pid){
+  const key = `dn_${pid}`;
+  if(_playerCache[key]) return _playerCache[key];
+  try{
+    const d = await fetchJSON(
+      `${MLB}/people/${pid}/stats?stats=statSplits&group=hitting&season=${SEASON}&sitCodes=d,n&gameType=R`
+    );
+    const splits = d.stats?.[0]?.splits || [];
+    const dayS  = splits.find(s=>s.split?.code==='d')?.stat;
+    const nightS = splits.find(s=>s.split?.code==='n')?.stat;
+    const toSplit = st => {
+      if(!st) return null;
+      const pa=parseInt(st.plateAppearances)||0;
+      const hr=parseInt(st.homeRuns)||0;
+      const avg=parseFloat(st.avg)||0;
+      const slg=parseFloat(st.slg)||0;
+      const obp=parseFloat(st.obp)||0;
+      return { pa, hr, avg, slg, obp,
+        iso: Math.round((slg-avg)*1000)/1000,
+        ops: Math.round((obp+slg)*1000)/1000 };
+    };
+    const result = { day: toSplit(dayS), night: toSplit(nightS) };
     _playerCache[key] = result;
     return result;
   }catch{ _playerCache[key]=null; return null; }
@@ -2408,7 +2451,9 @@ function fireSecondaryMaps(){
         if(r._pitcherStats && r._batterStats){
           try{
             const res = calcHRProb(r._batterStats, r._pitcherStats, r._pf, r._wx, r._recentGames);
-            r.prob    = res.prob;
+            const lineupPos2 = r._batterStats?.lineupPos || r.lineupPos || null;
+            r.prob    = perPAtoGame(res.prob, lineupPos2);
+            r.probPerPA = res.prob;
             r.anchor  = res.anchor;
             r.platoon = res.platoon;
             r.pitcher = res.pitcher;
@@ -3656,7 +3701,7 @@ function recordResult(playerId, playerName, prob, actualHR){
     const today = ds();
     const existing = stored.findIndex(r=>r.id===playerId&&r.date===today);
     const entry = { id:playerId, name:playerName, prob, actual:actualHR, date:today,
-      hit:(prob>=0.08&&actualHR>0)||(prob<0.08&&actualHR===0), manualRecord:true };
+      hit:(prob>=0.20&&actualHR>0)||(prob<0.20&&actualHR===0), manualRecord:true };
     if(existing>=0) stored[existing]=entry;
     else stored.push(entry);
     if(stored.length>500) stored.splice(0,stored.length-500);
@@ -3697,7 +3742,7 @@ function getModelStats(){
     const hrs = tracked.filter(r=>r.actual>0).length;
     const hrRate = Math.round(hrs/total*1000)/10;
     const hits = tracked.filter(r=>r.hit).length;
-    const highConf = tracked.filter(r=>r.prob>=0.10);
+    const highConf = tracked.filter(r=>r.prob>=0.28);
     const highConfHit = highConf.filter(r=>r.actual>0).length;
     const autoTracked = tracked.filter(r=>r.autoTracked).length;
     return{
@@ -3787,7 +3832,7 @@ async function autoTrackResults(){
               if(idx>=0){
                 stored[idx].actual = actualHR;
                 stored[idx].autoTracked = true;
-                stored[idx].hit = (entry.prob>=0.08&&actualHR>0)||(entry.prob<0.08&&actualHR===0);
+                stored[idx].hit = (entry.prob>=0.20&&actualHR>0)||(entry.prob<0.20&&actualHR===0);
                 console.log(`[autoTrack] ${entry.name}: ${actualHR} HR (prob was ${(entry.prob*100).toFixed(1)}%)`);
               }
             }
@@ -4435,13 +4480,21 @@ function getEdgeTier(ourProb, bookOdds){
   if(!bookOdds) return null;
   const toProb=o=>o>0?100/(o+100):Math.abs(o)/(Math.abs(o)+100);
   const bookProb = toProb(bookOdds);
-  const edge = (ourProb - bookProb) * 100; // percentage points
+  const noVigProb = bookProb / 1.08; // strip ~8% book vig for true edge calc
+  const edge = Math.round((ourProb - noVigProb) * 1000) / 10; // percentage points vs no-vig
+
+  // EV% = (prob × decimalOdds - 1) × 100
+  // = expected profit per dollar wagered as a percentage
+  // Matches industry standard display: Schwarber 34.1% @ +285 → +31.1% EV ✓
+  const decOdds = bookOdds > 0 ? (bookOdds/100)+1 : (100/Math.abs(bookOdds))+1;
+  const ev = Math.round((ourProb * decOdds - 1) * 1000) / 10;
+
   const kelly = kellySize(ourProb, bookOdds);
-  if(edge>=8) return { tier:'S', label:'Max Bet', color:'#ffd700', edge, kelly, desc:`+${edge.toFixed(1)}% edge — book significantly underpricing` };
-  if(edge>=5) return { tier:'A', label:'Strong Bet', color:'var(--green)', edge, kelly, desc:`+${edge.toFixed(1)}% edge — clear value` };
-  if(edge>=2) return { tier:'B', label:'Lean', color:'var(--amber)', edge, kelly, desc:`+${edge.toFixed(1)}% edge — slight value` };
-  if(edge>=-2) return { tier:'C', label:'Pass', color:'var(--t4)', edge, kelly, desc:'Near fair value — no clear edge' };
-  return { tier:'F', label:'Fade', color:'var(--red)', edge, kelly, desc:`${edge.toFixed(1)}% — overpriced, avoid` };
+  if(edge>=8) return { tier:'S', label:'Max Bet',    color:'#ffd700',      edge, ev, kelly, desc:`+${edge.toFixed(1)}% edge — book significantly underpricing` };
+  if(edge>=5) return { tier:'A', label:'Strong Bet', color:'var(--green)', edge, ev, kelly, desc:`+${edge.toFixed(1)}% edge — clear value` };
+  if(edge>=2) return { tier:'B', label:'Lean',       color:'var(--amber)', edge, ev, kelly, desc:`+${edge.toFixed(1)}% edge — slight value` };
+  if(edge>=-2) return { tier:'C', label:'Pass',      color:'var(--t4)',    edge, ev, kelly, desc:'Near fair value — no clear edge' };
+  return { tier:'F', label:'Fade', color:'var(--red)', edge, ev, kelly, desc:`${edge.toFixed(1)}% — overpriced, avoid` };
 }
 
 // ==================================================================
@@ -4807,7 +4860,7 @@ function getHitRateTracker(){
   // Per-tier breakdown
   const tiers = { S:[], A:[], B:[], C:[] };
   for(const r of resolved){
-    const g = r.grade || (r.prob>=0.08?'S':r.prob>=0.06?'A':r.prob>=0.04?'B':'C');
+    const g = r.grade || (r.prob>=0.28?'S':r.prob>=0.20?'A':r.prob>=0.14?'B':'C');
     if(tiers[g]) tiers[g].push(r);
   }
 
@@ -4818,7 +4871,7 @@ function getHitRateTracker(){
 
   // Best/worst performers
   const hits   = resolved.filter(r=>r.actual>0);
-  const misses = resolved.filter(r=>r.actual===0 && r.prob>=0.07);
+  const misses = resolved.filter(r=>r.actual===0 && r.prob>=0.18);
 
   return { resolved, buckets, tiers, calibration, hits, misses,
     totalExpected:totalExpected.toFixed(1), totalActual };
@@ -5050,7 +5103,7 @@ function renderWhyMiss(el){
   const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
   // High-conf misses: prob >= 6%, actual = 0
   const misses = stored.filter(r=>
-    r.actual===0 && r.prob!=null && r.prob>=0.060 &&
+    r.actual===0 && r.prob!=null && r.prob>=0.150 &&
     r.manualBet===true &&
     r.date && r.date < ds()  // past games only, manually tracked only
   ).sort((a,b)=>b.prob-a.prob).slice(0,8);
@@ -5285,7 +5338,7 @@ function renderKelly(){
   const trackedToday = stored.filter(r=>r.date===today&&r.manualBet);
   // Combine tracked + top model plays
   const topRows = S.allRows
-    .filter(r=>r.prob>=0.045)
+    .filter(r=>r.prob>=0.120)
     .sort((a,b)=>b.prob-a.prob)
     .slice(0,12);
 
@@ -5388,27 +5441,79 @@ function renderKelly(){
       </div>
     </div>
 
-    <!-- Player Cards -->
-    <div style="font-size:.62rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-      letter-spacing:.09em;margin-bottom:10px">Tonight's Plays</div>
+    <!-- Pinned Picks -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:.62rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.09em">
+        📌 My Picks
+      </div>
+      <button onclick="showAddPickModal()" style="display:flex;align-items:center;gap:5px;
+        padding:5px 12px;border-radius:99px;border:1px solid var(--amber);
+        background:rgba(255,165,0,.1);color:var(--amber);font-size:.65rem;
+        font-weight:700;cursor:pointer">
+        + Add Pick
+      </button>
+    </div>
+    <div id="kelly-pinned" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">
+      ${(()=>{
+        const pinned = getKellyPins();
+        if(!pinned.length) return `<div style="padding:16px;background:var(--bg3);border-radius:12px;
+          border:1px dashed rgba(255,165,0,.2);text-align:center">
+          <div style="font-size:.72rem;color:var(--t4);margin-bottom:6px">No picks added yet</div>
+          <div style="font-size:.62rem;color:var(--t4)">Tap <b style="color:var(--amber)">+ Add Pick</b> above or tap
+            <b style="color:var(--amber)">📌 Add to Kelly</b> on any player card</div>
+        </div>`;
+        return pinned.map(p=>{
+          const r = S.allRows.find(x=>String(x.id)===String(p.id));
+          if(!r) return renderKellyPinnedStub(p, savedBankroll, savedFraction, savedUnitPct);
+          return renderKellyCard(r, savedBankroll, savedFraction, savedUnitPct, true);
+        }).join('');
+      })()}
+    </div>
+
+    <!-- Model Suggestions -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:.62rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.09em">
+        🤖 Model Suggestions
+      </div>
+      <span style="font-size:.60rem;color:var(--t4)">tap + to add</span>
+    </div>
     <div id="kelly-cards" style="display:flex;flex-direction:column;gap:8px">
-      ${topRows.length ? topRows.map(r=>renderKellyCard(r, savedBankroll, savedFraction, savedUnitPct)).join('') :
+      ${topRows.length ? topRows.map(r=>renderKellyCard(r, savedBankroll, savedFraction, savedUnitPct, false)).join('') :
         '<div style="font-size:.70rem;color:var(--t4);padding:20px 0;text-align:center">Load games on the Slate tab to see plays</div>'}
+    </div>
+
+    <!-- Add Pick Modal -->
+    <div id="kelly-add-modal" style="display:none;position:fixed;inset:0;z-index:100;
+      background:rgba(0,0,0,.7);backdrop-filter:blur(4px);padding:20px;
+      display:none;align-items:flex-end">
+      <div style="width:100%;background:#1a2332;border-radius:20px 20px 0 0;
+        padding:20px;border:1px solid var(--bdr)">
+        <div style="font-size:.85rem;font-weight:800;color:var(--t1);margin-bottom:14px">
+          Add Pick to Kelly Calculator
+        </div>
+        <input id="kelly-search-input" type="text" placeholder="Search player name…"
+          oninput="searchKellyPlayers(this.value)"
+          style="width:100%;padding:12px 14px;background:var(--bg3);border:1px solid var(--bdr);
+          border-radius:10px;color:var(--t1);font-size:.85rem;margin-bottom:10px">
+        <div id="kelly-search-results" style="max-height:240px;overflow-y:auto;
+          display:flex;flex-direction:column;gap:6px"></div>
+        <button onclick="closeAddPickModal()"
+          style="width:100%;margin-top:14px;padding:12px;border-radius:10px;
+          border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);
+          font-size:.75rem;font-weight:700;cursor:pointer">Cancel</button>
+      </div>
     </div>`;
 
-  // Wire bankroll input
   document.getElementById('kelly-bankroll').addEventListener('input', updateKellyCalc);
 }
 
-function renderKellyCard(r, bankroll, fraction, unitPct){
+function renderKellyCard(r, bankroll, fraction, unitPct, isPinned=false){
   const fdO = getFDOdds(r.name);
   const tier = fdO ? getEdgeTier(r.prob, fdO) : null;
   if(!tier || tier.edge < 0) return '';
 
   const kelly = tier?.kelly;
   const fractionMultiplier = fraction==='full'?1 : fraction==='half'?0.5 : 0.25;
-
-  // Dollar amount = bankroll × full kelly % × fraction
   const fullKellyPct = kelly?.kelly || 0;
   const betPct = fullKellyPct * fractionMultiplier;
   const betDollars = (bankroll * betPct / 100);
@@ -5418,50 +5523,130 @@ function renderKellyCard(r, bankroll, fraction, unitPct){
     ? betDollars * fdO / 100
     : betDollars * 100 / Math.abs(fdO);
 
-  if(betDollars < 0.50) return ''; // skip negative/zero edge
+  if(betDollars < 0.50 && !isPinned) return '';
 
   const [,gc] = probGrade(r.prob);
   const tierClr = tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':'var(--amber)';
   const headshotUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_80,q_auto:best/v1/people/${r.id}/headshot/67/current`;
+  const pinned = isKellyPinned(r.id);
 
-  return `<div style="background:var(--bg2);border:1px solid var(--bdr);border-radius:14px;
-    padding:14px 16px;cursor:pointer" onclick="showDetail('${r.id}')">
-    <div style="display:flex;align-items:center;gap:12px">
-      <!-- Headshot -->
+  return `<div style="background:${isPinned?'rgba(255,165,0,.06)':'var(--bg2)'};
+    border:1px solid ${isPinned?'rgba(255,165,0,.25)':'var(--bdr)'};border-radius:14px;
+    padding:14px 16px;position:relative">
+    <!-- Pin/Unpin button -->
+    <button onclick="toggleKellyPin('${r.id}','${r.name.replace(/'/g,"\\'")}');event.stopPropagation()"
+      style="position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:50%;
+      border:1px solid ${pinned?'rgba(255,165,0,.5)':'var(--bdr)'};
+      background:${pinned?'rgba(255,165,0,.15)':'var(--bg3)'};
+      color:${pinned?'var(--amber)':'var(--t4)'};cursor:pointer;
+      font-size:.75rem;display:flex;align-items:center;justify-content:center">
+      ${pinned?'📌':'＋'}
+    </button>
+    <div style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="showDetail('${r.id}')">
       <img src="${headshotUrl}" style="width:46px;height:46px;border-radius:50%;
         object-fit:cover;flex-shrink:0;border:2px solid ${tierClr}33"
         onerror="this.style.display='none'">
-      <!-- Info -->
-      <div style="flex:1;min-width:0">
-        <div style="font-size:.82rem;font-weight:800;color:var(--t1);margin-bottom:2px">
-          ${r.name}
-        </div>
-        <div style="font-size:.62rem;color:var(--t4)">
-          ${r.game||r.team} · ${(r.prob*100).toFixed(1)}%
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
-          ${fdO!=null?`<span style="font-size:.65rem;color:var(--t3);font-weight:700">
-            ${fdO>0?'+':''}${fdO}</span>`:''}
-          ${tier?`<span style="font-size:.63rem;color:${tierClr};font-weight:700">
-            +${tier.edge.toFixed(1)}% edge</span>`:''}
-          ${tier?`<span style="font-size:.63rem;color:var(--green);font-weight:700">
-            +${tier.ev?.toFixed(1)||'0'}% EV</span>`:''}
+      <div style="flex:1;min-width:0;padding-right:32px">
+        <div style="font-size:.82rem;font-weight:800;color:var(--t1);margin-bottom:2px">${r.name}</div>
+        <div style="font-size:.62rem;color:var(--t4)">${r.game||r.team} · ${(r.prob*100).toFixed(1)}%</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap">
+          ${fdO!=null?`<span style="font-size:.65rem;color:var(--t3);font-weight:700">${fdO>0?'+':''}${fdO}</span>`:''}
+          ${tier&&tier.edge>0?`<span style="font-size:.62rem;color:var(--t4)">· +${tier.edge.toFixed(1)}% edge</span>`:''}
+          ${tier&&tier.ev>0?`<span style="font-size:.63rem;color:var(--green);font-weight:700">· +${tier.ev.toFixed(1)}% EV</span>`:''}
         </div>
       </div>
-      <!-- Bet amount -->
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:1.3rem;font-weight:900;color:${tierClr}">
-          $${betDollars.toFixed(2)}
-        </div>
-        <div style="font-size:.62rem;color:var(--t4);margin-top:1px">
-          ${units.toFixed(2)}u
-        </div>
-        ${potentialWin>0?`<div style="font-size:.60rem;color:var(--green);margin-top:2px;font-weight:700">
-          win +$${potentialWin.toFixed(0)}</div>`:''}
+        <div style="font-size:1.3rem;font-weight:900;color:${tierClr}">$${betDollars.toFixed(2)}</div>
+        <div style="font-size:.62rem;color:var(--t4);margin-top:1px">${units.toFixed(2)}u</div>
+        ${potentialWin>0?`<div style="font-size:.60rem;color:var(--green);margin-top:2px;font-weight:700">+$${potentialWin.toFixed(0)}</div>`:''}
       </div>
     </div>
   </div>`;
 }
+
+function renderKellyPinnedStub(p, bankroll, fraction, unitPct){
+  // Render a pinned pick when the player row isn't loaded (different date/game not loaded)
+  return `<div style="background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);
+    border-radius:14px;padding:14px 16px;display:flex;align-items:center;
+    justify-content:space-between">
+    <div>
+      <div style="font-size:.80rem;font-weight:800;color:var(--t2)">${p.name}</div>
+      <div style="font-size:.62rem;color:var(--t4);margin-top:2px">Load today's slate to see sizing</div>
+    </div>
+    <button onclick="toggleKellyPin('${p.id}','${p.name.replace(/'/g,"\\'")}');event.stopPropagation()"
+      style="padding:5px 10px;border-radius:8px;border:1px solid rgba(255,80,80,.3);
+      background:rgba(255,80,80,.08);color:var(--red);font-size:.65rem;cursor:pointer">
+      Remove
+    </button>
+  </div>`;
+}
+
+// ── Kelly Pins persistence ────────────────────────────────────────
+function getKellyPins(){
+  try{ return JSON.parse(localStorage.getItem('kelly_pins')||'[]'); }catch{ return []; }
+}
+function isKellyPinned(id){
+  return getKellyPins().some(p=>String(p.id)===String(id));
+}
+function toggleKellyPin(id, name){
+  const pins = getKellyPins();
+  const idx = pins.findIndex(p=>String(p.id)===String(id));
+  if(idx>=0){ pins.splice(idx,1); }
+  else{ pins.unshift({id:String(id), name, addedAt:Date.now()}); }
+  localStorage.setItem('kelly_pins', JSON.stringify(pins));
+  renderKelly(); // refresh
+}
+
+// ── Add Pick modal ────────────────────────────────────────────────
+function showAddPickModal(){
+  const modal = document.getElementById('kelly-add-modal');
+  if(!modal) return;
+  modal.style.display = 'flex';
+  setTimeout(()=>document.getElementById('kelly-search-input')?.focus(), 100);
+  searchKellyPlayers('');
+}
+function closeAddPickModal(){
+  const modal = document.getElementById('kelly-add-modal');
+  if(modal) modal.style.display = 'none';
+}
+function searchKellyPlayers(query){
+  const el = document.getElementById('kelly-search-results');
+  if(!el) return;
+  const q = query.toLowerCase().trim();
+  const rows = S.allRows
+    .filter(r=>!q || r.name.toLowerCase().includes(q))
+    .sort((a,b)=>b.prob-a.prob)
+    .slice(0,20);
+  if(!rows.length){
+    el.innerHTML = '<div style="font-size:.70rem;color:var(--t4);padding:12px;text-align:center">No players found — load games first</div>';
+    return;
+  }
+  el.innerHTML = rows.map(r=>{
+    const fdO = getFDOdds(r.name);
+    const tier = fdO ? getEdgeTier(r.prob, fdO) : null;
+    const pinned = isKellyPinned(r.id);
+    const tierClr = tier?.tier==='S'?'#ffd700':tier?.tier==='A'?'var(--green)':tier?.tier==='B'?'var(--amber)':'var(--t4)';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;
+      padding:10px 12px;background:var(--bg3);border-radius:10px;
+      border:1px solid ${pinned?'rgba(255,165,0,.3)':'var(--bdr)'}">
+      <div>
+        <div style="font-size:.78rem;font-weight:700;color:var(--t1)">${r.name}</div>
+        <div style="font-size:.60rem;color:var(--t4)">${r.team} · ${(r.prob*100).toFixed(1)}%
+          ${fdO?` · <span style="color:${tierClr}">${fdO>0?'+':''}${fdO}${tier?' '+tier.tier+'-tier':''}</span>`:''}
+        </div>
+      </div>
+      <button onclick="toggleKellyPin('${r.id}','${r.name.replace(/'/g,"\\'")}');searchKellyPlayers(document.getElementById('kelly-search-input').value)"
+        style="padding:6px 14px;border-radius:8px;font-size:.68rem;font-weight:700;cursor:pointer;
+        border:1px solid ${pinned?'rgba(255,80,80,.4)':'rgba(255,165,0,.4)'};
+        background:${pinned?'rgba(255,80,80,.1)':'rgba(255,165,0,.1)'};
+        color:${pinned?'var(--red)':'var(--amber)'}">
+        ${pinned?'Remove':'+ Add'}
+      </button>
+    </div>`;
+  }).join('');
+}
+
+
 
 function updateKellyCalc(){
   const bankroll = parseFloat(document.getElementById('kelly-bankroll')?.value||'1000');
@@ -5475,7 +5660,7 @@ function updateKellyCalc(){
   // Re-render cards
   const cardsEl = document.getElementById('kelly-cards');
   if(cardsEl && S.allRows.length){
-    const topRows = S.allRows.filter(r=>r.prob>=0.045).sort((a,b)=>b.prob-a.prob).slice(0,12);
+    const topRows = S.allRows.filter(r=>r.prob>=0.120).sort((a,b)=>b.prob-a.prob).slice(0,12);
     cardsEl.innerHTML = topRows.map(r=>renderKellyCard(r,bankroll,fraction,unitPct)).join('') ||
       '<div style="font-size:.70rem;color:var(--t4);padding:20px 0;text-align:center">No plays found</div>';
   }
@@ -5528,7 +5713,7 @@ function copyPicksToClipboard(){
     .filter(Boolean).sort((a,b)=>b.tier.edge-a.tier.edge);
 
   const highProb = S.allRows
-    .filter(r=>r.prob>=0.070&&!plays.find(p=>p.r.id===r.id))
+    .filter(r=>r.prob>=0.180&&!plays.find(p=>p.r.id===r.id))
     .sort((a,b)=>b.prob-a.prob).slice(0,3).map(r=>({r,tier:null,fdO:null}));
 
   const allPlays = [...plays,...highProb].slice(0,8);
@@ -6670,13 +6855,17 @@ async function loadGame(g){
 
       // L15 HR count for display badge
       const l15hr = recent.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
+      // Convert per-PA → per-game probability to align with book pricing
+      const lineupPos = batterStats.lineupPos || h.lineupPos || null;
+      const gameProb = perPAtoGame(res.prob, lineupPos);
 
       rows.push({
         id:pid, name:h.name, team, pos:h.pos,
         batHand:batterStats.batHand,
         game:`${g.away}@${g.home}`, spNm, oppHand, pf, wx,
-        // Scores
-        prob:     res.prob,
+        // Scores — gameProb is per-game (aligns with book lines)
+        prob:     gameProb,
+        probPerPA: res.prob, // keep raw per-PA for internal calcs
         anchor:   res.anchor,
         platoon:  res.platoon,
         pitcher:  res.pitcher,
@@ -7709,13 +7898,16 @@ function showDetail(id){
   // Lazy-load full splits
   const needsPlat = !r.platoonSplits?.vsLFull && !r.platoonSplits?.vsRFull;
   const needsHA   = !r.homeAwaySplits?.homeFull && !r.homeAwaySplits?.awayFull;
-  if(needsPlat || needsHA){
+  const needsDN   = !r._batterStats?.dayNightSplits;
+  if(needsPlat || needsHA || needsDN){
     Promise.all([
       needsPlat ? getPlayerPlatoonSplits(String(batPid)) : Promise.resolve(r.platoonSplits),
       needsHA   ? getHomAwaySplits(String(batPid))       : Promise.resolve(r.homeAwaySplits),
-    ]).then(([plat, ha])=>{
+      needsDN   ? getDayNightSplits(String(batPid))      : Promise.resolve(r._batterStats?.dayNightSplits),
+    ]).then(([plat, ha, dn])=>{
       if(plat) r.platoonSplits  = plat;
       if(ha)   r.homeAwaySplits = ha;
+      if(dn && r._batterStats)  r._batterStats.dayNightSplits = dn;
       const cur = S.allRows.find(x=>x.id===id);
       if(cur && document.getElementById('page-detail')?.classList.contains('active')){
         renderDetail(cur);
@@ -7762,14 +7954,22 @@ function renderDetail(r){
         const _tracked=_stored.find(x=>String(x.id)===String(r.id)&&x.date===_today&&x.manualBet);
         const _btnClr = _tracked ? 'var(--green)' : 'var(--amber)';
         const _btnTxt = _tracked ? '✅ Tracked' : '📌 Track Bet';
-        return `<button onclick="addManualBet('${r.id}')"
-          style="width:100%;margin-top:8px;padding:9px;border-radius:8px;cursor:pointer;
-          border:1px solid ${_btnClr};background:${_tracked?'rgba(34,201,94,.15)':'rgba(255,165,0,.1)'};
-          color:${_btnClr};font-size:.72rem;font-weight:700;letter-spacing:.03em;
-          display:flex;align-items:center;justify-content:center;gap:7px">
-          ${_btnTxt}
-          ${_tracked?'<span style="font-size:.62rem;opacity:.7">tap to remove</span>':'<span style="font-size:.62rem;opacity:.6">auto-resolves from box score</span>'}
-        </button>`;
+        return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          <button onclick="addManualBet('${r.id}')"
+            style="padding:9px;border-radius:8px;cursor:pointer;
+            border:1px solid ${_btnClr};background:${_tracked?'rgba(34,201,94,.15)':'rgba(255,165,0,.1)'};
+            color:${_btnClr};font-size:.68rem;font-weight:700;
+            display:flex;align-items:center;justify-content:center;gap:5px">
+            ${_btnTxt}
+          </button>
+          <button onclick="toggleKellyPin('${r.id}','${r.name.replace(/'/g,"\\'")}');this.textContent=isKellyPinned('${r.id}')?'📌 In Kelly':'＋ Kelly'"
+            style="padding:9px;border-radius:8px;cursor:pointer;
+            border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);
+            color:var(--amber);font-size:.68rem;font-weight:700;
+            display:flex;align-items:center;justify-content:center;gap:5px">
+            ${isKellyPinned?.(r.id)?'📌 In Kelly':'＋ Kelly'}
+          </button>
+        </div>`;
       })()}
       <div style="font-size:.70rem;color:var(--t4);font-family:'JetBrains Mono',monospace;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-top:8px;line-height:1.8">
         <div>Anchor <b style="color:var(--t2)">${(r.anchor*100).toFixed(1)}%</b>${r.platoon!==1?` · Platoon <b style="color:${r.platoon>=1?'var(--green)':'var(--red)'}">${r.platoon>=1?'+':''}${((r.platoon-1)*100).toFixed(0)}%</b>`:''}${r.pitcher!==1?` · SP <b style="color:${r.pitcher>=1?'var(--green)':'var(--red)'}">${r.pitcher>=1?'+':''}${((r.pitcher-1)*100).toFixed(0)}%</b>`:''}${r.parkwx!==1?` · Park/Wx <b style="color:${r.parkwx>=1?'var(--green)':'var(--red)'}">${r.parkwx>=1?'+':''}${((r.parkwx-1)*100).toFixed(0)}%</b>`:''}${r.momentum!==1?` · Form <b style="color:${r.momentum>=1?'var(--green)':'var(--red)'}">${r.momentum>=1?'+':''}${((r.momentum-1)*100).toFixed(0)}%</b>`:''}</div>
@@ -8264,6 +8464,95 @@ function renderDetail(r){
             }
 
             if(!html) return '<div style="font-size:.70rem;color:var(--t4);padding:16px 0;text-align:center">Splits loading — tap player again after game loads</div>';
+
+            // ── Day / Night splits ────────────────────────────────────
+            const dayNight = r._batterStats?.dayNightSplits;
+            if(dayNight){
+              const isNightGame = r._wx?.isNight ?? (r.gameTime ? parseInt(r.gameTime)>=17 : true);
+              const todaySplit = isNightGame ? dayNight.night : dayNight.day;
+              const otherSplit = isNightGame ? dayNight.day   : dayNight.night;
+              const todayLabel = isNightGame ? '🌙 Night' : '☀️ Day';
+              const otherLabel = isNightGame ? '☀️ Day'   : '🌙 Night';
+
+              if(dayNight.day?.pa>=20 || dayNight.night?.pa>=20){
+                const dnCard=(d,lbl,isToday)=>{
+                  if(!d||!d.pa) return `<div style="flex:1;background:var(--bg3);border-radius:10px;
+                    padding:10px;border:1px solid var(--bdr);opacity:.35;text-align:center">
+                    <div style="font-size:.65rem;color:var(--t4)">${lbl}<br>No data</div></div>`;
+                  const isoClr=d.iso>=0.220?'var(--amber)':d.iso>=0.150?'var(--t2)':'var(--t3)';
+                  return `<div style="flex:1;background:${isToday?'rgba(255,165,0,.05)':'rgba(255,255,255,.02)'};
+                    border-radius:10px;padding:10px 12px;
+                    border:1px solid ${isToday?'rgba(255,165,0,.5)':'var(--bdr)'}">
+                    <div style="font-size:.65rem;font-weight:800;color:${isToday?'var(--amber)':'var(--t3)'};
+                      text-align:center;margin-bottom:7px;padding:3px;border-radius:5px;
+                      background:${isToday?'rgba(255,165,0,.1)':'var(--bg3)'}">${lbl}</div>
+                    ${[['PA',d.pa,'var(--t3)'],['HR',d.hr||0,d.hr>=5?'var(--amber)':'var(--t3)'],
+                       ['ISO',d.iso!=null?d.iso.toFixed(3):'--',isoClr],
+                       ['SLG',d.slg!=null?d.slg.toFixed(3):'--','var(--t3)'],
+                       ['OPS',d.ops!=null?d.ops.toFixed(3):'--','var(--t3)']
+                    ].map(([l,v,c])=>`<div style="display:flex;justify-content:space-between;padding:2px 0;
+                      border-bottom:1px solid rgba(255,255,255,.03)">
+                      <span style="font-size:.68rem;color:var(--t4)">${l}</span>
+                      <span style="font-size:.70rem;font-weight:700;color:${c}">${v}</span>
+                    </div>`).join('')}
+                  </div>`;
+                };
+                html+=`<div style="font-size:.60rem;font-weight:700;color:var(--t4);
+                  text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;margin-top:14px">
+                  ☀️🌙 Day / Night Splits</div>
+                  <div style="display:flex;gap:8px">
+                    ${dnCard(todaySplit, todayLabel+' (today)', true)}
+                    ${dnCard(otherSplit, otherLabel, false)}
+                  </div>`;
+              }
+            }
+
+            // ── Venue weather card ────────────────────────────────────
+            const wx = r._wx;
+            if(wx && (wx.temp || wx.wind)){
+              const windDir = wx.wdir!=null ? (['N','NE','E','SE','S','SW','W','NW'][Math.round(wx.wdir/45)%8]||'?') : '?';
+              const isBlowingOut = wx.wind>=8 && (wx.wdir>=315||wx.wdir<=45||Math.abs(wx.wdir-360)<=45);
+              const isBlowingIn  = wx.wind>=8 && (wx.wdir>=135&&wx.wdir<=225);
+              const windEffect   = isBlowingOut?'💨 Blowing out — HR boost':isBlowingIn?'💨 Blowing in — HR suppressed':wx.wind>=12?'🌬️ Cross-wind':'🌤️ Calm';
+              const windClr      = isBlowingOut?'var(--green)':isBlowingIn?'var(--red)':'var(--t3)';
+              const tempEffect   = wx.temp>=85?'🔥 Hot — ball carries well':wx.temp<=50?'🥶 Cold — ball dies':'🌡️ Neutral temperature';
+              const tempClr      = wx.temp>=85?'var(--green)':wx.temp<=50?'var(--red)':'var(--t3)';
+              const domeTeams    = new Set(['TB','TOR','MIA','HOU','SEA','ARI','MIL','MIN']);
+              const isDome       = domeTeams.has(r.home||r.team);
+
+              html+=`<div style="margin-top:14px">
+                <div style="font-size:.60rem;font-weight:700;color:var(--t4);
+                  text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">
+                  🏟️ Venue & Weather — ${r._pitcherStats?.venue||r.home||r.team||'Today'}
+                </div>
+                <div style="background:var(--bg3);border-radius:10px;
+                  border:1px solid var(--bdr);padding:12px">
+                  ${isDome?`<div style="font-size:.68rem;color:var(--t4);padding:4px 8px;
+                    background:rgba(255,255,255,.05);border-radius:6px;margin-bottom:8px;text-align:center">
+                    🏟️ Dome / Retractable — weather not a factor today
+                  </div>`:''}
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <div style="text-align:center;padding:8px;background:rgba(255,255,255,.03);border-radius:8px">
+                      <div style="font-size:1.1rem;font-weight:900;color:${tempClr}">${wx.temp||'--'}°F</div>
+                      <div style="font-size:.58rem;color:var(--t4);margin-top:2px">Temperature</div>
+                      <div style="font-size:.60rem;color:${tempClr};margin-top:3px">${tempEffect}</div>
+                    </div>
+                    <div style="text-align:center;padding:8px;background:rgba(255,255,255,.03);border-radius:8px">
+                      <div style="font-size:1.1rem;font-weight:900;color:${windClr}">${wx.wind||0} mph ${windDir}</div>
+                      <div style="font-size:.58rem;color:var(--t4);margin-top:2px">Wind</div>
+                      <div style="font-size:.60rem;color:${windClr};margin-top:3px">${windEffect}</div>
+                    </div>
+                  </div>
+                  ${wx.rain?`<div style="font-size:.65rem;color:var(--red);margin-top:8px;
+                    text-align:center">🌧️ Rain probability ${Math.round(wx.rain)}% — watch for delays</div>`:''}
+                  <div style="font-size:.60rem;color:var(--t4);margin-top:8px;text-align:center">
+                    Park factor: ${r.pf!=null?(r.pf>=1.05?'🟢 '+r.pf.toFixed(2)+'x':r.pf>=0.96?'⚪ '+r.pf.toFixed(2)+'x':'🔴 '+r.pf.toFixed(2)+'x'):'--'}
+                    · wxMult: ${r.parkwx!=null?r.parkwx.toFixed(2)+'x':'--'}
+                  </div>
+                </div>
+              </div>`;
+            }
+
             return html;
           })()}
         </div>
