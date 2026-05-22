@@ -7387,8 +7387,8 @@ function renderHitterCard(r,showGame){
       const fdO = getFDOdds(r.name);
       if(!fdO) return `<div style="display:flex;align-items:center;justify-content:space-between;
         margin-top:7px;padding-top:7px;border-top:1px solid var(--bg3)">
-        <span style="font-size:.62rem;color:var(--t4)">Model <b style="color:var(--t2)">${(r.prob*100).toFixed(1)}%</b></span>
-        <span style="font-size:.60rem;color:var(--t4)">No FD odds — add key in settings</span>
+        <span style="font-size:.62rem;color:var(--t4)">No FD odds loaded</span>
+        <span style="font-size:.60rem;color:var(--t4)">Enter line below for Kelly sizing</span>
       </div>`;
       const tier = getEdgeTier(r.prob, fdO);
       const kelly = kellySize(r.prob, fdO);
@@ -8829,7 +8829,11 @@ function renderDetail(r){
 
       <div class="form-group">
         <label>Enter sportsbook line manually (e.g. +500)</label>
-        <input type="text" id="det-odds" placeholder="${fdOdds2!=null?fdOdds2:'+500'}" oninput="calcBetEV('${r.id}','${pct}')">
+        <input type="text" inputmode="numeric" id="det-odds"
+          placeholder="${fdOdds2!=null?(fdOdds2>0?'+':'')+fdOdds2:'+440'}"
+          oninput="calcBetEV('${r.id}','${pct}')"
+          style="width:100%;padding:12px 14px;background:var(--bg3);border:1px solid var(--bdr);
+          border-radius:10px;color:var(--t1);font-size:1rem;-webkit-appearance:none">
       </div>
       <div id="det-ev-result"></div>
     </div>
