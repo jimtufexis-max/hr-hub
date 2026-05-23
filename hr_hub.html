@@ -632,12 +632,21 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         perGame = 1 − (1 − perPA)^expPA
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
-        ${[['MLB avg', '3.5%/PA', '~13%/game'], ['Good slugger', '5.5%/PA', '~21%/game'], ['Judge tier', '9%/PA', '~33%/game']].map(([l,p,g])=>`
-          <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
-            <div style="font-size:.60rem;color:var(--amber);font-weight:700">${g}</div>
-            <div style="font-size:.55rem;color:var(--t4);margin-top:1px">${l}</div>
-            <div style="font-size:.53rem;color:var(--t4)">${p}</div>
-          </div>`).join('')}
+        <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
+          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~13%/game</div>
+          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">MLB avg</div>
+          <div style="font-size:.53rem;color:var(--t4)">3.5%/PA</div>
+        </div>
+        <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
+          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~21%/game</div>
+          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">Good slugger</div>
+          <div style="font-size:.53rem;color:var(--t4)">5.5%/PA</div>
+        </div>
+        <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
+          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~33%/game</div>
+          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">Judge tier</div>
+          <div style="font-size:.53rem;color:var(--t4)">9%/PA</div>
+        </div>
       </div>
       <div style="font-size:.62rem;color:var(--t4);line-height:1.6;padding:8px 10px;
         background:rgba(90,160,255,.06);border-radius:8px;border:1px solid rgba(90,160,255,.15)">
@@ -658,18 +667,31 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         EV% &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= (modelProb × decimalOdds − 1) × 100
       </div>
       <div style="display:flex;flex-direction:column;gap:0">
-        ${[['S tier','#ffd700','+8%+ edge','Max Bet — ¼ Kelly sizing'],
-           ['A tier','var(--green)','+5–8% edge','Strong bet'],
-           ['B tier','var(--amber)','+2–5% edge','Lean — small unit only'],
-           ['C tier','var(--t4)','0–2% edge','Pass — near fair value'],
-           ['F tier','var(--red)','Negative edge','Fade — book has the edge']
-          ].map(([t,c,e,d])=>`
-          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;
-            border-bottom:1px solid var(--bg3)">
-            <div style="font-size:.70rem;font-weight:800;color:${c};min-width:42px">${t}</div>
-            <div style="font-size:.62rem;font-weight:700;color:${c};min-width:72px">${e}</div>
-            <div style="font-size:.62rem;color:var(--t4)">${d}</div>
-          </div>`).join('')}
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
+          <div style="font-size:.70rem;font-weight:800;color:#ffd700;min-width:42px">S tier</div>
+          <div style="font-size:.62rem;font-weight:700;color:#ffd700;min-width:72px">+8%+ edge</div>
+          <div style="font-size:.62rem;color:var(--t4)">Max Bet — ¼ Kelly sizing</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
+          <div style="font-size:.70rem;font-weight:800;color:var(--green);min-width:42px">A tier</div>
+          <div style="font-size:.62rem;font-weight:700;color:var(--green);min-width:72px">+5–8% edge</div>
+          <div style="font-size:.62rem;color:var(--t4)">Strong bet</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
+          <div style="font-size:.70rem;font-weight:800;color:var(--amber);min-width:42px">B tier</div>
+          <div style="font-size:.62rem;font-weight:700;color:var(--amber);min-width:72px">+2–5% edge</div>
+          <div style="font-size:.62rem;color:var(--t4)">Lean — small unit only</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
+          <div style="font-size:.70rem;font-weight:800;color:var(--t4);min-width:42px">C tier</div>
+          <div style="font-size:.62rem;font-weight:700;color:var(--t4);min-width:72px">0–2% edge</div>
+          <div style="font-size:.62rem;color:var(--t4)">Pass — near fair value</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0">
+          <div style="font-size:.70rem;font-weight:800;color:var(--red);min-width:42px">F tier</div>
+          <div style="font-size:.62rem;font-weight:700;color:var(--red);min-width:72px">Negative edge</div>
+          <div style="font-size:.62rem;color:var(--t4)">Fade — book has the edge</div>
+        </div>
       </div>
       <div style="margin-top:10px;padding:8px 10px;background:var(--bg3);
         border-radius:8px;display:flex;flex-direction:column;gap:5px">
@@ -737,16 +759,34 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           ['75–89%','var(--amber)','Slight over-prediction','Reduce sizing to 75% of Kelly temporarily'],
           ['<75%','var(--red)','Significant over-prediction','Reduce to 50% Kelly. Model needs recalibration.'],
           ['>130%','#60a5fa','Under-predicting','You have more edge than shown. Consider increasing sizing.'],
-        ].map(([range,clr,label,action])=>`
-          <div style="padding:7px 10px;border-radius:8px;background:${clr}10;
-            border:1px solid ${clr}25">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-              <span style="font-size:.68rem;font-weight:800;color:${clr};
-                font-family:'JetBrains Mono',monospace">${range}</span>
-              <span style="font-size:.63rem;font-weight:700;color:${clr}">${label}</span>
-            </div>
-            <div style="font-size:.59rem;color:var(--t4)">${action}</div>
-          </div>`).join('')}
+        <div style="padding:7px 10px;border-radius:8px;background:rgba(34,201,94,.08);border:1px solid rgba(34,201,94,.2)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <span style="font-size:.68rem;font-weight:800;color:var(--green);font-family:'JetBrains Mono',monospace">90–115%</span>
+            <span style="font-size:.63rem;font-weight:700;color:var(--green)">Well calibrated</span>
+          </div>
+          <div style="font-size:.59rem;color:var(--t4)">Bet full ¼ Kelly sizing with confidence</div>
+        </div>
+        <div style="padding:7px 10px;border-radius:8px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.2)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <span style="font-size:.68rem;font-weight:800;color:var(--amber);font-family:'JetBrains Mono',monospace">75–89%</span>
+            <span style="font-size:.63rem;font-weight:700;color:var(--amber)">Slight over-prediction</span>
+          </div>
+          <div style="font-size:.59rem;color:var(--t4)">Reduce sizing to 75% of Kelly temporarily</div>
+        </div>
+        <div style="padding:7px 10px;border-radius:8px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <span style="font-size:.68rem;font-weight:800;color:var(--red);font-family:'JetBrains Mono',monospace">&lt;75%</span>
+            <span style="font-size:.63rem;font-weight:700;color:var(--red)">Significant over-prediction</span>
+          </div>
+          <div style="font-size:.59rem;color:var(--t4)">Reduce to 50% Kelly. Model needs recalibration.</div>
+        </div>
+        <div style="padding:7px 10px;border-radius:8px;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.2)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <span style="font-size:.68rem;font-weight:800;color:#60a5fa;font-family:'JetBrains Mono',monospace">&gt;130%</span>
+            <span style="font-size:.63rem;font-weight:700;color:#60a5fa">Under-predicting</span>
+          </div>
+          <div style="font-size:.59rem;color:var(--t4)">You have more edge than shown. Consider increasing sizing.</div>
+        </div>
       </div>
       <div style="margin-top:8px;font-size:.60rem;color:var(--t4);
         padding:6px 8px;background:var(--bg3);border-radius:6px">
@@ -788,22 +828,67 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           ['SI','#f97316','Sinker','Downward movement. Ground-ball pitch. Lower HR risk.','↘ Ground ball'],
           ['FC','#eab308','Cutter','Between fastball and slider. Short horizontal break.','✂ Short cut'],
           ['FS','#84cc16','Splitter','Drops late like a changeup but faster. Hard to elevate.','↓ Split drop'],
-        ].map(([code,color,name,desc,badge])=>`
-          <div style="background:${color}10;border:1px solid ${color}28;border-radius:10px;
+        <div style="background:#ef444410;border:1px solid #ef444428;border-radius:10px;
             padding:9px 10px;position:relative;overflow:hidden">
             <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:${color};border-radius:2px 0 0 2px"></div>
+              background:#ef4444;border-radius:2px 0 0 2px"></div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
               <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:${color};
-                  font-family:'JetBrains Mono',monospace">${code}</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">${name}</span>
+                <span style="font-size:.80rem;font-weight:900;color:#ef4444;
+                  font-family:'JetBrains Mono',monospace">FF</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">4-Seam Fastball</span>
               </div>
-              <span style="font-size:.52rem;color:${color};background:${color}20;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">${badge}</span>
+              <span style="font-size:.52rem;color:#ef4444;background:#ef444420;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">⚡ Power</span>
             </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">${desc}</div>
-          </div>`).join('')}
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Straight, high velocity. Most common pitch. Elevated = HR risk.</div>
+          </div>
+        <div style="background:#f9731610;border:1px solid #f9731628;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:#f97316;border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:#f97316;
+                  font-family:'JetBrains Mono',monospace">SI</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Sinker</span>
+              </div>
+              <span style="font-size:.52rem;color:#f97316;background:#f9731620;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">↘ GB machine</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Sinking action, induces ground balls. Low HR risk.</div>
+          </div>
+        <div style="background:#eab30810;border:1px solid #eab30828;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:#eab308;border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:#eab308;
+                  font-family:'JetBrains Mono',monospace">FC</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Cutter</span>
+              </div>
+              <span style="font-size:.52rem;color:#eab308;background:#eab30820;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">✂ Cuts late</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Hard cut away from opposite-hand hitters. Cuts late.</div>
+          </div>
+        <div style="background:#84cc1610;border:1px solid #84cc1628;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:#84cc16;border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:#84cc16;
+                  font-family:'JetBrains Mono',monospace">FS</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Splitter</span>
+              </div>
+              <span style="font-size:.52rem;color:#84cc16;background:#84cc1620;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">↓ K pitch</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Drops sharply out of zone. High swing-and-miss.</div>
+          </div>
+      
       </div>
 
       <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
@@ -818,22 +903,67 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           ['ST','#1d4ed8','Sweeper','Wide horizontal sweep. Modern slider variant. Hard to pull.','🌀 Wide break'],
           ['CU','#7c3aed','Curveball','12-6 downward drop. Hard to elevate for HRs.','↓ 12-6 drop'],
           ['KC','#6d28d9','Knuckle-Curve','Sharper curve variant. Biting break.','↓ Biting'],
-        ].map(([code,color,name,desc,badge])=>`
-          <div style="background:${color}10;border:1px solid ${color}28;border-radius:10px;
+        <div style="background:#3b82f610;border:1px solid #3b82f628;border-radius:10px;
             padding:9px 10px;position:relative;overflow:hidden">
             <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:${color};border-radius:2px 0 0 2px"></div>
+              background:#3b82f6;border-radius:2px 0 0 2px"></div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
               <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:${color};
-                  font-family:'JetBrains Mono',monospace">${code}</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">${name}</span>
+                <span style="font-size:.80rem;font-weight:900;color:#3b82f6;
+                  font-family:'JetBrains Mono',monospace">SL</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Slider</span>
               </div>
-              <span style="font-size:.52rem;color:${color};background:${color}20;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">${badge}</span>
+              <span style="font-size:.52rem;color:#3b82f6;background:#3b82f620;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">↔ Side break</span>
             </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">${desc}</div>
-          </div>`).join('')}
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Lateral break. Effective vs same-hand batters.</div>
+          </div>
+        <div style="background:#1d4ed810;border:1px solid #1d4ed828;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:#1d4ed8;border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:#1d4ed8;
+                  font-family:'JetBrains Mono',monospace">ST</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Sweeper</span>
+              </div>
+              <span style="font-size:.52rem;color:#1d4ed8;background:#1d4ed820;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">🌀 Wide break</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Wide horizontal sweep. Modern slider variant.</div>
+          </div>
+        <div style="background:#7c3aed10;border:1px solid #7c3aed28;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:#7c3aed;border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:#7c3aed;
+                  font-family:'JetBrains Mono',monospace">CU</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Curveball</span>
+              </div>
+              <span style="font-size:.52rem;color:#7c3aed;background:#7c3aed20;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">↓ 12-6 drop</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">12-6 downward drop. Hard to elevate for HRs.</div>
+          </div>
+        <div style="background:#6d28d910;border:1px solid #6d28d928;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:#6d28d9;border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:#6d28d9;
+                  font-family:'JetBrains Mono',monospace">KC</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Knuckle-Curve</span>
+              </div>
+              <span style="font-size:.52rem;color:#6d28d9;background:#6d28d920;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">↓ Biting</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Sharper curve variant. Less common.</div>
+          </div>
+      
       </div>
 
       <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
@@ -846,22 +976,37 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         ${[
           ['CH','#16a34a','Changeup','Fastball look, 8-12mph slower. Cross-hand matchup = elevated HR risk.','🐌 Slow drop'],
           ['FO','#0d9488','Forkball','Rare split-finger variant. Deep drop, mostly Japanese-trained pitchers.','↓ Fork drop'],
-        ].map(([code,color,name,desc,badge])=>`
-          <div style="background:${color}10;border:1px solid ${color}28;border-radius:10px;
+        <div style="background:#16a34a10;border:1px solid #16a34a28;border-radius:10px;
             padding:9px 10px;position:relative;overflow:hidden">
             <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:${color};border-radius:2px 0 0 2px"></div>
+              background:#16a34a;border-radius:2px 0 0 2px"></div>
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
               <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:${color};
-                  font-family:'JetBrains Mono',monospace">${code}</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">${name}</span>
+                <span style="font-size:.80rem;font-weight:900;color:#16a34a;
+                  font-family:'JetBrains Mono',monospace">CH</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Changeup</span>
               </div>
-              <span style="font-size:.52rem;color:${color};background:${color}20;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">${badge}</span>
+              <span style="font-size:.52rem;color:#16a34a;background:#16a34a20;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">🐌 Slow drop</span>
             </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">${desc}</div>
-          </div>`).join('')}
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Fastball look, 8-12mph slower. Cross-hand matchup = elevated HR risk.</div>
+          </div>
+        <div style="background:#0d948810;border:1px solid #0d948828;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:#0d9488;border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:#0d9488;
+                  font-family:'JetBrains Mono',monospace">FO</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Forkball</span>
+              </div>
+              <span style="font-size:.52rem;color:#0d9488;background:#0d948820;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">↓ Fork drop</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Rare split-finger variant. Deep drop, mostly Japanese-trained pitchers.</div>
+          </div>
+      
       </div>
 
       <!-- HR Risk by pitch -->
@@ -909,11 +1054,26 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           ['FanGraphs','xFIP, FIP, BB%, K%, HR/FB%, whiff rate, GB/FB split per pitcher','var(--t2)'],
           ['Open-Meteo','Real-time weather per ballpark: temp, wind speed/direction, rain probability — matched to game start time local hour','var(--t2)'],
           ['The Odds API','FanDuel HR props — edge and EV calculated against no-vig implied probability','var(--t2)'],
-        ].map(([src,desc,c])=>`
-          <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
-            <div style="font-size:.65rem;font-weight:700;color:${c};margin-bottom:2px">${src}</div>
-            <div style="font-size:.59rem;color:var(--t4);line-height:1.5">${desc}</div>
-          </div>`).join('')}
+        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
+          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">MLB Stats API</div>
+          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">Schedule, lineups, rosters, game logs, season stats, pitcher logs, platoon splits, day/night splits</div>
+        </div>
+        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
+          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">Baseball Savant</div>
+          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">Barrel%, hard hit%, EV, pull-air%, sweet spot%, GB%, spray coordinates, pitch arsenal, batter vs pitch type ISO</div>
+        </div>
+        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
+          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">FanGraphs</div>
+          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">xFIP, FIP, BB%, K%, HR/FB%, whiff rate, GB/FB split per pitcher</div>
+        </div>
+        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
+          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">Open-Meteo</div>
+          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">Real-time weather per ballpark: temp, wind speed/direction, rain probability — matched to game start time</div>
+        </div>
+        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
+          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">The Odds API</div>
+          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">FanDuel HR props — edge and EV calculated against no-vig implied probability</div>
+        </div>
       </div>
     </div>
 
@@ -1093,6 +1253,12 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 // ==================================================================
 //  STATE
 // ==================================================================
+// ── Lazy-loaded data maps (declared here to avoid TDZ errors) ─────
+let _fgPitcherMap    = null;
+let _pitcherWhiffMap = null;
+let _plateDiscMap    = null;
+let _swingSpeedMap   = null;
+
 const S = {
   date:     new Date(),
   selPks:   new Set(),
@@ -3453,7 +3619,6 @@ async function ensureXwobaMap(){
 //  SWING SPEED / BAT TRACKING — Savant bat tracking leaderboard
 //  Faster swing speed = more power potential
 // ==================================================================
-let _swingSpeedMap = null;
 async function ensureSwingSpeedMap(){
   if(_swingSpeedMap!==null) return;
   _swingSpeedMap={};
@@ -3661,7 +3826,6 @@ async function ensurePercentileMap(){
 //  PITCHER WHIFF RATE — from Savant pitch-arsenal-stats
 //  High whiff = more strikeouts = fewer HR opportunities
 // ==================================================================
-let _pitcherWhiffMap = null;
 async function ensurePitcherWhiffMap(){
   if(_pitcherWhiffMap !== null) return;
   _pitcherWhiffMap = {};
@@ -4683,7 +4847,6 @@ function getStadiumDimMult(homeTeam, batHand){
 // ==================================================================
 //  PLATE DISCIPLINE — zone contact + chase rate → count quality
 // ==================================================================
-let _plateDiscMap = null;
 async function ensurePlateDiscMap(){
   if(_plateDiscMap!==null) return; _plateDiscMap={};
   try{
@@ -6814,7 +6977,6 @@ function renderDiscover(){
 //  A pitcher with high ERA but low xFIP is getting unlucky
 //  Key columns: xFIP, FIP, K%, BB%, HR/FB, SIERA
 // ==================================================================
-let _fgPitcherMap = null;
 async function ensureFGPitcherMap(){
   if(_fgPitcherMap!==null) return; _fgPitcherMap={};
   try{
