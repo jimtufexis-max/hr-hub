@@ -2578,15 +2578,17 @@ function detectAngles(r){
 }
 
 function detectNegativeAngles(r){
-  const neg=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||{};
+  const neg=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||r._wx||{};
   const l15hr=r.l15hr||g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
   const l7hr=g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
   const l7ab=g.slice(0,7).reduce((s,x)=>s+(x.ab||0),0);
   const _szPA=r.szPA>30?r.szPA:(r.l30pa>15?r.l30pa*4.5:0);
+  const homeTeamAbbr = r.homeTeam||r.home||r.game?.split('@')?.[1]?.trim()||'';
+  const isDomeGame = wx?.isDome || DOME_TEAMS.has(homeTeamAbbr);
 
   if(r.platoon<=0.76) neg.push({icon:'⚠️',label:'Same-Hand Fade (-)',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — suppresses HRs ~${Math.round((1-r.platoon)*100)}%`});
-  if(l15hr===0&&r.momentum<0.92) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in recent games. Momentum ${r.momentum.toFixed(2)}x.`});
-  else if(l7hr===0&&l7ab>=18&&r.momentum<=0.90) neg.push({icon:'❄️',label:'Ice Cold L7 (-)',tip:`0 HRs in last 7 games. Momentum ${r.momentum.toFixed(2)}x.`});
+  if(l15hr===0) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in recent 15 games.`});
+  else if(l7hr===0&&l7ab>=18) neg.push({icon:'❄️',label:'Ice Cold L7 (-)',tip:`0 HRs in last 7 games.`});
 
   if(r.barrel_pct!=null&&_szPA>15&&r.szHR>0){
     const xb=(r.barrel_pct/100)*_szPA*0.62;
@@ -2631,7 +2633,7 @@ function detectNegativeAngles(r){
   }
   if(r.pull_air_pct!=null&&r.pull_air_pct<9) neg.push({icon:'↙️',label:'Poor HR Shape (-)',tip:`${r.pull_air_pct.toFixed(1)}% pull-air — below lg avg 12.5%.`});
   if(r.fb_pct!=null&&r.fb_pct<24) neg.push({icon:'⬇️',label:'Ground Ball Hitter (-)',tip:`${r.fb_pct.toFixed(1)}% fly ball rate — below lg avg 34%.`});
-  if(r.momentum<0.82&&l15hr>0) neg.push({icon:'📉',label:'Low Recent Form (-)',tip:`Momentum ${r.momentum.toFixed(2)}x — below average.`});
+  if(l15hr===0&&l15pa>=30) neg.push({icon:'📉',label:'Low Recent Form (-)',tip:`No HRs in last 15 games with meaningful PA.`});
 
   const seen=new Set();
   return neg.filter(n=>{if(seen.has(n.label))return false;seen.add(n.label);return true;});
