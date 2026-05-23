@@ -528,97 +528,235 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   <!-- INFO / METHODOLOGY PAGE -->
   <div id="page-info" class="page" style="padding:12px;overflow-y:auto">
 
-    <!-- How It Works -->
+    <!-- Model Formula -->
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">⚡ How It Works</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.67rem;color:var(--amber);padding:10px;background:var(--bg3);border-radius:8px;margin-bottom:12px;line-height:1.7">
-        prob = sigmoid(logit(anchor) + Σ signals)<br>
-        <span style="color:var(--t4)">// log-odds — signals can't runaway-stack</span>
+      <div class="slbl">⚡ Probability Model v5</div>
+
+      <!-- Core formula -->
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
+        padding:10px 12px;background:var(--bg3);border-radius:8px;margin-bottom:12px;line-height:1.9">
+        <span style="color:var(--t4)">// Step 1: Statcast anchor (per-plate-appearance)</span><br>
+        anchor = barrel% × 0.042 + pull_air% × 0.0175<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ hard_hit% × 0.0028 + sweet_spot% × 0.0015<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;− gb% × 0.0018 + (barrel% × pull_air%) × 0.80<br>
+        <span style="color:var(--t4)">// Step 2: Signal adjustment in log-odds space</span><br>
+        lo = logit(anchor) + Σ(signal × weight)<br>
+        perPA = sigmoid(lo) &nbsp;<span style="color:var(--t4)">// capped 11% per PA</span><br>
+        <span style="color:var(--t4)">// Step 3: Per-game conversion</span><br>
+        perGame = 1 − (1 − perPA)^expPA &nbsp;<span style="color:var(--t4)">// raw true-talent</span>
       </div>
+
+      <!-- Signal weights table -->
       <div style="display:flex;flex-direction:column">
 
         <div style="display:flex;gap:10px;padding:8px 0">
-          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:var(--t2);font-family:'JetBrains Mono',monospace">Anchor</div>
-          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">Season + career + barrel/pull-air proxies. Bayesian shrunk to 3.5% MLB avg</div>
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:var(--amber);font-family:'JetBrains Mono',monospace">Anchor</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            Statcast linear weights (primary) blended with HR/PA outcome rate.
+            Statcast stabilizes in ~50 PA vs 300+ PA for outcome rate.
+            Barrel×pull_air interaction captures elite power synergy.
+          </div>
         </div>
+
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:#90c0ff;font-family:'JetBrains Mono',monospace">Platoon ×0.70</div>
-          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">Handedness + actual split (50+ PA gate) + arsenal modifier</div>
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Platoon ×0.45</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            Handedness vs pitcher + actual split rate (50+ PA gate) + arsenal modifier.
+            LHB vs RHP +18% boost · RHB vs LHP +22% boost.
+          </div>
         </div>
+
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:#90c0ff;font-family:'JetBrains Mono',monospace">Pitcher ×0.80</div>
-          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">xFIP 35% · Barrel% allowed 30% · FB% 20% · HR/FB 15%</div>
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Pitcher ×0.50</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            xFIP 35% · Barrel% allowed 30% · HR/FB 20% · HR/9 recent 15%.
+            BvP arsenal: batter's ISO vs each pitch type × SP usage mix.
+            Rest days, whiff rate, walk rate modifiers applied.
+          </div>
         </div>
+
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:#90c0ff;font-family:'JetBrains Mono',monospace">Park/Wx ×0.70</div>
-          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">Park factor (handedness-adj) + wind + temperature</div>
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:#f472b6;font-family:'JetBrains Mono',monospace">Interaction</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            Platoon × Pitcher: when both signals agree, the combined effect
+            is more than additive. LHB vs RHP AND soft SP = extra bonus.
+            Correlated signals shouldn't be treated independently.
+          </div>
         </div>
+
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:#90c0ff;font-family:'JetBrains Mono',monospace">Momentum ×0.30</div>
-          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">L15 vs player's own baseline · capped ±6%</div>
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Park/Wx ×0.45</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            Handedness-adjusted park factor + wind direction/speed + temperature.
+            Dome teams (TOR, HOU, TB, SEA, ARI, MIA, MIL, MIN) bypass weather entirely.
+            Wind toward CF: +HR boost. Headwind: −HR suppression.
+          </div>
         </div>
+
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:100px;font-size:.67rem;font-weight:700;color:var(--t4);font-family:'JetBrains Mono',monospace">+ 6 more</div>
-          <div style="font-size:.65rem;color:var(--t4);line-height:1.5">Home/away · lineup pos · umpire · stadium · plate disc · bullpen</div>
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:var(--t4);font-family:'JetBrains Mono',monospace">+ 5 minor</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            Home/away ×0.20 · Career vs SP ×0.30 (sample-weighted) ·
+            Umpire ×0.25 · Stadium dims ×0.20 · Plate discipline ×0.15 ·
+            Bullpen ×0.12 (only when SP projects ≤5 IP)
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:#ef4444;font-family:'JetBrains Mono',monospace">Momentum ✗</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            Removed in v5. L15 HR rate explains &lt;3% of next-game HR variance.
+            Hot/cold streaks are mostly noise — including them introduced recency bias.
+          </div>
         </div>
 
       </div>
     </div>
 
-    <!-- Signal Grades -->
+    <!-- Per-game conversion explained -->
+    <div class="card" style="margin-bottom:10px">
+      <div class="slbl">📐 Per-Game Probability</div>
+      <div style="font-size:.65rem;color:var(--t4);line-height:1.7;margin-bottom:10px">
+        Books price HR props per-game. The model computes per-PA, then converts:
+      </div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
+        padding:10px 12px;background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.8">
+        expPA = 4.8 − (lineupPos − 1) × 0.15 &nbsp;<span style="color:var(--t4)">// leadoff=4.8, 9-hole=3.3</span><br>
+        perGame = 1 − (1 − perPA)^expPA
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
+        ${[['MLB avg', '3.5%/PA', '~13%/game'], ['Good slugger', '5.5%/PA', '~21%/game'], ['Judge tier', '9%/PA', '~33%/game']].map(([l,p,g])=>`
+          <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
+            <div style="font-size:.60rem;color:var(--amber);font-weight:700">${g}</div>
+            <div style="font-size:.55rem;color:var(--t4);margin-top:1px">${l}</div>
+            <div style="font-size:.53rem;color:var(--t4)">${p}</div>
+          </div>`).join('')}
+      </div>
+      <div style="font-size:.62rem;color:var(--t4);line-height:1.6;padding:8px 10px;
+        background:rgba(90,160,255,.06);border-radius:8px;border:1px solid rgba(90,160,255,.15)">
+        <b style="color:#60a5fa">No market shrinkage applied.</b> The model outputs raw true-talent probability.
+        Edge = modelProb − bookNoVigImplied. This is the number that matters,
+        not whether modelProb matches the book's implied %.
+      </div>
+    </div>
+
+    <!-- Edge & EV explained -->
+    <div class="card" style="margin-bottom:10px">
+      <div class="slbl">💰 Edge &amp; EV Explained</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
+        padding:10px 12px;background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.9">
+        bookImplied = 100 / (odds + 100) &nbsp;<span style="color:var(--t4)">// e.g. +440 → 18.5%</span><br>
+        noVig &nbsp;&nbsp;&nbsp;&nbsp; = bookImplied / 1.08 &nbsp;<span style="color:var(--t4)">// strip ~8% vig</span><br>
+        edge &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = modelProb − noVig &nbsp;&nbsp;<span style="color:var(--t4)">// percentage points</span><br>
+        EV% &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= (modelProb × decimalOdds − 1) × 100
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0">
+        ${[['S tier','#ffd700','+8%+ edge','Max Bet — ¼ Kelly sizing'],
+           ['A tier','var(--green)','+5–8% edge','Strong bet'],
+           ['B tier','var(--amber)','+2–5% edge','Lean — small unit only'],
+           ['C tier','var(--t4)','0–2% edge','Pass — near fair value'],
+           ['F tier','var(--red)','Negative edge','Fade — book has the edge']
+          ].map(([t,c,e,d])=>`
+          <div style="display:flex;align-items:center;gap:10px;padding:7px 0;
+            border-bottom:1px solid var(--bg3)">
+            <div style="font-size:.70rem;font-weight:800;color:${c};min-width:42px">${t}</div>
+            <div style="font-size:.62rem;font-weight:700;color:${c};min-width:72px">${e}</div>
+            <div style="font-size:.62rem;color:var(--t4)">${d}</div>
+          </div>`).join('')}
+      </div>
+      <div style="margin-top:10px;padding:8px 10px;background:var(--bg3);
+        border-radius:8px;display:flex;flex-direction:column;gap:5px">
+        <div style="font-size:.63rem;color:var(--t4)">⏰ Wait for lineup confirmation before betting</div>
+        <div style="font-size:.63rem;color:var(--t4)">📋 Max 3 HR props per day to avoid overexposure</div>
+        <div style="font-size:.63rem;color:var(--t4)">☔ Skip games with &gt;45% postponement risk</div>
+        <div style="font-size:.63rem;color:var(--t4)">📈 Track CLV — beating closing line = proven long-term edge</div>
+        <div style="font-size:.63rem;color:var(--t4)">🎯 Need 300+ tracked bets for calibration significance</div>
+      </div>
+    </div>
+
+    <!-- Signal reliability -->
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">📶 Signal Reliability</div>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px">
-
         <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.4);display:flex;align-items:center;justify-content:center;font-size:.70rem;font-weight:900;color:var(--green)">A</div>
-          <div style="font-size:.64rem;color:var(--t4);line-height:1.6;padding-top:3px">Season HR rate · Barrel% · Pull-air% · xwOBA diff · Platoon · xFIP · Barrel% allowed · Park factor · Wind</div>
+          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;
+            background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.4);
+            display:flex;align-items:center;justify-content:center;
+            font-size:.70rem;font-weight:900;color:var(--green)">A</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
+            Barrel% · Pull-air% · xFIP · Barrel% allowed · Park factor · Platoon splits (50+ PA) · Wind · Statcast anchor
+          </div>
         </div>
-
         <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;background:rgba(240,165,0,.15);border:1px solid rgba(240,165,0,.4);display:flex;align-items:center;justify-content:center;font-size:.70rem;font-weight:900;color:var(--amber)">B</div>
-          <div style="font-size:.64rem;color:var(--t4);line-height:1.6;padding-top:3px">Arsenal platoon · Split rate · SP FB% · HR/FB · Home/away · Lineup pos · Temperature · Stadium · Zone matchup</div>
+          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;
+            background:rgba(240,165,0,.15);border:1px solid rgba(240,165,0,.4);
+            display:flex;align-items:center;justify-content:center;
+            font-size:.70rem;font-weight:900;color:var(--amber)">B</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
+            Arsenal platoon mod · HR/FB rate · Home/away split · Lineup position · Temperature · Stadium dimensions · Career vs SP (40+ PA)
+          </div>
         </div>
-
         <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;background:rgba(96,112,128,.15);border:1px solid rgba(96,112,128,.4);display:flex;align-items:center;justify-content:center;font-size:.70rem;font-weight:900;color:var(--t4)">C</div>
-          <div style="font-size:.64rem;color:var(--t4);line-height:1.6;padding-top:3px">Momentum ±6% · Umpire · Plate discipline · Bullpen quality</div>
+          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;
+            background:rgba(96,112,128,.15);border:1px solid rgba(96,112,128,.4);
+            display:flex;align-items:center;justify-content:center;
+            font-size:.70rem;font-weight:900;color:var(--t4)">C</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
+            Umpire · Plate discipline · Bullpen quality · Recent HR/9
+          </div>
         </div>
-
+        <div style="display:flex;align-items:flex-start;gap:10px">
+          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;
+            background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);
+            display:flex;align-items:center;justify-content:center;
+            font-size:.70rem;font-weight:900;color:#ef4444">✗</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
+            <b style="color:#ef4444">Removed:</b> Momentum / hot-cold streaks. &lt;3% predictive value, causes recency bias.
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Betting Rules -->
+    <!-- Calibration guide -->
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">💰 Betting Rules</div>
-      <div style="display:flex;flex-direction:column;margin-top:4px">
-
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0">
-          <div style="font-size:.70rem;font-weight:800;color:#ffd700;min-width:44px">S tier</div>
-          <div style="font-size:.65rem;color:var(--t4)">+8%+ edge — Max Bet (¼ Kelly sizing)</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bg3)">
-          <div style="font-size:.70rem;font-weight:800;color:var(--green);min-width:44px">A tier</div>
-          <div style="font-size:.65rem;color:var(--t4)">+5–8% edge — Strong bet</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bg3)">
-          <div style="font-size:.70rem;font-weight:800;color:var(--amber);min-width:44px">B tier</div>
-          <div style="font-size:.65rem;color:var(--t4)">+2–5% edge — Small lean only</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--bg3)">
-          <div style="font-size:.70rem;font-weight:800;color:var(--t4);min-width:44px">C / F</div>
-          <div style="font-size:.65rem;color:var(--t4)">Pass or Fade — no edge</div>
-        </div>
-
-        <div style="margin-top:10px;padding:10px;background:var(--bg3);border-radius:8px;display:flex;flex-direction:column;gap:5px">
-          <div style="font-size:.65rem;color:var(--t4)">⏰ Wait for lineup confirmation — never bet before 3:30pm ET</div>
-          <div style="font-size:.65rem;color:var(--t4)">📋 Max 3 HR props per day</div>
-          <div style="font-size:.65rem;color:var(--t4)">☔ Skip games with &gt;40% postponement risk</div>
-          <div style="font-size:.65rem;color:var(--t4)">📈 Track CLV — beating the closing line = real long-term edge</div>
-        </div>
-
+      <div class="slbl">🎯 Calibration Guide</div>
+      <div style="font-size:.63rem;color:var(--t4);line-height:1.7;margin-bottom:8px">
+        A well-calibrated model's 22% plays should hit ~22% of the time across many bets.
+        Track every bet using <b style="color:var(--amber)">📌 Track Bet</b> on player cards.
+      </div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        ${[
+          ['90–115%','var(--green)','Well calibrated','Bet full ¼ Kelly sizing with confidence'],
+          ['75–89%','var(--amber)','Slight over-prediction','Reduce sizing to 75% of Kelly temporarily'],
+          ['<75%','var(--red)','Significant over-prediction','Reduce to 50% Kelly. Model needs recalibration.'],
+          ['>130%','#60a5fa','Under-predicting','You have more edge than shown. Consider increasing sizing.'],
+        ].map(([range,clr,label,action])=>`
+          <div style="padding:7px 10px;border-radius:8px;background:${clr}10;
+            border:1px solid ${clr}25">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+              <span style="font-size:.68rem;font-weight:800;color:${clr};
+                font-family:'JetBrains Mono',monospace">${range}</span>
+              <span style="font-size:.63rem;font-weight:700;color:${clr}">${label}</span>
+            </div>
+            <div style="font-size:.59rem;color:var(--t4)">${action}</div>
+          </div>`).join('')}
+      </div>
+      <div style="margin-top:8px;font-size:.60rem;color:var(--t4);
+        padding:6px 8px;background:var(--bg3);border-radius:6px">
+        ⚠️ Need <b style="color:var(--t2)">300+ tracked bets</b> for statistical significance.
+        Under 100 bets, calibration ratio is directional only.
       </div>
     </div>
+
+    <div id="model-perf-card"></div>
+    <div id="clv-stats-card"></div>
 
     <!-- Tag Guide -->
     <div class="card" style="margin-bottom:10px">
@@ -626,20 +764,160 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       <div style="font-size:.60rem;color:var(--t4);margin-bottom:10px">
         <span style="color:var(--green)">●</span> positive &nbsp;&nbsp;
         <span style="color:var(--red)">●</span> fade &nbsp;&nbsp;
-        hover for details
+        tap any tag for detail
       </div>
       <div id="tag-guide-grid"></div>
     </div>
-
-    <div id="model-perf-card"></div>
-    <div id="clv-stats-card"></div>
 
     <!-- Pitch Key -->
     <div class="card" style="margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
         <span style="font-size:1.1rem">⚾</span>
-        <span style="font-size:.80rem;font-weight:800;color:var(--t1);letter-spacing:-.01em">Pitch Type Key</span>
+        <span style="font-size:.80rem;font-weight:800;color:var(--t1)">Pitch Type Key</span>
       </div>
+
+      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+        <span>Fastballs</span>
+        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+        ${[
+          ['FF','#ef4444','4-Seam Fastball','Straight, high velocity. Most common pitch. Elevated = HR risk.','🔴 High velocity'],
+          ['SI','#f97316','Sinker','Downward movement. Ground-ball pitch. Lower HR risk.','↘ Ground ball'],
+          ['FC','#eab308','Cutter','Between fastball and slider. Short horizontal break.','✂ Short cut'],
+          ['FS','#84cc16','Splitter','Drops late like a changeup but faster. Hard to elevate.','↓ Split drop'],
+        ].map(([code,color,name,desc,badge])=>`
+          <div style="background:${color}10;border:1px solid ${color}28;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:${color};border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:${color};
+                  font-family:'JetBrains Mono',monospace">${code}</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">${name}</span>
+              </div>
+              <span style="font-size:.52rem;color:${color};background:${color}20;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">${badge}</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">${desc}</div>
+          </div>`).join('')}
+      </div>
+
+      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+        <span>Breaking Balls</span>
+        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+        ${[
+          ['SL','#3b82f6','Slider','Lateral break, harder than curve. Can be elevated by pull hitters.','↗ Lateral'],
+          ['ST','#1d4ed8','Sweeper','Wide horizontal sweep. Modern slider variant. Hard to pull.','🌀 Wide break'],
+          ['CU','#7c3aed','Curveball','12-6 downward drop. Hard to elevate for HRs.','↓ 12-6 drop'],
+          ['KC','#6d28d9','Knuckle-Curve','Sharper curve variant. Biting break.','↓ Biting'],
+        ].map(([code,color,name,desc,badge])=>`
+          <div style="background:${color}10;border:1px solid ${color}28;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:${color};border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:${color};
+                  font-family:'JetBrains Mono',monospace">${code}</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">${name}</span>
+              </div>
+              <span style="font-size:.52rem;color:${color};background:${color}20;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">${badge}</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">${desc}</div>
+          </div>`).join('')}
+      </div>
+
+      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+        <span>Offspeed</span>
+        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
+        ${[
+          ['CH','#16a34a','Changeup','Fastball look, 8-12mph slower. Cross-hand matchup = elevated HR risk.','🐌 Slow drop'],
+          ['FO','#0d9488','Forkball','Rare split-finger variant. Deep drop, mostly Japanese-trained pitchers.','↓ Fork drop'],
+        ].map(([code,color,name,desc,badge])=>`
+          <div style="background:${color}10;border:1px solid ${color}28;border-radius:10px;
+            padding:9px 10px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
+              background:${color};border-radius:2px 0 0 2px"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:7px">
+                <span style="font-size:.80rem;font-weight:900;color:${color};
+                  font-family:'JetBrains Mono',monospace">${code}</span>
+                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">${name}</span>
+              </div>
+              <span style="font-size:.52rem;color:${color};background:${color}20;
+                padding:1px 5px;border-radius:99px;white-space:nowrap">${badge}</span>
+            </div>
+            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">${desc}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- HR Risk by pitch -->
+      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+        <span>HR Risk by Pitch</span>
+        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;
+          background:var(--bg3);border-radius:8px">
+          <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🔴 Highest</span>
+          <div>
+            <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">FF · CH · FC</div>
+            <div style="font-size:.60rem;color:var(--t4)">Elevated, out-front contact drives these out</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;
+          background:var(--bg3);border-radius:8px">
+          <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🟡 Medium</span>
+          <div>
+            <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">SL · ST · CU</div>
+            <div style="font-size:.60rem;color:var(--t4)">Can be lifted but requires elite bat speed</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;
+          background:var(--bg3);border-radius:8px">
+          <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🟢 Lowest</span>
+          <div>
+            <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">SI · FS · KC</div>
+            <div style="font-size:.60rem;color:var(--t4)">Ground-ball inducers — hard to elevate</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Sources -->
+    <div class="card" style="margin-bottom:10px">
+      <div class="slbl">📊 Data Sources</div>
+      <div style="display:flex;flex-direction:column;gap:7px;margin-top:4px">
+        ${[
+          ['MLB Stats API','Schedule, lineups, rosters, game logs, season stats, pitcher logs, platoon splits, day/night splits','var(--t2)'],
+          ['Baseball Savant','Barrel%, hard hit%, EV, pull-air%, sweet spot%, GB%, spray coordinates, pitch arsenal (all pitchers), batter vs pitch type ISO','var(--t2)'],
+          ['FanGraphs','xFIP, FIP, BB%, K%, HR/FB%, whiff rate, GB/FB split per pitcher','var(--t2)'],
+          ['Open-Meteo','Real-time weather per ballpark: temp, wind speed/direction, rain probability — matched to game start time local hour','var(--t2)'],
+          ['The Odds API','FanDuel HR props — edge and EV calculated against no-vig implied probability','var(--t2)'],
+        ].map(([src,desc,c])=>`
+          <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
+            <div style="font-size:.65rem;font-weight:700;color:${c};margin-bottom:2px">${src}</div>
+            <div style="font-size:.59rem;color:var(--t4);line-height:1.5">${desc}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+  </div>
 
             <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
         letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
@@ -776,50 +1054,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           </div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Rare split-finger variant. Deep drop, mostly Japanese-trained pitchers.</div>
         </div>
-      </div>
-
-            <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-        <span>HR Risk by Pitch</span>
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:4px">
-          <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;background:var(--bg3);border-radius:8px">
-            <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🔴 Highest risk</span>
-            <div>
-              <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">FF · CH · FC</div>
-              <div style="font-size:.60rem;color:var(--t4)">Elevated, out-front swings drive these out</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;background:var(--bg3);border-radius:8px">
-            <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🟡 Medium risk</span>
-            <div>
-              <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">SL · ST · CU</div>
-              <div style="font-size:.60rem;color:var(--t4)">Can be lifted but harder to pull</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;background:var(--bg3);border-radius:8px">
-            <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🟢 Lowest risk</span>
-            <div>
-              <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">SI · FS · KC</div>
-              <div style="font-size:.60rem;color:var(--t4)">Ground-ball inducers, hard to elevate</div>
-            </div>
-          </div>
-      </div>
-    </div>
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">📊 Data Sources</div>
-      <div style="font-size:.75rem;color:var(--t3);line-height:1.8">
-        <b style="color:var(--t2)">MLB Stats API</b> — Schedule, rosters (hydrated), game logs, season stats, pitcher logs, platoon splits<br>
-        <b style="color:var(--t2)">Baseball Savant</b> — Barrel%, hard hit%, EV, Pull-Air%, HR/FB%, pitch arsenal (all pitchers), batter vs pitch type<br>
-        <b style="color:var(--t2)">Open-Meteo</b> — Real-time weather (temp, wind speed/direction, rain probability) per ballpark<br>
-        <b style="color:var(--t2)">The Odds API</b> — FanDuel HR props (requires paid plan for player props)
-      </div>
-    </div>
-  </div>
-</div><!-- /content -->
-
 <!-- ── BOTTOM NAV ──────────────────────────────────────────────── -->
 <nav id="nav">
   <button class="nav-btn active" onclick="showPage('slate')" id="nav-slate">
@@ -4658,16 +4892,282 @@ function getHitRateTracker(){
 function renderHitRateTracker(el){
   if(!el) return;
   const data = getHitRateTracker();
-  if(!data || data.resolved.length < 3){
+  const MIN_BETS = 10;
+
+  if(!data || data.resolved.length < MIN_BETS){
+    const n = data?.resolved?.length||0;
     el.innerHTML = `<div class="card" style="margin-bottom:10px">
-      <div class="slbl">🎯 Model Calibration</div>
-      <div style="font-size:.68rem;color:var(--t4);padding:8px 0">
-        Track ${Math.max(0,10-(data?.resolved?.length||0))} more bets to unlock calibration.
-        <br><span style="font-size:.60rem">Tap 📌 Track Bet on any player card. Results auto-resolve overnight.</span>
+      <div class="slbl" style="margin:0">🎯 Model Calibration</div>
+      <div style="margin-top:10px;padding:12px;background:var(--bg3);border-radius:10px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="flex:1;background:rgba(255,255,255,.08);border-radius:99px;height:6px;overflow:hidden">
+            <div style="height:100%;width:${Math.round(n/MIN_BETS*100)}%;
+              background:var(--amber);border-radius:99px;transition:width .3s"></div>
+          </div>
+          <span style="font-size:.68rem;font-weight:700;color:var(--amber)">${n}/${MIN_BETS}</span>
+        </div>
+        <div style="font-size:.65rem;color:var(--t3)">Track ${MIN_BETS-n} more bets to unlock calibration</div>
+        <div style="font-size:.60rem;color:var(--t4);margin-top:4px">
+          Tap <b style="color:var(--amber)">📌 Track Bet</b> on player cards · Results auto-resolve overnight
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:10px;border-radius:8px;
+        background:rgba(90,160,255,.06);border:1px solid rgba(90,160,255,.15)">
+        <div style="font-size:.62rem;font-weight:700;color:#60a5fa;margin-bottom:5px">
+          📖 How calibration works
+        </div>
+        <div style="font-size:.58rem;color:var(--t4);line-height:1.7">
+          When the model says a player has a <b style="color:var(--t2)">25% chance</b> of hitting a HR,
+          that should happen roughly <b style="color:var(--t2)">25% of the time</b> across many bets.
+          If 25% plays only hit 14%, the model is over-confident.
+          If they hit 30%, you have real edge the books aren't pricing.
+          <br><br>
+          <b style="color:var(--t2)">300+ bets</b> needed for statistical significance.
+          Until then, treat calibration as directional only.
+        </div>
       </div>
     </div>`;
     return;
   }
+
+  const { resolved, buckets, tiers, calibration, totalExpected, totalActual,
+    edgeBuckets, withOdds, roi, clvData } = data;
+
+  const overallHitRate = totalActual/resolved.length;
+  const modelAvg       = parseFloat(totalExpected)/resolved.length;
+  const calRatio       = calibration; // actual/expected
+
+  // Calibration interpretation
+  const calColor = calRatio>=0.88&&calRatio<=1.15 ? 'var(--green)' :
+                   calRatio>=0.70&&calRatio<=1.30 ? 'var(--amber)' : 'var(--red)';
+  const calLabel = calRatio>=0.88&&calRatio<=1.15
+    ? '✅ Well calibrated'
+    : calRatio>1.15
+      ? `📈 Model under-predicting (actual ${(calRatio*100).toFixed(0)}% of expected)`
+      : calRatio<0.70
+        ? `📉 Model over-predicting — reduce sizing (${(calRatio*100).toFixed(0)}%)`
+        : `⚠️ Slight ${calRatio<0.88?'over':'under'}-prediction (${(calRatio*100).toFixed(0)}%)`;
+
+  const calAdvice = calRatio>=0.88&&calRatio<=1.15
+    ? 'Model probabilities are accurate. Bet Kelly-sized amounts with confidence.'
+    : calRatio>1.30
+      ? 'Actual hit rate exceeds model — your edge may be larger than shown. Consider increasing sizing slightly.'
+      : calRatio<0.70
+        ? 'Model over-estimates hit rates significantly. Reduce bet sizing to 50-75% of Kelly until 300+ bets tracked.'
+        : calRatio<0.88
+          ? 'Slight over-estimation. Continue tracking — may normalize. Keep to Quarter Kelly sizing.'
+          : 'Model slightly conservative. Edge may be larger than displayed.';
+
+  // Per-bucket calibration chart
+  const activeBuckets = buckets.filter(b=>b.bets.length>=3);
+  const maxBar = 70;
+
+  const bucketBars = activeBuckets.map(b=>{
+    const actualPct = b.hits.length/b.bets.length;
+    const modelPct  = (b.min+b.max)/2;
+    const diff      = actualPct - modelPct;
+    const clr = Math.abs(diff) < 0.04 ? 'var(--green)' :
+                diff > 0 ? '#60a5fa' : 'var(--red)';
+    const expBarH = Math.min(modelPct/0.45*maxBar, maxBar);
+    const actBarH = Math.min(actualPct/0.45*maxBar, maxBar);
+    return `<div style="flex:1;text-align:center;min-width:0">
+      <div style="font-size:.46rem;color:var(--t4);margin-bottom:4px;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${b.label}</div>
+      <div style="height:${maxBar}px;display:flex;align-items:flex-end;
+        justify-content:center;gap:2px">
+        <div title="Model ${(modelPct*100).toFixed(0)}%"
+          style="width:10px;background:rgba(255,215,0,.4);border-radius:2px 2px 0 0;
+          height:${expBarH.toFixed(0)}px"></div>
+        <div title="Actual ${(actualPct*100).toFixed(0)}%"
+          style="width:10px;background:${clr};border-radius:2px 2px 0 0;
+          height:${actBarH.toFixed(0)}px;opacity:.9"></div>
+      </div>
+      <div style="font-size:.56rem;font-weight:700;color:${clr};margin-top:2px">
+        ${(actualPct*100).toFixed(0)}%
+      </div>
+      <div style="font-size:.46rem;color:var(--t4)">${b.bets.length}b</div>
+    </div>`;
+  }).join('');
+
+  // Tier table
+  const tierRows = ['S','A','B','C'].map(t=>{
+    const arr=tiers[t]; if(!arr?.length) return '';
+    const h=arr.filter(r=>r.actual>0).length;
+    const hitRate=h/arr.length;
+    const expRate=arr.reduce((s,r)=>s+r.prob,0)/arr.length;
+    const diff=hitRate-expRate;
+    const clr=Math.abs(diff)<0.04?'var(--green)':diff>0?'#60a5fa':'var(--red)';
+    const status=Math.abs(diff)<0.04?'On target':diff>0?'↑ Beating model':'↓ Below model';
+    return `<tr style="border-bottom:1px solid var(--bg3)">
+      <td style="padding:5px 6px;font-size:.68rem;font-weight:700;color:var(--amber)">${t}</td>
+      <td style="padding:5px 6px;font-size:.65rem;color:var(--t3);text-align:center">${arr.length}</td>
+      <td style="padding:5px 6px;font-size:.65rem;color:var(--t4);text-align:center">${(expRate*100).toFixed(0)}%</td>
+      <td style="padding:5px 6px;font-size:.72rem;font-weight:800;color:${clr};text-align:center">
+        ${(hitRate*100).toFixed(0)}%
+      </td>
+      <td style="padding:5px 6px;font-size:.58rem;color:${clr};text-align:right">${status}</td>
+    </tr>`;
+  }).join('');
+
+  // Edge tier ROI table
+  const edgeRows = edgeBuckets.filter(b=>b.bets.length>=3).map(b=>{
+    const hitRate=b.hits.length/b.bets.length;
+    const fdOdds=b.bets.filter(r=>r.fdOdds).map(r=>r.fdOdds);
+    let roiPct=null;
+    if(fdOdds.length>=3){
+      let wagered=fdOdds.length,returned=0;
+      b.bets.filter(r=>r.fdOdds).forEach(r=>{
+        if(r.actual>0){
+          const d=r.fdOdds>0?r.fdOdds/100:100/Math.abs(r.fdOdds);
+          returned+=1+d;
+        }
+      });
+      roiPct=(returned-wagered)/wagered*100;
+    }
+    const expHit=b.bets.reduce((s,r)=>s+r.prob,0)/b.bets.length;
+    const clr=b.min>=6?'var(--green)':b.min>=0?'var(--amber)':'var(--t4)';
+    return `<tr style="border-bottom:1px solid var(--bg3)">
+      <td style="padding:5px 6px;font-size:.62rem;color:${clr}">${b.label}</td>
+      <td style="padding:5px 6px;font-size:.62rem;color:var(--t4);text-align:center">${b.bets.length}</td>
+      <td style="padding:5px 6px;font-size:.62rem;color:var(--t4);text-align:center">${(expHit*100).toFixed(0)}%</td>
+      <td style="padding:5px 6px;font-size:.68rem;font-weight:700;
+        color:${(hitRate*100).toFixed(0)>=(expHit*100).toFixed(0)?'var(--green)':'var(--red)'};
+        text-align:center">${(hitRate*100).toFixed(0)}%</td>
+      <td style="padding:5px 6px;font-size:.65rem;font-weight:700;text-align:right;
+        color:${roiPct!=null?(roiPct>=0?'var(--green)':'var(--red)'):'var(--t4)'}">
+        ${roiPct!=null?(roiPct>=0?'+':'')+roiPct.toFixed(1)+'%':'--'}
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Statistical confidence note
+  const n = resolved.length;
+  const se = Math.sqrt(overallHitRate*(1-overallHitRate)/n);
+  const ciLo = Math.max(0,(overallHitRate-1.96*se)*100).toFixed(1);
+  const ciHi = Math.min(100,(overallHitRate+1.96*se)*100).toFixed(1);
+  const confidenceNote = n>=300
+    ? `<span style="color:var(--green)">✅ Statistically significant (${n} bets)</span>`
+    : n>=100
+      ? `<span style="color:var(--amber)">⚠️ Directional only — need ${300-n} more bets for significance</span>`
+      : `<span style="color:var(--red)">🔬 Too early to conclude — need ${300-n} more bets</span>`;
+
+  el.innerHTML = `<div class="card" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="slbl" style="margin:0">🎯 Model Calibration</div>
+      <span style="font-size:.58rem;color:var(--t4)">${n} bets tracked</span>
+    </div>
+
+    <!-- Top 3 summary stats -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        <div style="font-size:1.05rem;font-weight:900;color:var(--green)">
+          ${(overallHitRate*100).toFixed(1)}%
+        </div>
+        <div style="font-size:.55rem;color:var(--t4)">Actual HR%</div>
+        <div style="font-size:.52rem;color:var(--t4)">model avg ${(modelAvg*100).toFixed(1)}%</div>
+      </div>
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        <div style="font-size:1.05rem;font-weight:900;color:${calColor}">
+          ${(calRatio*100).toFixed(0)}%
+        </div>
+        <div style="font-size:.55rem;color:var(--t4)">Cal ratio</div>
+        <div style="font-size:.52rem;color:var(--t4)">actual÷expected</div>
+      </div>
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        ${roi!=null
+          ? `<div style="font-size:1.05rem;font-weight:900;
+               color:${roi>=0?'var(--green)':'var(--red)'}">
+               ${roi>=0?'+':''}${roi}%</div>
+             <div style="font-size:.55rem;color:var(--t4)">ROI</div>
+             <div style="font-size:.52rem;color:var(--t4)">${withOdds.length} w/odds</div>`
+          : `<div style="font-size:.60rem;color:var(--t4);margin-top:4px">Add FD<br>odds to<br>track ROI</div>`}
+      </div>
+    </div>
+
+    <!-- Calibration verdict -->
+    <div style="padding:10px 12px;border-radius:8px;background:${calColor}10;
+      border:1px solid ${calColor}30;margin-bottom:12px">
+      <div style="font-size:.70rem;font-weight:800;color:${calColor}">${calLabel}</div>
+      <div style="font-size:.60rem;color:var(--t3);margin-top:4px">${calAdvice}</div>
+      <div style="font-size:.56rem;color:var(--t4);margin-top:4px">
+        Expected ${totalExpected} HRs · Actual ${totalActual} · 95% CI: ${ciLo}–${ciHi}%
+      </div>
+    </div>
+
+    <!-- Probability bucket chart -->
+    <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;
+      letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:8px">
+      Calibration by probability bucket
+      <span style="text-transform:none;letter-spacing:0;font-size:.55rem">
+        <span style="color:rgba(255,215,0,.5)">■</span> model &nbsp;
+        <span style="color:var(--green)">■</span> actual
+      </span>
+    </div>
+    ${activeBuckets.length>=2
+      ? `<div style="display:flex;gap:3px;margin-bottom:14px;align-items:flex-end">
+           ${bucketBars}
+         </div>
+         <div style="font-size:.56rem;color:var(--t4);margin-bottom:12px;text-align:center">
+           Bars aligned = model accurate · Blue = better than model · Red = worse
+         </div>`
+      : `<div style="font-size:.63rem;color:var(--t4);padding:8px 0;margin-bottom:12px">
+           Need 3+ bets in each probability bucket to show chart.
+         </div>`}
+
+    <!-- Tier hit rate table -->
+    <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;
+      letter-spacing:.06em;margin-bottom:5px">Hit rate by grade tier</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <thead><tr style="border-bottom:1px solid var(--bdr)">
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:left">Tier</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Bets</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Model%</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Actual%</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:right">Signal</th>
+      </tr></thead>
+      <tbody>${tierRows||'<tr><td colspan="5" style="padding:8px;font-size:.63rem;color:var(--t4);text-align:center">No tier data yet</td></tr>'}</tbody>
+    </table>
+
+    <!-- Edge bucket ROI table -->
+    ${edgeRows?`
+    <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;
+      letter-spacing:.06em;margin-bottom:5px">ROI by edge tier (requires FD odds)</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <thead><tr style="border-bottom:1px solid var(--bdr)">
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:left">Edge</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Bets</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Model%</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:center">Hit%</th>
+        <th style="padding:4px 6px;font-size:.58rem;color:var(--t4);text-align:right">ROI</th>
+      </tr></thead>
+      <tbody>${edgeRows}</tbody>
+    </table>`:''}
+
+    <!-- CLV -->
+    ${clvData?`<div style="padding:8px 10px;background:var(--bg3);border-radius:8px;
+      margin-bottom:8px">
+      <div style="font-size:.60rem;font-weight:700;color:var(--t3);margin-bottom:3px">
+        📈 Closing Line Value</div>
+      <div style="font-size:.63rem;color:var(--t4)">
+        Beating closing line <b style="color:${clvData.beatClosePct>=55?'var(--green)':'var(--red)'}">
+        ${clvData.beatClosePct}%</b> of the time
+        ${clvData.beatClosePct>=55
+          ? ' ✅ — consistently getting better prices than close = long-run edge'
+          : ' ⚠️ — below 55% means the market is moving against your bets'}
+      </div>
+    </div>`:''}
+
+    <!-- Statistical note -->
+    <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.03);
+      font-size:.58rem;color:var(--t4);line-height:1.7">
+      <div style="margin-bottom:3px">${confidenceNote}</div>
+      <b style="color:var(--t2)">Guide:</b>
+      Cal ratio <span style="color:var(--green)">88-115%</span> = accurate ·
+      <span style="color:var(--red)">&lt;70%</span> = over-predicting, reduce sizing ·
+      <span style="color:#60a5fa">&gt;130%</span> = under-predicting, you have more edge than shown
+    </div>
+  </div>`;
+}
 
   const { resolved, buckets, tiers, calibration, totalExpected, totalActual,
     edgeBuckets, withOdds, roi, clvData } = data;
@@ -4800,7 +5300,6 @@ function renderHitRateTracker(el){
       </div>
     </div>`:''}
   </div>`;
-}
 
 // ==================================================================
 //  BETTING DISCIPLINE MODULE
