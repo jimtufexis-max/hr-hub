@@ -2932,16 +2932,24 @@ async function loadSelectedGames(){
     renderWeather(wx,firstG.home);
   }
 
-  renderSlate();
-  renderDailySummary();
-  checkLineupLockAlert();
+  try{
+    renderSlate();
+    renderDailySummary();
+    checkLineupLockAlert();
+  }catch(renderErr){
+    console.error('[renderSlate] CRASH:', renderErr.message, renderErr.stack);
+    document.getElementById('hitter-list').innerHTML=
+      `<div class="card" style="color:var(--red);padding:12px;font-size:.78rem">
+        <b>Render error: ${renderErr.message}</b><br>
+        <pre style="font-size:.62rem;white-space:pre-wrap">${renderErr.stack?.split('\n').slice(0,3).join('\n')}</pre>
+      </div>`;
+    return;
+  }
   // Show copy picks bar when we have plays
   const cpBar = document.getElementById('copy-picks-bar');
   if(cpBar) cpBar.style.display = S.allRows.length ? 'block' : 'none';
-  // Persist final probs to localStorage so Results tab always matches slate
-  if(S.allRows.length) queueForAutoTrack(S.allRows);
-  populateABSelect();
-  fireSecondaryMaps(); // fire secondary enrichment maps after players shown
+  // Fire secondary enrichment in background (once only)
+  fireSecondaryMaps();
 }
 
 async function getPitcherGameLog(pid){
@@ -7283,8 +7291,8 @@ async function loadGame(g){
 
     const rows = [];
     console.log(`[loadGame] ${key}: processing ${hitters.length} hitters`);
-    el.innerHTML=`<div class="spinner"><div class="spin"></div>Computing ${hitters.length} ${team} batters…</div>`;
-    for(const h of hitters){
+    for(let hi=0; hi<hitters.length; hi++){
+      const h = hitters[hi];
       const pid = String(h.id);
       console.log(`[row] computing ${h.name} (${pid})...`);
       const savH   = (_savB||{})[pid] || {};
@@ -7738,10 +7746,11 @@ function renderBestBets(){
 
 function renderSlate(){
   if(!S.allRows.length){
-    document.getElementById('hitter-list').innerHTML='<div class="empty">No players loaded</div>';
+    const hl=document.getElementById('hitter-list');
+    if(hl) hl.innerHTML='<div class="empty">No players loaded</div>';
     return;
   }
-  const q=(document.getElementById('search-input').value||'').toLowerCase();
+  const q=((document.getElementById('search-input')?.value)||'').toLowerCase();
   const sortFn={
     prob:(a,b)=>b.prob-a.prob,
     anchor:(a,b)=>b.anchor-a.anchor,
@@ -7797,7 +7806,15 @@ function renderSlate(){
     </div>`;
   })():'';
 
-  document.getElementById('hitter-list').innerHTML=bestBetHTML+rows.map(r=>renderHitterCard(r,multiGame)).join('');
+  let hitterHTML = '';
+  try{
+    hitterHTML = rows.map(r=>renderHitterCard(r,multiGame)).join('');
+  }catch(cardErr){
+    console.error('[renderHitterCard] crash:', cardErr.message, cardErr.stack);
+    hitterHTML = `<div class="card" style="color:var(--red);padding:12px;font-size:.75rem">
+      Card render error: ${cardErr.message}</div>`;
+  }
+  document.getElementById('hitter-list').innerHTML=bestBetHTML+hitterHTML;
   renderHRProjection();
   // Update discover tab if open
   if(document.getElementById('page-discover')?.classList.contains('active')) renderDiscover();
