@@ -2839,6 +2839,16 @@ async function loadSlate(){
     </div>`;
 }
 
+// Format UTC game time to local 12-hour time
+function fmtGameTime(isoUTC){
+  if(!isoUTC) return '';
+  try{
+    const d = new Date(isoUTC);
+    return d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',
+      hour12:true,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone});
+  }catch{ return ''; }
+}
+
 function renderGameChips(){
   const el=document.getElementById('game-chips');
   if(!gamesCache.length){el.innerHTML='';return;}
@@ -2859,8 +2869,12 @@ function renderGameChips(){
     if(wx&&wx.rain>=40&&!wx.isDome&&!DOME_TEAMS.has(g.home)){
       windBadge+=`<span style="font-size:.60rem;color:#60a5fa;margin-left:2px">🌧️</span>`;
     }
+    const timeStr = fmtGameTime(g.gameTime);
     return`<div class="chip${active?' active':''}${loaded&&!active?' loaded':''}"
-      onclick="toggleGame('${g.pk}')">${loaded?'✅ ':''}${g.away}@${g.home}${windBadge}</div>`;
+      onclick="toggleGame('${g.pk}')">
+      <div>${loaded?'✅ ':''}${g.away}@${g.home}${windBadge}</div>
+      ${timeStr?`<div style="font-size:.55rem;color:var(--t4);margin-top:1px">${timeStr}</div>`:''}
+    </div>`;
   }).join('');
 }
 
@@ -7424,7 +7438,7 @@ async function loadGame(g){
       rows.push({
         id:pid, name:h.name, team, pos:h.pos,
         batHand:batterStats.batHand,
-        game:`${g.away}@${g.home}`, spNm, oppHand, pf, wx,
+        game:`${g.away}@${g.home}`, gameTime:g.gameTime||null, spNm, oppHand, pf, wx,
         // Scores — gameProb is per-game (aligns with book lines)
         prob:     gameProb,
         probPerPA: res.prob, // keep raw per-PA for internal calcs
@@ -7681,7 +7695,7 @@ function renderBestBets(){
               <div>
                 <div style="font-size:.95rem;font-weight:800;color:var(--t1)">${r.name}</div>
                 <div style="font-size:.66rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · #${r.lineupPos}`:''}</div>
-                <div style="font-size:.64rem;color:var(--t4)">vs ${r.spNm||'SP'} · ${r.game||''}</div>
+                <div style="font-size:.64rem;color:var(--t4)">vs ${r.spNm||'SP'} · ${r.game||''}${r.gameTime?` · ${fmtGameTime(r.gameTime)}`:''}</div>
               </div>
               <div style="text-align:center;flex-shrink:0">
                 <div style="font-size:1.4rem;font-weight:900;color:${gc}">${pct}%</div>
@@ -8505,7 +8519,7 @@ function renderDetail(r){
           <div class="detail-prob-big" style="color:${gc}">${pct}%</div>
           <div style="font-size:.8rem;color:var(--t3)">${grd} · Expected: ${fair}</div>
           <div class="detail-meta">${r.name} · ${r.team} · ${r.pos} · ${r.batHand}HB</div>
-          <div class="detail-meta">vs ${r.spNm} (${r.oppHand}HP) · ${r.game}</div>
+          <div class="detail-meta">vs ${r.spNm} (${r.oppHand}HP) · ${r.game}${r.gameTime?' · '+fmtGameTime(r.gameTime):''}</div>
         </div>
       </div>
       ${(()=>{
