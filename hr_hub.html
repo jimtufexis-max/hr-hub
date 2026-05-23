@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <!-- HR Hub v2.9 — cache bust -->
 <html lang="en">
 <head>
@@ -754,11 +754,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         Track every bet using <b style="color:var(--amber)">📌 Track Bet</b> on player cards.
       </div>
       <div style="display:flex;flex-direction:column;gap:5px">
-        ${[
-          ['90–115%','var(--green)','Well calibrated','Bet full ¼ Kelly sizing with confidence'],
-          ['75–89%','var(--amber)','Slight over-prediction','Reduce sizing to 75% of Kelly temporarily'],
-          ['<75%','var(--red)','Significant over-prediction','Reduce to 50% Kelly. Model needs recalibration.'],
-          ['>130%','#60a5fa','Under-predicting','You have more edge than shown. Consider increasing sizing.'],
         <div style="padding:7px 10px;border-radius:8px;background:rgba(34,201,94,.08);border:1px solid rgba(34,201,94,.2)">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
             <span style="font-size:.68rem;font-weight:800;color:var(--green);font-family:'JetBrains Mono',monospace">90–115%</span>
@@ -823,11 +818,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <div style="flex:1;height:1px;background:var(--bdr)"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-        ${[
-          ['FF','#ef4444','4-Seam Fastball','Straight, high velocity. Most common pitch. Elevated = HR risk.','🔴 High velocity'],
-          ['SI','#f97316','Sinker','Downward movement. Ground-ball pitch. Lower HR risk.','↘ Ground ball'],
-          ['FC','#eab308','Cutter','Between fastball and slider. Short horizontal break.','✂ Short cut'],
-          ['FS','#84cc16','Splitter','Drops late like a changeup but faster. Hard to elevate.','↓ Split drop'],
         <div style="background:#ef444410;border:1px solid #ef444428;border-radius:10px;
             padding:9px 10px;position:relative;overflow:hidden">
             <div style="position:absolute;top:0;left:0;width:3px;height:100%;
@@ -898,11 +888,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <div style="flex:1;height:1px;background:var(--bdr)"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-        ${[
-          ['SL','#3b82f6','Slider','Lateral break, harder than curve. Can be elevated by pull hitters.','↗ Lateral'],
-          ['ST','#1d4ed8','Sweeper','Wide horizontal sweep. Modern slider variant. Hard to pull.','🌀 Wide break'],
-          ['CU','#7c3aed','Curveball','12-6 downward drop. Hard to elevate for HRs.','↓ 12-6 drop'],
-          ['KC','#6d28d9','Knuckle-Curve','Sharper curve variant. Biting break.','↓ Biting'],
         <div style="background:#3b82f610;border:1px solid #3b82f628;border-radius:10px;
             padding:9px 10px;position:relative;overflow:hidden">
             <div style="position:absolute;top:0;left:0;width:3px;height:100%;
@@ -973,9 +958,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <div style="flex:1;height:1px;background:var(--bdr)"></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
-        ${[
-          ['CH','#16a34a','Changeup','Fastball look, 8-12mph slower. Cross-hand matchup = elevated HR risk.','🐌 Slow drop'],
-          ['FO','#0d9488','Forkball','Rare split-finger variant. Deep drop, mostly Japanese-trained pitchers.','↓ Fork drop'],
         <div style="background:#16a34a10;border:1px solid #16a34a28;border-radius:10px;
             padding:9px 10px;position:relative;overflow:hidden">
             <div style="position:absolute;top:0;left:0;width:3px;height:100%;
@@ -2800,11 +2782,16 @@ function normName(v){
 let gamesCache=[];
 
 async function loadSlate(){
-  document.getElementById('date-lbl').textContent=dlbl();
-  document.getElementById('header-date').textContent=ds();
-  document.getElementById('hitter-list').innerHTML='<div class="spinner"><div class="spin"></div>Loading schedule…</div>';
-  document.getElementById('game-chips').innerHTML='';
-  document.getElementById('wx-area').innerHTML='';
+  const dateLbl = document.getElementById('date-lbl');
+  const headerDate = document.getElementById('header-date');
+  const hitterList = document.getElementById('hitter-list');
+  const gameChips = document.getElementById('game-chips');
+  const wxArea = document.getElementById('wx-area');
+  if(dateLbl) dateLbl.textContent=dlbl();
+  if(headerDate) headerDate.textContent=ds();
+  if(hitterList) hitterList.innerHTML='<div class="spinner"><div class="spin"></div>Loading schedule…</div>';
+  if(gameChips) gameChips.innerHTML='';
+  if(wxArea) wxArea.innerHTML='';
 
   gamesCache=[];
   try {
@@ -4257,6 +4244,32 @@ function renderTagGuide(){
 //  RESULTS TAB
 //  Shows yesterday's HR results, model accuracy, CLV tracking
 // ==================================================================
+
+// ==================================================================
+//  CLV STATS — Closing Line Value tracker
+// ==================================================================
+function getCLVStats(){
+  try{
+    const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+    const withCLV = stored.filter(r=>
+      r.manualBet===true &&
+      r.actual!==undefined && r.actual!==null &&
+      r.fdOdds!=null && r.closingOdds!=null
+    );
+    if(withCLV.length < 3) return null;
+    const beaten = withCLV.filter(r=>{
+      const openImplied = r.fdOdds>0?100/(r.fdOdds+100):Math.abs(r.fdOdds)/(Math.abs(r.fdOdds)+100);
+      const closeImplied = r.closingOdds>0?100/(r.closingOdds+100):Math.abs(r.closingOdds)/(Math.abs(r.closingOdds)+100);
+      return openImplied < closeImplied; // we got better price than close
+    });
+    return {
+      total: withCLV.length,
+      beaten: beaten.length,
+      beatClosePct: Math.round(beaten.length/withCLV.length*100),
+    };
+  }catch{ return null; }
+}
+
 async function renderResultsTab(){
   const el = document.getElementById('results-content');
   if(!el) return;
