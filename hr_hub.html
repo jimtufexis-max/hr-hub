@@ -1048,13 +1048,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">📊 Data Sources</div>
       <div style="display:flex;flex-direction:column;gap:7px;margin-top:4px">
-        ${[
-          ['MLB Stats API','Schedule, lineups, rosters, game logs, season stats, pitcher logs, platoon splits, day/night splits','var(--t2)'],
-          ['Baseball Savant','Barrel%, hard hit%, EV, pull-air%, sweet spot%, GB%, spray coordinates, pitch arsenal (all pitchers), batter vs pitch type ISO','var(--t2)'],
-          ['FanGraphs','xFIP, FIP, BB%, K%, HR/FB%, whiff rate, GB/FB split per pitcher','var(--t2)'],
-          ['Open-Meteo','Real-time weather per ballpark: temp, wind speed/direction, rain probability — matched to game start time local hour','var(--t2)'],
-          ['The Odds API','FanDuel HR props — edge and EV calculated against no-vig implied probability','var(--t2)'],
-        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
           <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">MLB Stats API</div>
           <div style="font-size:.59rem;color:var(--t4);line-height:1.5">Schedule, lineups, rosters, game logs, season stats, pitcher logs, platoon splits, day/night splits</div>
         </div>
@@ -1079,141 +1072,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
   </div>
 
-            <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-        <span>Fastballs</span>
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
-        <div style="background:#dc262612;border:1px solid #dc262630;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#dc2626;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#dc2626;font-family:'JetBrains Mono',monospace">FF</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">4-Seam</span>
-            </div>
-            <span style="font-size:.55rem;color:#dc2626;background:#dc262620;padding:1px 6px;border-radius:99px;white-space:nowrap">⚡ Power</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">High velo, straight. Most common pitch in MLB.</div>
-        </div>
-        <div style="background:#b91c1c12;border:1px solid #b91c1c30;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#b91c1c;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#b91c1c;font-family:'JetBrains Mono',monospace">SI</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Sinker</span>
-            </div>
-            <span style="font-size:.55rem;color:#b91c1c;background:#b91c1c20;padding:1px 6px;border-radius:99px;white-space:nowrap">↓ GB machine</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Sinking action, induces ground balls. Low HR risk.</div>
-        </div>
-        <div style="background:#ea580c12;border:1px solid #ea580c30;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#ea580c;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#ea580c;font-family:'JetBrains Mono',monospace">FC</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Cutter</span>
-            </div>
-            <span style="font-size:.55rem;color:#ea580c;background:#ea580c20;padding:1px 6px;border-radius:99px;white-space:nowrap">✂ Cuts late</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Hard cut away from opposite-hand hitters.</div>
-        </div>
-        <div style="background:#0ea5e912;border:1px solid #0ea5e930;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#0ea5e9;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#0ea5e9;font-family:'JetBrains Mono',monospace">FS</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Splitter</span>
-            </div>
-            <span style="font-size:.55rem;color:#0ea5e9;background:#0ea5e920;padding:1px 6px;border-radius:99px;white-space:nowrap">↓ K pitch</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Drops sharply out of zone. High swing-and-miss.</div>
-        </div>
-      </div>
-
-            <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-        <span>Breaking Balls</span>
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
-        <div style="background:#2563eb12;border:1px solid #2563eb30;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#2563eb;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#2563eb;font-family:'JetBrains Mono',monospace">SL</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Slider</span>
-            </div>
-            <span style="font-size:.55rem;color:#2563eb;background:#2563eb20;padding:1px 6px;border-radius:99px;white-space:nowrap">↔ Side break</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Lateral break. Effective vs same-hand batters.</div>
-        </div>
-        <div style="background:#1d4ed812;border:1px solid #1d4ed830;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#1d4ed8;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#1d4ed8;font-family:'JetBrains Mono',monospace">ST</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Sweeper</span>
-            </div>
-            <span style="font-size:.55rem;color:#1d4ed8;background:#1d4ed820;padding:1px 6px;border-radius:99px;white-space:nowrap">🌀 Wide break</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Wide horizontal sweep. Modern slider variant.</div>
-        </div>
-        <div style="background:#7c3aed12;border:1px solid #7c3aed30;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#7c3aed;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#7c3aed;font-family:'JetBrains Mono',monospace">CU</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Curveball</span>
-            </div>
-            <span style="font-size:.55rem;color:#7c3aed;background:#7c3aed20;padding:1px 6px;border-radius:99px;white-space:nowrap">↓ 12-6 drop</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">12-6 downward drop. Hard to elevate for HRs.</div>
-        </div>
-        <div style="background:#6d28d912;border:1px solid #6d28d930;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#6d28d9;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#6d28d9;font-family:'JetBrains Mono',monospace">KC</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Knuckle-Curve</span>
-            </div>
-            <span style="font-size:.55rem;color:#6d28d9;background:#6d28d920;padding:1px 6px;border-radius:99px;white-space:nowrap">↓ Biting</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Sharper curve variant. Less common.</div>
-        </div>
-      </div>
-
-            <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-        <span>Offspeed</span>
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
-        <div style="background:#16a34a12;border:1px solid #16a34a30;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#16a34a;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#16a34a;font-family:'JetBrains Mono',monospace">CH</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Changeup</span>
-            </div>
-            <span style="font-size:.55rem;color:#16a34a;background:#16a34a20;padding:1px 6px;border-radius:99px;white-space:nowrap">🐌 Slow drop</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Fastball look, 8-12mph slower. Cross-hand matchup = elevated HR risk.</div>
-        </div>
-        <div style="background:#0d948812;border:1px solid #0d948830;border-radius:10px;padding:10px 11px;position:relative;overflow:hidden">
-          <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:#0d9488;border-radius:2px 0 0 2px"></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:.80rem;font-weight:900;color:#0d9488;font-family:'JetBrains Mono',monospace">FO</span>
-              <span style="font-size:.72rem;font-weight:700;color:var(--t1)">Forkball</span>
-            </div>
-            <span style="font-size:.55rem;color:#0d9488;background:#0d948820;padding:1px 6px;border-radius:99px;white-space:nowrap">↓ Fork drop</span>
-          </div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.4">Rare split-finger variant. Deep drop, mostly Japanese-trained pitchers.</div>
-        </div>
 <!-- ── BOTTOM NAV ──────────────────────────────────────────────── -->
 <nav id="nav">
   <button class="nav-btn active" onclick="showPage('slate')" id="nav-slate">
@@ -7613,6 +7471,8 @@ async function loadGame(g){
         avg_ev:          savH.avg_ev       ?? fgH.avgEV    ?? null,
         iso:             fgH.iso           ?? null,
         pull_air_pct:    savH.pull_air_pct  ?? null,
+        sweet_spot_pct:  savH.sweetSpot     ?? savH.sweet_spot_pct ?? null,
+        gb_pct:          savH.gb_pct        ?? fgH.gbPct           ?? null,
         hr_fb_pct:       savH.hr_fb_pct     ?? null,
         pull_pct:        savH.pull_pct      ?? null,
         fb_pct:          savH.fb_pct        ?? null,
