@@ -1389,9 +1389,9 @@ async function getPitcherHand(pid){
 
 async function getSavantBatters(){
   try{
-    // Try current year first, fall back to prior year URL format
     const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),12000);
+    const r = await fetch(PROXY + encodeURIComponent(url),{signal:ctrl.signal});
     console.log('[Savant batters] status:', r.status);
     if(!r.ok)throw new Error(`savant batters ${r.status}`);
     const txt=await r.text();
@@ -1443,7 +1443,8 @@ async function getSavantBatters(){
 async function getFGBatters(){
   try{
     const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=bat&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=2000&pagenum=1`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),12000);
+    const r = await fetch(PROXY + encodeURIComponent(url),{signal:ctrl.signal});
     if(!r.ok)throw new Error(`fg batters ${r.status}`);
     const d=await r.json(); const out={};
     out.__byName = {};
@@ -1478,7 +1479,8 @@ async function getFGBatters(){
 async function getSavantPitchers(){
   try{
     const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&year=${SEASON}&position=&team=&min=10&csv=true`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),12000);
+    const r = await fetch(PROXY + encodeURIComponent(url),{signal:ctrl.signal});
     if(!r.ok)throw new Error(`savant pitchers ${r.status}`);
     const txt=await r.text();
     const rows=parseCSVText(txt); const out={};
@@ -1501,7 +1503,8 @@ async function getSavantPitchers(){
 async function getFGPitchers(){
   try{
     const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=pit&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=1000&pagenum=1`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
+    const ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),12000);
+    const r = await fetch(PROXY + encodeURIComponent(url),{signal:ctrl.signal});
     if(!r.ok)throw new Error(`fg pitchers ${r.status}`);
     const d=await r.json(); const out={};
     for(const row of (d.data||[])){
@@ -2642,12 +2645,19 @@ function detectNegativeAngles(r){
 async function ensureLeaderboards(){
   if(_savB!==null) return; // already loaded
   console.log('Loading leaderboards via proxy...');
+  // Show loading status
+  const el=document.getElementById('hitter-list');
+  if(el) el.innerHTML='<div class="spinner"><div class="spin"></div>Loading Statcast leaderboards… (30-60s first load)</div>';
   const [savB, fgB, savP, fgP] = await Promise.all([
     getSavantBatters(), getFGBatters(), getSavantPitchers(), getFGPitchers()
   ]);
-  [_savB,_fgB,_savP,_fgP] = [savB, fgB, savP, fgP];
+  [_savB,_fgB,_savP,_fgP] = [savB||{}, fgB||{}, savP||{}, fgP||{}];
   const nSav=Object.keys(_savB||{}).length, nFG=Object.keys(_fgB||{}).length;
   console.log(`Leaderboards ready — Savant:${nSav} FG:${nFG}`);
+  if(nSav===0 && nFG===0 && el){
+    el.innerHTML='<div class="card" style="color:var(--red);padding:12px;font-size:.78rem">⚠️ Leaderboard load failed — proxy may be down. Game will load with MLB data only.</div>';
+    setTimeout(()=>{ if(el.innerHTML.includes('proxy')) el.innerHTML=''; },3000);
+  }
 }
 
 // Called AFTER game is loaded — secondary enrichment maps
