@@ -4290,6 +4290,28 @@ function resolveResult(id, date, actual){
   renderResultsTab();
 }
 
+function getCLVStats(){
+  try{
+    const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+    const withCLV = stored.filter(r=>
+      r.manualBet===true &&
+      r.actual!==undefined && r.actual!==null &&
+      r.fdOdds!=null && r.closingOdds!=null
+    );
+    if(withCLV.length < 3) return null;
+    const beaten = withCLV.filter(r=>{
+      const openImplied  = r.fdOdds>0?100/(r.fdOdds+100):Math.abs(r.fdOdds)/(Math.abs(r.fdOdds)+100);
+      const closeImplied = r.closingOdds>0?100/(r.closingOdds+100):Math.abs(r.closingOdds)/(Math.abs(r.closingOdds)+100);
+      return openImplied < closeImplied;
+    });
+    return {
+      total: withCLV.length,
+      beaten: beaten.length,
+      beatClosePct: Math.round(beaten.length/withCLV.length*100),
+    };
+  }catch{ return null; }
+}
+
 
   try{
     const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
