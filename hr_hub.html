@@ -10625,10 +10625,19 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 }
 
 // ==================================================================
-//  INIT
+//  INIT — wait for DOM to be fully ready
 // ==================================================================
-populateABSelect();
-loadSlate();
+function initApp(){
+  populateABSelect();
+  loadSlate();
+}
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  // DOM already ready (script is deferred or at bottom)
+  initApp();
+}
 </script>
 </body>
 </html>
