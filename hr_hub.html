@@ -4341,6 +4341,15 @@ function restoreAllAutoResolved(){
   alert(`Restored ${count} auto-resolved bet${count!==1?'s':''} back to pending.`);
 }
 
+function toggleHRSection(id){
+  const body  = document.getElementById(`hr-section-${id}`);
+  const arrow = document.getElementById(`hr-arrow-${id}`);
+  if(!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+}
+
 function toggleBetHistory(){
   const body  = document.getElementById('bet-history-body');
   const arrow = document.getElementById('bet-history-arrow');
@@ -4646,40 +4655,49 @@ async function renderResultsTab(){
     // 4. Yesterday / today HR results
     for(const {label,hrHitters,gamesCount} of dayResults){
       if(!hrHitters.length&&!gamesCount) continue;
+      const safeId = label.replace(/[^a-z]/gi,'').toLowerCase();
       html+=`<div class="card" style="margin-bottom:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div class="slbl" style="margin:0">${label==='Yesterday'?'📅':'⚾'} ${label}</div>
-          <div style="font-size:.60rem;color:var(--t4)">${gamesCount} game${gamesCount!==1?'s':''} · ${hrHitters.length} HR${hrHitters.length!==1?'s':''}</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;
+          cursor:pointer;padding-bottom:0" onclick="toggleHRSection('${safeId}')">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="slbl" style="margin:0">${label==='Yesterday'?'📅':'⚾'} ${label}</div>
+            <span style="font-size:.60rem;color:var(--t4)">${gamesCount}G · ${hrHitters.length} HR${hrHitters.length!==1?'s':''}</span>
+          </div>
+          <span id="hr-arrow-${safeId}" style="font-size:.80rem;color:var(--t4);
+            transition:transform .2s;display:inline-block;transform:rotate(180deg)">▼</span>
         </div>
-        ${hrHitters.length
-          ? hrHitters.map((h,i)=>{
-              const wasTracked=h.tracked;
-              const fdProb=h.fdOdds!=null?(h.fdOdds>0?100/(h.fdOdds+100):Math.abs(h.fdOdds)/(Math.abs(h.fdOdds)+100))*100:null;
-              const edge=h.prob!=null&&fdProb!=null?((h.prob*100)-fdProb/1.08).toFixed(1):null;
-              return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;
-                border-top:${i>0?'1px solid var(--bg3)':'none'}">
-                <div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;
-                  background:${h.hr>=2?'rgba(255,215,0,.15)':'rgba(34,201,94,.1)'};
-                  border:2px solid ${h.hr>=2?'#ffd700':'var(--green)'};
-                  display:flex;align-items:center;justify-content:center;
-                  font-size:.85rem;font-weight:900;color:${h.hr>=2?'#ffd700':'var(--green)'}">${h.hr}</div>
-                <div style="flex:1;min-width:0">
-                  <div style="font-size:.75rem;font-weight:800;color:var(--t1)">
-                    ${h.name}
-                    ${wasTracked?`<span style="font-size:.55rem;padding:1px 5px;border-radius:3px;
-                      background:rgba(34,201,94,.15);color:var(--green);margin-left:4px">✓ tracked</span>`:''}
+        <div id="hr-section-${safeId}" style="display:block;margin-top:8px;
+          border-top:1px solid var(--bg3);padding-top:8px">
+          ${hrHitters.length
+            ? hrHitters.map((h,i)=>{
+                const wasTracked=h.tracked;
+                const fdProb=h.fdOdds!=null?(h.fdOdds>0?100/(h.fdOdds+100):Math.abs(h.fdOdds)/(Math.abs(h.fdOdds)+100))*100:null;
+                const edge=h.prob!=null&&fdProb!=null?((h.prob*100)-fdProb/1.08).toFixed(1):null;
+                return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;
+                  border-top:${i>0?'1px solid var(--bg3)':'none'}">
+                  <div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;
+                    background:${h.hr>=2?'rgba(255,215,0,.15)':'rgba(34,201,94,.1)'};
+                    border:2px solid ${h.hr>=2?'#ffd700':'var(--green)'};
+                    display:flex;align-items:center;justify-content:center;
+                    font-size:.85rem;font-weight:900;color:${h.hr>=2?'#ffd700':'var(--green)'}">${h.hr}</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:.75rem;font-weight:800;color:var(--t1)">
+                      ${h.name}
+                      ${wasTracked?`<span style="font-size:.55rem;padding:1px 5px;border-radius:3px;
+                        background:rgba(34,201,94,.15);color:var(--green);margin-left:4px">✓ tracked</span>`:''}
+                    </div>
+                    <div style="font-size:.60rem;color:var(--t4)">${h.game}</div>
                   </div>
-                  <div style="font-size:.60rem;color:var(--t4)">${h.game}</div>
-                </div>
-                ${h.prob!=null?`<div style="text-align:right;flex-shrink:0">
-                  <div style="font-size:.68rem;font-weight:700;color:var(--green)">${(h.prob*100).toFixed(1)}%</div>
-                  ${edge!=null?`<div style="font-size:.58rem;color:${parseFloat(edge)>0?'var(--green)':'var(--red)'}">
-                    edge ${parseFloat(edge)>0?'+':''}${edge}%</div>`:''}
-                </div>`:
-                `<div style="font-size:.58rem;color:var(--t4);text-align:right;opacity:.5">not<br>tracked</div>`}
-              </div>`;
-            }).join('')
-          : `<div style="font-size:.70rem;color:var(--t4);padding:4px 0">No completed games yet.</div>`}
+                  ${h.prob!=null?`<div style="text-align:right;flex-shrink:0">
+                    <div style="font-size:.68rem;font-weight:700;color:var(--green)">${(h.prob*100).toFixed(1)}%</div>
+                    ${edge!=null?`<div style="font-size:.58rem;color:${parseFloat(edge)>0?'var(--green)':'var(--red)'}">
+                      edge ${parseFloat(edge)>0?'+':''}${edge}%</div>`:''}
+                  </div>`:
+                  `<div style="font-size:.58rem;color:var(--t4);text-align:right;opacity:.5">not<br>tracked</div>`}
+                </div>`;
+              }).join('')
+            : `<div style="font-size:.70rem;color:var(--t4);padding:4px 0">No completed games yet.</div>`}
+        </div>
       </div>`;
     }
 
