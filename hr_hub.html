@@ -6135,32 +6135,43 @@ function renderKelly(){
 function renderKellyCard(r, bankroll, fraction, unitPct, isPinned=false){
   const fdO = getFDOdds(r.name);
   const tier = fdO ? getEdgeTier(r.prob, fdO) : null;
-  if(!tier || tier.edge < 0) return '';
 
-  const kelly = tier?.kelly;
-  // fraction is now a decimal (0.05–1.0) stored in localStorage
+  // Without FD odds we still show the card using fair-value odds
+  // Fair odds = (1-prob)/prob converted to American
+  const displayOdds = fdO ?? (r.prob < 0.5
+    ? Math.round((1-r.prob)/r.prob * 100)
+    : -Math.round(r.prob/(1-r.prob) * 100));
+
+  // Kelly sizing: use tier kelly if available, else calculate from fair odds
+  const kelly = tier?.kelly ?? kellySize(r.prob, displayOdds);
+
   const fractionMultiplier = typeof fraction === 'number' ? fraction :
     fraction==='full'?1.0:fraction==='half'?0.5:0.25;
+
   const fullKellyPct = kelly?.kelly || 0;
   const betPct = fullKellyPct * fractionMultiplier;
-  const betDollars = (bankroll * betPct / 100);
+  const betDollars = bankroll * betPct / 100;
   const unitSize = bankroll * unitPct / 100;
-  const units = betDollars / unitSize;
-  const potentialWin = fdO > 0
-    ? betDollars * fdO / 100
-    : betDollars * 100 / Math.abs(fdO);
+  const units = unitSize > 0 ? betDollars / unitSize : 0;
+  const potentialWin = displayOdds > 0
+    ? betDollars * displayOdds / 100
+    : betDollars * 100 / Math.abs(displayOdds);
 
-  if(betDollars < 0.50 && !isPinned) return '';
+  // Skip cards with no model edge and tiny bet amounts (unless pinned)
+  if(!isPinned && betDollars < 0.50 && !tier) return '';
+  if(!isPinned && tier && tier.edge < 0) return '';
 
-  const [,gc] = probGrade(r.prob);
-  const tierClr = tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':'var(--amber)';
+  const tierClr = tier?.tier==='S'?'#ffd700':tier?.tier==='A'?'var(--green)':
+                  tier?.tier==='B'?'var(--amber)':'var(--t4)';
+  const probClr = r.prob>=0.22?'#ffd700':r.prob>=0.17?'var(--green)':
+                  r.prob>=0.14?'var(--amber)':'var(--t3)';
   const headshotUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_80,q_auto:best/v1/people/${r.id}/headshot/67/current`;
   const pinned = isKellyPinned(r.id);
 
   return `<div style="background:${isPinned?'rgba(255,165,0,.06)':'var(--bg2)'};
     border:1px solid ${isPinned?'rgba(255,165,0,.25)':'var(--bdr)'};border-radius:14px;
     padding:14px 16px;position:relative">
-    <!-- Pin/Unpin button -->
+    <!-- Pin/Unpin -->
     <button onclick="toggleKellyPin('${r.id}','${r.name.replace(/'/g,"\\'")}');event.stopPropagation()"
       style="position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:50%;
       border:1px solid ${pinned?'rgba(255,165,0,.5)':'var(--bdr)'};
@@ -6171,26 +6182,33 @@ function renderKellyCard(r, bankroll, fraction, unitPct, isPinned=false){
     </button>
     <div style="display:flex;align-items:center;gap:12px;cursor:pointer" onclick="showDetail('${r.id}')">
       <img src="${headshotUrl}" style="width:46px;height:46px;border-radius:50%;
-        object-fit:cover;flex-shrink:0;border:2px solid ${tierClr}33"
+        object-fit:cover;flex-shrink:0;border:2px solid ${(tier?tierClr:probClr)}33"
         onerror="this.style.display='none'">
       <div style="flex:1;min-width:0;padding-right:32px">
         <div style="font-size:.82rem;font-weight:800;color:var(--t1);margin-bottom:2px">${r.name}</div>
-        <div style="font-size:.62rem;color:var(--t4)">${r.game||r.team} · ${(r.prob*100).toFixed(1)}%</div>
+        <div style="font-size:.62rem;color:var(--t4)">${r.game||r.team} · <b style="color:${probClr}">${(r.prob*100).toFixed(1)}%</b></div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap">
-          ${fdO!=null?`<span style="font-size:.65rem;color:var(--t3);font-weight:700">${fdO>0?'+':''}${fdO}</span>`:''}
-          ${tier&&tier.edge>0?`<span style="font-size:.62rem;color:var(--t4)">· +${tier.edge.toFixed(1)}% edge</span>`:''}
-          ${tier&&tier.ev>0?`<span style="font-size:.63rem;color:var(--green);font-weight:700">· +${tier.ev.toFixed(1)}% EV</span>`:''}
+          ${fdO!=null
+            ? `<span style="font-size:.65rem;color:var(--t3);font-weight:700">FD ${fdO>0?'+':''}${fdO}</span>`
+            : `<span style="font-size:.62rem;color:var(--t4)">Fair ${displayOdds>0?'+':''}${displayOdds}</span>`}
+          ${tier&&tier.edge>0
+            ? `<span style="font-size:.62rem;color:${tierClr};font-weight:700">· +${tier.edge.toFixed(1)}% edge</span>`:''}
+          ${tier&&tier.ev>0
+            ? `<span style="font-size:.62rem;color:var(--green)">· +${tier.ev.toFixed(1)}% EV</span>`:''}
+          ${!fdO
+            ? `<span style="font-size:.60rem;color:var(--t4);font-style:italic">· no FD odds</span>`:''}
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0">
-        <div style="font-size:1.3rem;font-weight:900;color:${tierClr}">$${betDollars.toFixed(2)}</div>
+        <div style="font-size:1.3rem;font-weight:900;color:${tier?tierClr:probClr}">
+          $${betDollars.toFixed(2)}</div>
         <div style="font-size:.62rem;color:var(--t4);margin-top:1px">${units.toFixed(2)}u</div>
-        ${potentialWin>0?`<div style="font-size:.60rem;color:var(--green);margin-top:2px;font-weight:700">+$${potentialWin.toFixed(0)}</div>`:''}
+        ${potentialWin>0&&fdO!=null
+          ? `<div style="font-size:.60rem;color:var(--green);margin-top:2px;font-weight:700">+$${potentialWin.toFixed(0)}</div>`:''}
       </div>
     </div>
   </div>`;
 }
-
 function renderKellyPinnedStub(p, bankroll, fraction, unitPct){
   // Render a pinned pick when the player row isn't loaded (different date/game not loaded)
   return `<div style="background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);
