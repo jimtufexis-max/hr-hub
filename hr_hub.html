@@ -2854,8 +2854,10 @@ function fmtGameTime(isoUTC){
 
 function renderGameChips(){
   const el=document.getElementById('game-chips');
+  if(!el) return;
   if(!gamesCache.length){el.innerHTML='';return;}
-  el.innerHTML=gamesCache.map(g=>{
+  try{
+    el.innerHTML=gamesCache.map(g=>{
     const active=S.selPks.has(g.pk);
     const loaded=!!S.cache[`${g.pk}_away`];
     // Get weather from loaded rows for this game
@@ -2872,13 +2874,19 @@ function renderGameChips(){
     if(wx&&wx.rain>=40&&!wx.isDome&&!DOME_TEAMS.has(g.home)){
       windBadge+=`<span style="font-size:.60rem;color:#60a5fa;margin-left:2px">🌧️</span>`;
     }
-    const timeStr = fmtGameTime(g.gameTime);
+    let timeStr = '';
+    try{ timeStr = fmtGameTime(g.gameTime)||''; }catch{}
     return`<div class="chip${active?' active':''}${loaded&&!active?' loaded':''}"
-      onclick="toggleGame('${g.pk}')">
+      onclick="toggleGame('${g.pk}')"
+      style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
       <div>${loaded?'✅ ':''}${g.away}@${g.home}${windBadge}</div>
-      ${timeStr?`<div style="font-size:.55rem;color:var(--t4);margin-top:1px">${timeStr}</div>`:''}
+      ${timeStr?`<div style="font-size:.55rem;color:var(--t4)">${timeStr}</div>`:''}
     </div>`;
-  }).join('');
+    }).join('');
+  }catch(e){
+    console.error('[renderGameChips]',e.message);
+    el.innerHTML='<div style="color:var(--red);font-size:.72rem;padding:4px">Error loading game chips: '+e.message+'</div>';
+  }
 }
 
 async function toggleGame(pk){
