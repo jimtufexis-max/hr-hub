@@ -4341,12 +4341,13 @@ function restoreAllAutoResolved(){
   alert(`Restored ${count} auto-resolved bet${count!==1?'s':''} back to pending.`);
 }
 
-
+function resolveResult(id, date, actual){
   const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
   const idx = stored.findIndex(r=>String(r.id)===String(id)&&r.date===date&&r.manualBet===true);
   if(idx>=0){ stored[idx].actual=actual; stored[idx].resolvedManual=true; }
   localStorage.setItem('hr_hub_results', JSON.stringify(stored));
   renderResultsTab();
+}
 
 function getCLVStats(){
   try{
