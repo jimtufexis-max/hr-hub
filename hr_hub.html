@@ -1109,8 +1109,8 @@ const S = {
   parlaySelected: new Set(),  // player ids in parlay
 };
 
-const SEASON = 2026;
-const MLB    = 'https://statsapi.mlb.com/api/v1';
+var SEASON = 2026;
+var MLB    = 'https://statsapi.mlb.com/api/v1';
 
 // ── Migrate: clear auto-tracked entries from old data on first load ──
 (function migrateTracking(){
@@ -1126,7 +1126,7 @@ const MLB    = 'https://statsapi.mlb.com/api/v1';
 })();
 // -- Cloudflare Worker proxy — set to your deployed worker URL --------------
 // Deploy hr_hub_worker.js to Cloudflare Workers, then update this:
-const PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
+var PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
 // The Odds API key — get free at https://the-odds-api.com (500 req/month free)
 // Enables FanDuel live HR prop odds + edge on every hitter card
 const ODDS_API_KEY = ''; // <-- paste your key between these quotes
@@ -1280,8 +1280,8 @@ async function getRoster(abbr){
 }
 
 // Domes and retractable roofs — weather never affects these games
-const DOME_TEAMS = new Set(['TB','TOR','MIA','HOU','SEA','ARI','MIL','MIN']);
-const DOME_VENUES = new Set([
+var DOME_TEAMS = new Set(['TB','TOR','MIA','HOU','SEA','ARI','MIL','MIN']);
+var DOME_VENUES = new Set([
   'Rogers Centre','Tropicana Field','loanDepot park','LoanDepot Park','Marlins Park',
   'Minute Maid Park','T-Mobile Park','Chase Field','American Family Field','Target Field',
 ]);
@@ -1576,14 +1576,14 @@ async function getPitcherL14(pid){
 //  momentum = L15 HR count + EV trend from game log
 // ==================================================================
 
-const MLB_AVG    = 0.035;   // ~3.5% per-PA league average
-const LG_HR9     = 1.35;    // league avg HR/9 innings 2024-25
-const LG_HR_FB   = 0.132;   // league avg HR/FB rate
-const LG_FB_PCT  = 0.365;   // league avg FB rate
+var MLB_AVG    = 0.035;   // ~3.5% per-PA league average
+var LG_HR9     = 1.35;    // league avg HR/9 innings 2024-25
+var LG_HR_FB   = 0.132;   // league avg HR/FB rate
+var LG_FB_PCT  = 0.365;   // league avg FB rate
 
 // Empirically derived coefficients from Statcast data (2019-2024 seasons)
 // These predict per-PA HR rate better than raw HR/PA after 30+ games
-const LW = {
+var LW = {
   barrel:    0.0420, // 42% of barrels become HRs → strong HR predictor
   pull_air:  0.0175, // 17.5% of pull airballs become HRs
   hard_hit:  0.0028, // hard hit% marginal contribution above barrel
@@ -4988,7 +4988,7 @@ async function getMultiBookOdds(playerName, gameDate){
 // ==================================================================
 //  STADIUM DIMENSIONS — pull hitter advantage at specific parks
 // ==================================================================
-const STADIUM_DIMS = {
+var STADIUM_DIMS = {
   'NYY':[318,408,314, 8, 9],'BOS':[310,420,302,37, 3],'CHC':[355,400,353, 8, 8],
   'PHI':[329,401,325, 6, 8],'CIN':[328,404,325, 9, 9],'COL':[347,415,350, 8, 8],
   'TEX':[334,407,326,14,14],'HOU':[315,435,326,19, 7],'MIN':[339,404,328, 8, 8],
