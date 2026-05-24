@@ -5904,7 +5904,9 @@ function renderKelly(){
 
   // Load saved prefs
   const savedBankroll = parseFloat(localStorage.getItem('kelly_bankroll')||'1000');
-  const savedFraction = localStorage.getItem('kelly_fraction')||'quarter';
+  // Support both legacy named strings and new decimal format
+  const rawFrac = localStorage.getItem('kelly_fraction')||'0.25';
+  const savedFraction = rawFrac==='full'?1.0:rawFrac==='half'?0.5:rawFrac==='quarter'?0.25:parseFloat(rawFrac)||0.25;
   const savedUnitPct  = parseFloat(localStorage.getItem('kelly_unit_pct')||'1');
 
   // Get starred/tracked players + high-prob plays for the card list
@@ -5977,20 +5979,61 @@ function renderKelly(){
       <div style="font-size:.62rem;color:var(--t4);margin-top:6px">Auto-derived · 1 unit = ${savedUnitPct}% of bankroll</div>
     </div>
 
-    <!-- Kelly Fraction -->
+    <!-- Kelly Fraction Slider -->
     <div style="margin-bottom:16px">
-      <div style="font-size:.62rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px">Kelly Fraction</div>
-      <div style="display:flex;gap:4px;background:var(--bg3);border-radius:12px;padding:5px;
-        border:1px solid var(--bdr)">
-        ${['full','half','quarter'].map(f=>`
-          <button class="kelly-fraction-btn ${f===savedFraction?'active':''}"
-            id="kf-${f}" onclick="setKellyFraction('${f}')">
-            ${f.charAt(0).toUpperCase()+f.slice(1)}
-          </button>`).join('')}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:.62rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+          letter-spacing:.09em">Kelly Fraction</div>
+        <div style="text-align:right">
+          <span id="kelly-fraction-pct" style="font-size:1.05rem;font-weight:900;color:var(--amber)">
+            ${Math.round(parseFloat(savedFraction||'0.25')*100)}%
+          </span>
+          <span id="kelly-fraction-name" style="font-size:.60rem;color:var(--t4);margin-left:5px">
+            ${parseFloat(savedFraction||'0.25')>=0.99?'Full':parseFloat(savedFraction||'0.25')>=0.49?'Half':parseFloat(savedFraction||'0.25')>=0.24?'Quarter':'Custom'}
+          </span>
+        </div>
       </div>
-      <div style="text-align:right;margin-top:4px">
-        <span style="font-size:.60rem;color:var(--amber);font-weight:700">RECOMMENDED: QUARTER</span>
+
+      <!-- Slider -->
+      <div style="position:relative;padding:4px 0">
+        <input type="range" id="kelly-fraction-slider"
+          min="5" max="100" step="5"
+          value="${Math.round(parseFloat(savedFraction||'0.25')*100)}"
+          oninput="onKellySlider(this.value)"
+          style="width:100%;-webkit-appearance:none;appearance:none;height:6px;
+            border-radius:99px;background:var(--bdr);outline:none;cursor:pointer">
+        <style>
+          #kelly-fraction-slider::-webkit-slider-thumb{
+            -webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+            background:var(--amber);border:2px solid #000;cursor:pointer;
+            box-shadow:0 2px 8px rgba(255,165,0,.4)}
+          #kelly-fraction-slider::-moz-range-thumb{
+            width:24px;height:24px;border-radius:50%;
+            background:var(--amber);border:2px solid #000;cursor:pointer}
+        </style>
+      </div>
+
+      <!-- Tick marks -->
+      <div style="display:flex;justify-content:space-between;margin-top:6px;padding:0 2px">
+        ${[['5%','Tiny'],['25%','¼ Kelly'],['50%','½ Kelly'],['75%','¾ Kelly'],['100%','Full']].map(([pct,lbl])=>`
+          <div style="text-align:center;cursor:pointer" onclick="setKellySliderTo(${parseInt(pct)})">
+            <div style="width:1px;height:5px;background:var(--bdr);margin:0 auto 2px"></div>
+            <div style="font-size:.52rem;color:var(--t4)">${lbl}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- Recommendation banner -->
+      <div id="kelly-fraction-advice" style="margin-top:8px;padding:6px 10px;border-radius:7px;
+        background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.2);
+        font-size:.62rem;color:var(--t3);line-height:1.5">
+        ${(()=>{
+          const f=parseFloat(savedFraction||'0.25');
+          if(f>=0.99) return '⚠️ <b style="color:var(--red)">Full Kelly</b> — maximum variance. Only for proven edge over 300+ bets.';
+          if(f>=0.49) return '⚠️ <b style="color:var(--amber)">Half Kelly</b> — moderate variance. Use when calibration ratio is 100%+ over 150+ bets.';
+          if(f>=0.24) return '✅ <b style="color:var(--green)">Quarter Kelly</b> — recommended. Low variance, sustainable long-term.';
+          if(f>=0.14) return '🔵 <b style="color:#60a5fa">20% Kelly</b> — conservative. Good when calibration is uncertain.';
+          return '🔵 <b style="color:#60a5fa">Tiny fraction</b> — very conservative. Good for early tracking phase.';
+        })()}
       </div>
     </div>
 
@@ -6080,6 +6123,13 @@ function renderKelly(){
     </div>`;
 
   document.getElementById('kelly-bankroll').addEventListener('input', updateKellyCalc);
+  // Init slider fill color
+  const slider = document.getElementById('kelly-fraction-slider');
+  if(slider){
+    const pct = Math.round(savedFraction*100);
+    const fillPct = ((pct-5)/(100-5))*100;
+    slider.style.background = `linear-gradient(to right, var(--amber) ${fillPct}%, var(--bdr) ${fillPct}%)`;
+  }
 }
 
 function renderKellyCard(r, bankroll, fraction, unitPct, isPinned=false){
@@ -6088,7 +6138,9 @@ function renderKellyCard(r, bankroll, fraction, unitPct, isPinned=false){
   if(!tier || tier.edge < 0) return '';
 
   const kelly = tier?.kelly;
-  const fractionMultiplier = fraction==='full'?1 : fraction==='half'?0.5 : 0.25;
+  // fraction is now a decimal (0.05–1.0) stored in localStorage
+  const fractionMultiplier = typeof fraction === 'number' ? fraction :
+    fraction==='full'?1.0:fraction==='half'?0.5:0.25;
   const fullKellyPct = kelly?.kelly || 0;
   const betPct = fullKellyPct * fractionMultiplier;
   const betDollars = (bankroll * betPct / 100);
@@ -6228,7 +6280,8 @@ function updateKellyCalc(){
   if(isNaN(bankroll)||bankroll<=0) return;
   localStorage.setItem('kelly_bankroll', bankroll);
   const unitPct  = parseFloat(localStorage.getItem('kelly_unit_pct')||'1');
-  const fraction = localStorage.getItem('kelly_fraction')||'quarter';
+  const rawFrac  = localStorage.getItem('kelly_fraction')||'0.25';
+  const fraction = rawFrac==='full'?1.0:rawFrac==='half'?0.5:rawFrac==='quarter'?0.25:parseFloat(rawFrac)||0.25;
   // Update unit display
   const unitEl = document.getElementById('kelly-unit');
   if(unitEl) unitEl.value = (bankroll*unitPct/100).toFixed(2);
@@ -6258,14 +6311,51 @@ function setUnitPct(pct){
   updateKellyCalc();
 }
 
-function setKellyFraction(f){
-  localStorage.setItem('kelly_fraction', f);
-  ['full','half','quarter'].forEach(fr=>{
-    const btn = document.getElementById(`kf-${fr}`);
-    if(!btn) return;
-    btn.classList.toggle('active', fr===f);
-  });
+function onKellySlider(val){
+  const pct = parseInt(val);
+  const fraction = pct / 100;
+  localStorage.setItem('kelly_fraction', String(fraction));
+
+  // Update display
+  const pctEl = document.getElementById('kelly-fraction-pct');
+  const nameEl = document.getElementById('kelly-fraction-name');
+  const advEl  = document.getElementById('kelly-fraction-advice');
+
+  if(pctEl) pctEl.textContent = pct + '%';
+  if(nameEl) nameEl.textContent =
+    pct>=99?'Full':pct>=49?'Half':pct>=24?'Quarter':'Custom';
+
+  if(advEl){
+    advEl.innerHTML =
+      pct>=99 ? '⚠️ <b style="color:var(--red)">Full Kelly</b> — maximum variance. Only for proven edge over 300+ bets.' :
+      pct>=49 ? '⚠️ <b style="color:var(--amber)">Half Kelly</b> — moderate variance. Use when calibration ratio is 100%+ over 150+ bets.' :
+      pct>=24 ? '✅ <b style="color:var(--green)">Quarter Kelly</b> — recommended. Low variance, sustainable long-term.' :
+      pct>=14 ? '🔵 <b style="color:#60a5fa">Conservative</b> — good when calibration is uncertain or early in tracking.' :
+                '🔵 <b style="color:#60a5fa">Tiny fraction</b> — very conservative. Good for the first 100 tracked bets.';
+  }
+
+  // Update track fill on slider
+  const slider = document.getElementById('kelly-fraction-slider');
+  if(slider){
+    const fillPct = ((pct-5)/(100-5))*100;
+    slider.style.background = `linear-gradient(to right, var(--amber) ${fillPct}%, var(--bdr) ${fillPct}%)`;
+  }
+
   updateKellyCalc();
+}
+
+function setKellySliderTo(pct){
+  const slider = document.getElementById('kelly-fraction-slider');
+  if(slider){ slider.value = pct; onKellySlider(pct); }
+}
+
+// Legacy — kept for backward compat
+function setKellyFraction(f){
+  const map = {full:1.0, half:0.5, quarter:0.25};
+  const frac = map[f] ?? 0.25;
+  const slider = document.getElementById('kelly-fraction-slider');
+  if(slider){ slider.value = Math.round(frac*100); onKellySlider(Math.round(frac*100)); }
+  else{ localStorage.setItem('kelly_fraction', String(frac)); updateKellyCalc(); }
 }
 
 function toggleKellyExplainer(){
