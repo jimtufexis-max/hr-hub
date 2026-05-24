@@ -4360,6 +4360,14 @@ function toggleBetHistory(){
 }
 
 
+function voidBet(id, date){
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  const idx = stored.findIndex(r=>String(r.id)===String(id)&&r.date===date&&r.manualBet===true);
+  if(idx>=0){ stored[idx].actual='void'; stored[idx].resolvedManual=true; }
+  localStorage.setItem('hr_hub_results', JSON.stringify(stored));
+  renderResultsTab();
+}
+
 function resolveResult(id, date, actual){
   const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
   const idx = stored.findIndex(r=>String(r.id)===String(id)&&r.date===date&&r.manualBet===true);
@@ -4408,7 +4416,8 @@ async function renderResultsTab(){
 
     const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
     const tracked = stored.filter(r=>r.manualBet===true);
-    const resolved = tracked.filter(r=>r.actual!==undefined&&r.actual!==null);
+    const resolved = tracked.filter(r=>r.actual!==undefined&&r.actual!==null&&r.actual!=='void');
+    const voided   = tracked.filter(r=>r.actual==='void');
     const pending  = tracked.filter(r=>r.actual===undefined||r.actual===null);
     const hits     = resolved.filter(r=>r.actual>0);
     const losses   = resolved.filter(r=>r.actual===0);
@@ -4548,7 +4557,7 @@ async function renderResultsTab(){
       </div>
 
       <!-- Big record numbers -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">
         <div style="padding:10px;background:var(--bg3);border-radius:10px;text-align:center">
           <div style="font-size:1.6rem;font-weight:900;color:var(--green);line-height:1">${hits.length}</div>
           <div style="font-size:.55rem;color:var(--t4);margin-top:2px;text-transform:uppercase">Wins</div>
@@ -4560,6 +4569,10 @@ async function renderResultsTab(){
         <div style="padding:10px;background:var(--bg3);border-radius:10px;text-align:center">
           <div style="font-size:1.6rem;font-weight:900;color:var(--amber);line-height:1">${pending.length}</div>
           <div style="font-size:.55rem;color:var(--t4);margin-top:2px;text-transform:uppercase">Pending</div>
+        </div>
+        <div style="padding:10px;background:var(--bg3);border-radius:10px;text-align:center">
+          <div style="font-size:1.6rem;font-weight:900;color:var(--t4);line-height:1">${voided.length}</div>
+          <div style="font-size:.55rem;color:var(--t4);margin-top:2px;text-transform:uppercase">Voided</div>
         </div>
       </div>
 
@@ -4633,19 +4646,22 @@ async function renderResultsTab(){
         <div style="display:flex;flex-direction:column;gap:6px">`;
       pending.forEach(r=>{
         const fdStr=r.fdOdds?(r.fdOdds>0?'+':'')+r.fdOdds:'--';
-        html+=`<div style="display:flex;align-items:center;gap:10px;padding:8px;
+        html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px;
           background:var(--bg3);border-radius:10px">
           <div style="flex:1;min-width:0">
             <div style="font-size:.74rem;font-weight:700;color:var(--t1)">${r.name}</div>
             <div style="font-size:.60rem;color:var(--t4)">${r.date} · ${fdStr} · ${r.prob?(r.prob*100).toFixed(1)+'%':'--'}</div>
           </div>
-          <div style="display:flex;gap:6px;flex-shrink:0">
-            <button onclick="resolveResult('${r.id}','${r.date}',1)" style="padding:6px 12px;
+          <div style="display:flex;gap:5px;flex-shrink:0">
+            <button onclick="resolveResult('${r.id}','${r.date}',1)" style="padding:5px 10px;
               border-radius:8px;border:1px solid rgba(34,201,94,.4);
-              background:rgba(34,201,94,.1);color:var(--green);font-size:.72rem;cursor:pointer;font-weight:700">✅ HR</button>
-            <button onclick="resolveResult('${r.id}','${r.date}',0)" style="padding:6px 12px;
+              background:rgba(34,201,94,.1);color:var(--green);font-size:.70rem;cursor:pointer;font-weight:700">✅ HR</button>
+            <button onclick="resolveResult('${r.id}','${r.date}',0)" style="padding:5px 10px;
               border-radius:8px;border:1px solid rgba(224,80,74,.4);
-              background:rgba(224,80,74,.08);color:var(--red);font-size:.72rem;cursor:pointer;font-weight:700">❌ No</button>
+              background:rgba(224,80,74,.08);color:var(--red);font-size:.70rem;cursor:pointer;font-weight:700">❌ No</button>
+            <button onclick="voidBet('${r.id}','${r.date}')" style="padding:5px 10px;
+              border-radius:8px;border:1px solid rgba(148,163,184,.3);
+              background:rgba(148,163,184,.06);color:var(--t4);font-size:.70rem;cursor:pointer;font-weight:700">🚫 Void</button>
           </div>
         </div>`;
       });
@@ -4745,15 +4761,17 @@ async function renderResultsTab(){
           </div>
           ${bets.map(r=>{
             const won=r.actual>0;
+            const isVoid=r.actual==='void';
             const fdStr=r.fdOdds?(r.fdOdds>0?'+':'')+r.fdOdds:'--';
             const stakeStr=r.betAmount?`$${r.betAmount}`:'';
             return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;
-              border-bottom:1px solid rgba(255,255,255,.03)">
-              <span style="font-size:.95rem;flex-shrink:0">${won?'✅':'❌'}</span>
+              border-bottom:1px solid rgba(255,255,255,.03);
+              ${isVoid?'opacity:.5':''}">
+              <span style="font-size:.95rem;flex-shrink:0">${isVoid?'🚫':won?'✅':'❌'}</span>
               <div style="flex:1;min-width:0">
-                <div style="font-size:.72rem;font-weight:700;color:var(--t1);
+                <div style="font-size:.72rem;font-weight:700;color:${isVoid?'var(--t4)':'var(--t1)'};
                   white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-                <div style="font-size:.58rem;color:var(--t4)">${fdStr}${stakeStr?' · '+stakeStr:''} · ${r.prob?(r.prob*100).toFixed(1)+'%':'--'}</div>
+                <div style="font-size:.58rem;color:var(--t4)">${fdStr}${stakeStr?' · '+stakeStr:''} · ${r.prob?(r.prob*100).toFixed(1)+'%':'--'}${isVoid?' · voided':''}</div>
               </div>
               ${won&&r.fdOdds&&r.betAmount?`<div style="font-size:.68rem;font-weight:700;color:var(--green);flex-shrink:0">
                 +$${((r.fdOdds>0?r.fdOdds/100:100/Math.abs(r.fdOdds))*parseFloat(r.betAmount)).toFixed(0)}</div>`:''}
