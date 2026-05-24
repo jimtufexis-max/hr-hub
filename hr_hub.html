@@ -4282,13 +4282,45 @@ function renderTagGuide(){
 // ==================================================================
 //  CLV STATS — Closing Line Value tracker
 // ==================================================================
-function resolveResult(id, date, actual){
+function restoreAutoResolvedToday(){
+  const today = ds();
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  let count = 0;
+  stored.forEach(r=>{
+    // Restore any bet that was auto-resolved today (should never have been)
+    if(r.manualBet===true && r.resolvedAuto===true && r.date===today){
+      delete r.actual;
+      delete r.resolvedAuto;
+      count++;
+    }
+  });
+  localStorage.setItem('hr_hub_results', JSON.stringify(stored));
+  renderResultsTab();
+  alert(`Restored ${count} bet${count!==1?'s':''} back to pending.`);
+}
+
+function restoreAllAutoResolved(){
+  // Restore ALL auto-resolved bets (nuclear option)
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  let count = 0;
+  stored.forEach(r=>{
+    if(r.manualBet===true && r.resolvedAuto===true){
+      delete r.actual;
+      delete r.resolvedAuto;
+      count++;
+    }
+  });
+  localStorage.setItem('hr_hub_results', JSON.stringify(stored));
+  renderResultsTab();
+  alert(`Restored ${count} auto-resolved bet${count!==1?'s':''} back to pending.`);
+}
+
+
   const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
   const idx = stored.findIndex(r=>String(r.id)===String(id)&&r.date===date&&r.manualBet===true);
   if(idx>=0){ stored[idx].actual=actual; stored[idx].resolvedManual=true; }
   localStorage.setItem('hr_hub_results', JSON.stringify(stored));
   renderResultsTab();
-}
 
 function getCLVStats(){
   try{
@@ -4447,7 +4479,18 @@ async function renderResultsTab(){
     // ── Build HTML ────────────────────────────────────────────────
     let html = '';
 
-    // 1. Summary header
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <button onclick="restoreAutoResolvedToday()"
+        style="padding:10px;border-radius:8px;border:1px solid rgba(96,165,250,.4);
+        background:rgba(96,165,250,.08);color:#60a5fa;cursor:pointer;font-size:.68rem;font-weight:700">
+        ↩️ Restore Today's Pending
+      </button>
+      <button onclick="restoreAllAutoResolved()"
+        style="padding:10px;border-radius:8px;border:1px solid rgba(240,165,0,.4);
+        background:rgba(240,165,0,.08);color:var(--amber);cursor:pointer;font-size:.68rem;font-weight:700">
+        ↩️ Restore All Auto
+      </button>
+    </div>`;
     const overallHitPct = resolved.length ? Math.round(hits.length/resolved.length*100) : null;
     html += `
     <div class="card" style="margin-bottom:10px">
