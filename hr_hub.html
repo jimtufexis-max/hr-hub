@@ -7638,7 +7638,7 @@ function calcZoneMatchup(batPid, spPid, batHand){
 
   if(score === 0 && antiOverlap.length === 0) return null;
 
-  return {
+  const result = {
     score,
     overlap,
     hotOverlap,
@@ -7646,12 +7646,11 @@ function calcZoneMatchup(batPid, spPid, batHand){
     zoneNames,
     overlapXwOBA: Math.round(overlapXwOBA*1000)/1000,
     batBestXwOBA,
-    // Accurate labels: about batter's power zones vs pitcher's vulnerability
+    fromRealData: !!((_batterZoneMap||{})[String(batPid)] && (_pitcherZoneMap||{})[String(spPid)]),
     label: hotOverlap.length>=2 ? 'Zone Domination' :
            hotOverlap.length===1 ? 'Zone Overlap' :
            antiOverlap.length>=2 ? 'Zone Mismatch' :
            'Soft Zone Match',
-    // Human-readable explanation
     desc: hotOverlap.length>=2
       ? `Batter's top power zones (${zoneNames.join(', ')}) align with where pitcher allows most damage`
       : hotOverlap.length===1
@@ -7660,6 +7659,7 @@ function calcZoneMatchup(batPid, spPid, batHand){
       ? `Batter's power zones hit pitcher's strongest areas — tough matchup`
       : `Partial zone overlap — limited HR zone alignment`,
   };
+  return result;
 }
 
 // ==================================================================
@@ -9040,19 +9040,28 @@ function filterStatsGrid(statsId, pitchType, playerId){
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
-  // Always recompute zone matchup fresh
   const batPid = r._batPid||r.id;
   const spId   = r._spId;
-  if(batPid && spId) r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
+
+  // Only recompute zone matchup if:
+  // 1. Never computed before, OR
+  // 2. We now have real zone map data that wasn't available last time
+  const hasRealZoneMaps = _batterZoneMap!==null && Object.keys(_batterZoneMap).length>0 &&
+                          _pitcherZoneMap!==null && Object.keys(_pitcherZoneMap).length>0;
+  const hasRealZM = r._zoneMatch?.fromRealData || r._zoneMatch?.fromBvP;
+
+  if(!r._zoneMatch || (hasRealZoneMaps && !hasRealZM)){
+    if(batPid && spId) r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
+  }
+
   queueForAutoTrack([r]);
   showPage('detail');
   renderDetail(r);
 
-  // If zone maps not yet loaded, load them then re-render
+  // If zone maps not yet loaded, load them then re-render once
   const needsZoneMaps = _batterZoneMap===null || _pitcherZoneMap===null;
-  if(needsZoneMaps){
+  if(needsZoneMaps && !hasRealZM){
     Promise.all([ensureBatterZoneMap(), ensurePitcherZoneMap()]).then(()=>{
-      // Recompute zone matchup with real data
       if(batPid && spId) r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
       const cur = S.allRows.find(x=>x.id===id);
       if(cur && document.getElementById('page-detail')?.classList.contains('active')){
