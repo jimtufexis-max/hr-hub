@@ -7738,117 +7738,134 @@ function showZonePopup(event, side, zone, label, xwoba, status, batHand){
   event.stopPropagation();
   document.getElementById('zone-popup')?.remove();
 
-  // Map zone number (1-9) to zone3 [row][col] index
-  // Zone layout (catcher's view): 7|8|9 / 4|5|6 / 1|2|3
-  const ZONE_TO_RC = {7:[0,0],8:[0,1],9:[0,2],4:[1,0],5:[1,1],6:[1,2],1:[2,0],2:[2,1],3:[2,2]};
-  const [ri, ci] = ZONE_TO_RC[zone] || [null, null];
+  const ZONE_TO_RC  = {7:[0,0],8:[0,1],9:[0,2],4:[1,0],5:[1,1],6:[1,2],1:[2,0],2:[2,1],3:[2,2]};
+  const ZONE_TO_RC5 = {7:[1,1],8:[1,2],9:[1,3],4:[2,1],5:[2,2],6:[2,3],1:[3,1],2:[3,2],3:[3,3]};
+  const [ri, ci]   = ZONE_TO_RC[zone]  || [null,null];
+  const [r5, c5]   = ZONE_TO_RC5[zone] || [null,null];
 
-  // Find the row in allRows to get BvP data
-  // Use _lastDetailId to know which player's detail is open
-  const r = S.allRows.find(x=>String(x.id)===String(window._lastDetailId||'')) || S.allRows[0];
+  const r   = S.allRows.find(x=>String(x.id)===String(window._lastDetailId||'')) || S.allRows[0];
   const bvp = r?._bvp || {};
   const pit = r?._pitcherStats || {};
+  const arsenal = pit.arsenal?.mix || {};
+  const spId    = r?._spId;
 
-  // Gather data across all pitch types from BvP zone3 data
-  let bestXwoba = null, totalHR = 0, totalPA = 0, pitchBreakdown = [];
+  const topPitches = Object.entries(arsenal)
+    .filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1]).slice(0,4);
 
-  if(side === 'bat' && ri !== null){
-    const arsenal = pit.arsenal?.mix || {};
-    Object.entries(bvp).forEach(([pt, bdata])=>{
-      if(!bdata?.zone3xwoba || bdata.pa < 5) return;
-      const xw = bdata.zone3xwoba[ri]?.[ci];
-      const hr = bdata.zone3hr?.[ri]?.[ci] || 0;
-      const paPct = arsenal[pt] || 0;
-      if(xw != null && xw > 0){
-        totalHR += hr;
-        if(paPct >= 5) pitchBreakdown.push({pt, xw, hr, pct:paPct});
-        if(bestXwoba === null || xw > bestXwoba) bestXwoba = xw;
-      }
-    });
-    pitchBreakdown.sort((a,b)=>b.pct-a.pct);
-  }
-
-  // For pitcher side: use attack-zone xwOBA allowed (already in xwoba param)
   const isTop  = [7,8,9].includes(zone);
   const isMid  = [4,5,6].includes(zone);
-  const isInner= batHand==='L' ? [7,4,1].includes(zone) : [9,6,3].includes(zone);
+  const isInner= batHand==='L'?[7,4,1].includes(zone):[9,6,3].includes(zone);
   const heightLabel = isTop?'Up':isMid?'Middle':'Down';
   const sideLabel   = isInner?'Inner':(zone===2||zone===5||zone===8)?'Middle':'Outer';
 
   const statusMap = {
-    bat: {
-      overlap:  {c:'#ffd700',  t:'★ Hot overlap — pitcher weak here too'},
-      power:    {c:'var(--green)', t:'✓ Batter HR power zone'},
-      damage:   {c:'rgba(34,201,94,.8)', t:'✓ Top batter damage zone'},
-      neutral:  {c:'var(--t4)', t:'Not a primary batter zone'},
-    },
-    pit: {
-      overlap:  {c:'#ffd700',  t:'★ Hot overlap — batter strong here'},
-      vulnerable:{c:'var(--red)', t:'⚠ Pitcher most vulnerable here'},
-      strong:   {c:'#60a5fa', t:'◆ Pitcher strongest zone'},
-      neutral:  {c:'var(--t4)', t:'Average pitcher zone'},
-    },
+    bat:{overlap:{c:'#ffd700',t:'\u2605 Hot overlap \u2014 pitcher weak here too'},
+      power:{c:'var(--green)',t:'\u2713 Batter HR power zone'},
+      damage:{c:'rgba(34,201,94,.8)',t:'\u2713 Top batter damage zone'},
+      neutral:{c:'var(--t4)',t:'Not a primary batter zone'}},
+    pit:{overlap:{c:'#ffd700',t:'\u2605 Hot overlap \u2014 batter strong here'},
+      vulnerable:{c:'var(--red)',t:'\u26a0 Pitcher most vulnerable here'},
+      strong:{c:'#60a5fa',t:'\u25c6 Pitcher strongest zone'},
+      neutral:{c:'var(--t4)',t:'Average pitcher zone'}},
   };
-  const st = statusMap[side]?.[status] || {c:'var(--t4)', t:''};
-
-  // Display xwOBA: use real BvP zone data for batter side, attack-zone for pitcher
-  const displayXw = side==='bat'
-    ? (bestXwoba != null ? bestXwoba.toFixed(3) : null)
-    : (xwoba !== '--' ? xwoba : null);
-
-  const xwobaNum = parseFloat(displayXw);
-  const xwobaClr = xwobaNum>=0.500?'#ffd700':xwobaNum>=0.400?'var(--green)':xwobaNum>=0.250?'var(--t2)':xwobaNum>0?'var(--red)':'var(--t4)';
-
-  const PITCH_SHORT = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Change',FS:'Split',KC:'K-Curve'};
+  const st = statusMap[side]?.[status] || {c:'var(--t4)',t:''};
+  const PS = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Change',FS:'Split',KC:'K-Curve'};
 
   const pop = document.createElement('div');
-  pop.id = 'zone-popup';
-  pop.style.cssText = `position:fixed;z-index:9999;background:var(--bg2);
+  pop.id='zone-popup';
+  pop.style.cssText=`position:fixed;z-index:9999;background:var(--bg2);
     border:1px solid var(--bdr);border-radius:10px;padding:10px 12px;
-    width:185px;box-shadow:0 4px 20px rgba(0,0,0,.6)`;
+    width:200px;box-shadow:0 4px 20px rgba(0,0,0,.6)`;
 
-  pop.innerHTML = `
-    <div style="font-size:.75rem;font-weight:800;color:var(--t1);margin-bottom:2px">
-      Zone ${zone} · ${label}
-    </div>
-    <div style="font-size:.62rem;color:var(--t4);margin-bottom:7px">${heightLabel} · ${sideLabel}</div>
+  function buildContent(){
+    const xCF=v=>v>=0.500?'#ffd700':v>=0.400?'var(--green)':v>=0.250?'var(--t2)':'var(--red)';
+    let rows='';
+    if(side==='bat' && ri!==null){
+      let bestXw=null,totHR=0,pitRows=[];
+      topPitches.forEach(([pt,pct])=>{
+        const bd=bvp[pt]; if(!bd?.zone3xwoba||bd.pa<5) return;
+        const xw=bd.zone3xwoba[ri]?.[ci]; const hr=bd.zone3hr?.[ri]?.[ci]||0;
+        if(xw!=null&&xw>0){ totHR+=hr; pitRows.push({pt,xw,hr,pct});
+          if(bestXw===null||xw>bestXw) bestXw=xw; }
+      });
+      pitRows.sort((a,b)=>b.pct-a.pct);
+      rows=`
+        ${bestXw!=null?`<div style="display:flex;justify-content:space-between;align-items:center;
+          padding:5px 8px;background:var(--bg3);border-radius:6px;margin-bottom:5px">
+          <span style="font-size:.62rem;color:var(--t4)">xwOBA here (BvP)</span>
+          <b style="font-size:.78rem;color:${xCF(bestXw)}">.${Math.round(bestXw*1000).toString().padStart(3,'0').slice(-3)}</b>
+        </div>`:`<div style="font-size:.62rem;color:var(--t4);margin-bottom:5px">No BvP data yet</div>`}
+        ${totHR>0?`<div style="font-size:.62rem;color:var(--amber);margin-bottom:4px">${totHR} HR${totHR!==1?'s':''} in this zone</div>`:''}
+        ${pitRows.length?`<div style="font-size:.60rem;color:var(--t4);margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">vs each pitch here</div>
+        ${pitRows.slice(0,4).map(p=>`<div style="display:flex;justify-content:space-between;padding:2px 0">
+          <span style="font-size:.62rem;color:var(--t4)">${PS[p.pt]||p.pt} <span style="opacity:.5">${p.pct.toFixed(0)}%</span></span>
+          <span style="font-size:.65rem;font-weight:700;color:${xCF(p.xw)}">.${Math.round(p.xw*1000).toString().padStart(3,'0').slice(-3)}${p.hr>0?` <span style="color:var(--amber);font-size:.58rem">${p.hr}HR</span>`:''}</span>
+        </div>`).join('')}`:''}`;
+    } else if(side==='pit' && r5!==null){
+      const atzXw=parseFloat(xwoba);
+      const xCF2=v=>v>=0.450?'var(--red)':v>=0.350?'var(--amber)':v>=0.150?'var(--t2)':'var(--green)';
+      let pitLocRows=[];
+      topPitches.forEach(([pt,pct])=>{
+        const cached=_playerCache[`ptloc_${spId}_${pt}`]; if(!cached) return;
+        const locPct=cached.loc5pct?.[r5]?.[c5]||0;
+        const dmgAvg=cached.dmg5avg?.[r5]?.[c5]||0;
+        pitLocRows.push({pt,pct,locPct,dmgAvg});
+      });
+      rows=`
+        ${!isNaN(atzXw)&&atzXw>0?`<div style="display:flex;justify-content:space-between;align-items:center;
+          padding:5px 8px;background:var(--bg3);border-radius:6px;margin-bottom:5px">
+          <span style="font-size:.62rem;color:var(--t4)">xwOBA allowed (season)</span>
+          <b style="font-size:.78rem;color:${xCF2(atzXw)}">${xwoba}</b>
+        </div>`:''}
+        ${pitLocRows.length?`<div style="font-size:.60rem;color:var(--t4);margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">pitch location here</div>
+        ${pitLocRows.map(p=>{
+          const lc=p.locPct>=12?'var(--amber)':p.locPct>=6?'var(--t2)':'var(--t4)';
+          const dc=p.dmgAvg>=0.500?'var(--red)':p.dmgAvg>=0.350?'var(--amber)':p.dmgAvg>0?'var(--t4)':'var(--t4)';
+          return `<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+            <div style="display:flex;justify-content:space-between">
+              <span style="font-size:.62rem;color:var(--t4)">${PS[p.pt]||p.pt} <span style="opacity:.5">${p.pct.toFixed(0)}%</span></span>
+              <span style="font-size:.65rem;font-weight:700;color:${lc}">${p.locPct}% here</span>
+            </div>
+            ${p.dmgAvg>0?`<div style="display:flex;justify-content:space-between">
+              <span style="font-size:.58rem;color:var(--t4)">dmg xwOBA</span>
+              <span style="font-size:.60rem;color:${dc}">.${Math.round(p.dmgAvg*1000).toString().padStart(3,'0').slice(-3)}</span>
+            </div>`:''}
+          </div>`;
+        }).join('')}`:
+        `<div style="font-size:.62rem;color:var(--t4)">Expand a pitch in Arsenal tab to load location data</div>`}`;
+    }
+    return rows;
+  }
 
-    ${displayXw ? `<div style="display:flex;justify-content:space-between;align-items:center;
-      padding:5px 8px;background:var(--bg3);border-radius:6px;margin-bottom:6px">
-      <span style="font-size:.62rem;color:var(--t4)">${side==='bat'?'xwOBA here (BvP)':'xwOBA allowed'}</span>
-      <b style="font-size:.78rem;color:${xwobaClr}">${displayXw}</b>
-    </div>` : `<div style="font-size:.62rem;color:var(--t4);margin-bottom:6px">No BvP data yet — tap ↻</div>`}
-
-    ${side==='bat' && totalHR>0 ? `<div style="font-size:.62rem;color:var(--amber);margin-bottom:5px">
-      ${totalHR} HR${totalHR!==1?'s':''} in this zone</div>` : ''}
-
-    ${side==='bat' && pitchBreakdown.length ? `
-    <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px">By pitch type:</div>
-    ${pitchBreakdown.slice(0,3).map(p=>{
-      const xClr = p.xw>=0.500?'#ffd700':p.xw>=0.400?'var(--green)':p.xw>=0.250?'var(--t2)':'var(--red)';
-      return `<div style="display:flex;justify-content:space-between;padding:2px 0">
-        <span style="font-size:.62rem;color:var(--t4)">${PITCH_SHORT[p.pt]||p.pt} (${p.pct.toFixed(0)}%)</span>
-        <span style="font-size:.65rem;font-weight:700;color:${xClr}">.${Math.round(p.xw*1000).toString().padStart(3,'0').slice(-3)}</span>
-      </div>`;
-    }).join('')}` : ''}
-
-    <div style="font-size:.63rem;color:${st.c};margin-top:4px">${st.t}</div>
+  pop.innerHTML=`
+    <div style="font-size:.75rem;font-weight:800;color:var(--t1);margin-bottom:2px">Zone ${zone} \u00b7 ${label}</div>
+    <div style="font-size:.62rem;color:var(--t4);margin-bottom:7px">${heightLabel} \u00b7 ${sideLabel}</div>
+    <div id="zone-popup-body">${buildContent()}</div>
+    <div style="font-size:.63rem;color:${st.c};margin-top:5px;padding-top:4px;
+      border-top:1px solid var(--bg3)">${st.t}</div>
   `;
 
-  const rect = event.target.getBoundingClientRect();
-  pop.style.top  = Math.min(rect.bottom+6, window.innerHeight-200) + 'px';
-  pop.style.left = Math.min(rect.left, window.innerWidth-195) + 'px';
+  const rect=event.target.getBoundingClientRect();
+  pop.style.top =Math.min(rect.bottom+6,window.innerHeight-260)+'px';
+  pop.style.left=Math.min(rect.left,window.innerWidth-210)+'px';
   document.body.appendChild(pop);
 
-  const dismiss = e=>{ if(e.target!==event.target){ pop.remove(); document.removeEventListener('click',dismiss); }};
+  // Load pitcher location data if missing then refresh popup body
+  if(side==='pit'&&spId&&topPitches.length){
+    const missing=topPitches.filter(([pt])=>_playerCache[`ptloc_${spId}_${pt}`]===undefined);
+    if(missing.length){
+      Promise.allSettled(missing.map(([pt])=>fetchPitcherThrowLocation(spId,pt))).then(()=>{
+        const body=document.getElementById('zone-popup-body');
+        if(body) body.innerHTML=buildContent();
+      });
+    }
+  }
+
+  const dismiss=e=>{if(e.target!==event.target){pop.remove();document.removeEventListener('click',dismiss);}};
   setTimeout(()=>document.addEventListener('click',dismiss),50);
-  setTimeout(()=>{ pop.remove(); document.removeEventListener('click',dismiss); }, 5000);
+  setTimeout(()=>{pop.remove();document.removeEventListener('click',dismiss);},6000);
 }
 
-
-// ==================================================================
-//  ZONE HEATMAP RENDERER — mini 3x3 grid visual (used for slate card badge)
-// ==================================================================
 function renderZoneHeatmap(batPid, spPid, batHand, size=28){
   // Get zone data — use estimated zones if real maps not loaded yet
   let batZones = (_batterZoneMap||{})[String(batPid)];
