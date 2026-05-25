@@ -2267,12 +2267,49 @@ function calcEdge(ourProb, bookOdds){
 function detectAngles(r){
   const a=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||{};
 
-  // Platoon King needs either good power base OR real sample size
-  const platKingOk=(r.szPA||0)>=60||(r.barrel_pct!=null&&r.barrel_pct>=8)||(r.iso!=null&&r.iso>=0.170);
-  if(r.platoon>=1.20&&platKingOk) a.push({icon:'🎯',cat:'platoon',tier:1,label:'Platoon King (+)',color:'#ffd700',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — best cross-hand matchup. +${Math.round((r.platoon-1)*100)}% HR prob`});
-  else if(r.platoon>=1.10) a.push({icon:'✅',cat:'platoon',tier:2,label:'Platoon Edge (+)',color:'var(--green)',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — favorable matchup`});
-  else if(r.batHand==='R'&&r.oppHand==='R') a.push({icon:'🔵',cat:'platoon',tier:3,label:'R vs R (-)',color:'var(--t4)',tip:'RHB vs RHP — slight platoon disadvantage (0.88x)'});
-  else if(r.platoon<=0.74) a.push({icon:'⚠️',cat:'platoon',tier:3,label:'Same-Hand Fade (-)',color:'var(--red)',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — worst matchup. -${Math.round((1-r.platoon)*100)}% HR prob`});
+  // ── Platoon / handedness angles ─────────────────────────────────
+  // oppHand = pitcher's throwing hand. batHand = batter's batting side.
+  const bH = r.batHand || '?';
+  const pH = r.oppHand || 'R'; // default RHP when unknown
+  const isCrossHand   = (bH==='L'&&pH==='R') || (bH==='R'&&pH==='L');
+  const isSameHand    = (bH==='L'&&pH==='L') || (bH==='R'&&pH==='R');
+  const isLvL         = bH==='L' && pH==='L';
+  const isRvR         = bH==='R' && pH==='R';
+  const priorPlatoon  = getPlatoonPrior(bH, pH);
+  const platKingOk    = (r.szPA||0)>=60 || (r.barrel_pct!=null&&r.barrel_pct>=8) || (r.iso!=null&&r.iso>=0.170);
+  const matchupLabel  = `${bH}HB vs ${pH}HP`;
+
+  // Positive platoon angles
+  if(isCrossHand){
+    if(r.platoon>=1.20 && platKingOk){
+      a.push({icon:'🎯',cat:'platoon',tier:1,label:'Platoon King (+)',color:'#ffd700',
+        tip:`${matchupLabel} — favored cross-hand matchup. Model: +${Math.round((r.platoon-1)*100)}% HR boost`});
+    } else if(r.platoon>=1.10 || priorPlatoon>=1.10){
+      a.push({icon:'✅',cat:'platoon',tier:2,label:'Platoon Edge (+)',color:'var(--green)',
+        tip:`${matchupLabel} — cross-hand advantage. Prior: +${Math.round((priorPlatoon-1)*100)}%`});
+    }
+    // Cross-hand but actual splits drag it down — note the split underperformance
+    if(r.platoon<priorPlatoon-0.15){
+      a.push({icon:'📊',cat:'platoon',tier:3,label:'Split Underperforms (-)',color:'var(--amber)',
+        tip:`${matchupLabel} favored in theory but actual L/R split data is below expected`});
+    }
+  }
+
+  // Negative platoon angles
+  if(isSameHand){
+    if(isLvL){
+      a.push({icon:'⚠️',cat:'platoon',tier:3,label:'L vs L Fade (-)',color:'var(--red)',
+        tip:`LHB vs LHP — toughest matchup for lefties. ~28% HR suppression`});
+    } else if(isRvR){
+      if(r.platoon<=0.80){
+        a.push({icon:'🔵',cat:'platoon',tier:3,label:'R vs R (-)',color:'var(--amber)',
+          tip:`RHB vs RHP — same-hand disadvantage, model shows ${Math.round((1-r.platoon)*100)}% suppression`});
+      } else {
+        a.push({icon:'🔵',cat:'platoon',tier:3,label:'R vs R (-)',color:'var(--t4)',
+          tip:`RHB vs RHP — slight same-hand disadvantage (~12%). Manageable`});
+      }
+    }
+  }
 
   const l3hr=g.slice(0,3).reduce((s,x)=>s+(x.hr||0),0);
   const l7hr=g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
@@ -2611,7 +2648,18 @@ function detectNegativeAngles(r){
   const homeTeamAbbr = r.homeTeam||r.home||r.game?.split('@')?.[1]?.trim()||'';
   const isDomeGame = wx?.isDome || DOME_TEAMS.has(homeTeamAbbr);
 
-  if(r.platoon<=0.76) neg.push({icon:'⚠️',label:'Same-Hand Fade (-)',tip:`${r.batHand||'?'}HB vs ${r.oppHand||'?'}HP — suppresses HRs ~${Math.round((1-r.platoon)*100)}%`});
+  const bH2 = r.batHand || '?';
+  const pH2 = r.oppHand || 'R';
+  const isLvL2 = bH2==='L' && pH2==='L';
+  const isRvR2 = bH2==='R' && pH2==='R';
+  const isSameHand2 = isLvL2 || isRvR2;
+
+  if(isLvL2) neg.push({icon:'⚠️',label:'L vs L Fade (-)',
+    tip:`LHB vs LHP — toughest platoon matchup. ~28% HR suppression`});
+  else if(isRvR2) neg.push({icon:'🔵',label:'R vs R (-)',
+    tip:`RHB vs RHP — same-hand disadvantage, ~12% HR suppression`});
+  else if(isSameHand2 && r.platoon<=0.76) neg.push({icon:'⚠️',label:'Same-Hand Fade (-)',
+    tip:`${bH2}HB vs ${pH2}HP — actual splits show ${Math.round((1-r.platoon)*100)}% HR suppression`});
   if(l15hr===0) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in recent 15 games.`});
   else if(l7hr===0&&l7ab>=18) neg.push({icon:'❄️',label:'Ice Cold L7 (-)',tip:`0 HRs in last 7 games.`});
 
@@ -4257,7 +4305,7 @@ function renderTagGuide(){
     ['PLATOON'],
     ['🎯 Platoon King','var(--green)','Best cross-hand matchup (1.20x+)'],
     ['✅ Platoon Edge','var(--green)','Favorable handedness (1.10–1.20x)'],
-    ['⚠️ Same-Hand Fade','var(--red)','L vs L — suppresses HRs 25-30%'],
+    ['⚠️ L vs L Fade','var(--red)','LHB vs LHP — ~28% HR suppression, toughest matchup'],
     ['FORM'],
     ['🔥 On Fire','var(--green)','2+ HRs in last 3 games'],
     ['⚡ L7 Surge','var(--green)','Recent rate 1.8x above season'],
