@@ -7685,48 +7685,112 @@ function refreshZoneMatchup(id){
 // Pure function — builds zone grids from cached _zoneMatch data
 // Batter grid: shows batter's top damage zones (green)
 // Pitcher grid: shows pitcher's most vulnerable zones (red)
-function buildZoneGrids(zm, batHand, size=24){
+function buildZoneGrids(zm, batHand, size=24, batPid, spPid){
   if(!zm) return null;
   const grid = [[7,8,9],[4,5,6],[1,2,3]];
   const hrZones   = new Set(batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
-
-  // Use batTop3 and spVuln3 if stored, else fall back to overlap zones
   const batHighlight = new Set(zm.batTop3 || [...(zm.hotOverlap||[]), ...(zm.overlap||[])]);
   const spHighlight  = new Set(zm.spVuln3 || (zm.overlap||[]));
   const spStrong     = new Set(zm.antiOverlap||[]);
   const overlapZones = new Set(zm.hotOverlap||[]);
+  const batZoneData  = (_batterZoneMap||{})[String(batPid||'')] || {};
+  const spZoneData   = (_pitcherZoneMap||{})[String(spPid||'')] || {};
 
-  const batCells = grid.map(row=>
-    row.map(z=>{
-      const hot      = batHighlight.has(z);
-      const isHR     = hrZones.has(z);
-      const isOverlap= overlapZones.has(z);
-      const bg = isOverlap?'#ffd700': hot&&isHR?'#22c95e': hot?'rgba(34,201,94,.5)':'var(--bg3)';
-      const op = hot?'1':'0.28';
-      return `<div title="Zone ${z}: ${ZONE_LABELS[z]||''}" style="width:${size}px;height:${size}px;
-        background:${bg};opacity:${op};border-radius:3px;
-        border:1px solid ${isOverlap?'rgba(255,215,0,.6)':'rgba(255,255,255,.08)'}"></div>`;
-    }).join('')
-  ).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
+  function cell(z, side){
+    const label   = ZONE_LABELS[z]||`Z${z}`;
+    const isHR    = hrZones.has(z);
+    const isOverlap = overlapZones.has(z);
+    let bg, op, bdr = isOverlap?'rgba(255,215,0,.6)':'rgba(255,255,255,.08)';
+    let hot=false, xwoba, status;
 
-  const spCells = grid.map(row=>
-    row.map(z=>{
-      const vuln     = spHighlight.has(z);
-      const strong   = spStrong.has(z);
-      const isOverlap= overlapZones.has(z);
-      const bg = isOverlap?'#ffd700': vuln?'rgba(224,80,74,.7)': strong?'rgba(96,165,250,.45)':'var(--bg3)';
-      const op = (vuln||strong||isOverlap)?'1':'0.28';
-      return `<div title="Zone ${z}: ${ZONE_LABELS[z]||''}" style="width:${size}px;height:${size}px;
-        background:${bg};opacity:${op};border-radius:3px;
-        border:1px solid ${isOverlap?'rgba(255,215,0,.6)':'rgba(255,255,255,.08)'}"></div>`;
-    }).join('')
-  ).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
+    if(side==='bat'){
+      hot    = batHighlight.has(z);
+      xwoba  = batZoneData[z];
+      bg = isOverlap?'#ffd700': hot&&isHR?'#22c95e': hot?'rgba(34,201,94,.5)':'var(--bg3)';
+      op = hot?'1':'0.28';
+      status = isOverlap?'overlap': hot&&isHR?'power': hot?'damage':'neutral';
+    } else {
+      hot   = spHighlight.has(z);
+      const strong = spStrong.has(z);
+      xwoba = spZoneData[z];
+      bg = isOverlap?'#ffd700': hot?'rgba(224,80,74,.7)': strong?'rgba(96,165,250,.45)':'var(--bg3)';
+      op = (hot||strong||isOverlap)?'1':'0.28';
+      status = isOverlap?'overlap': hot?'vulnerable': strong?'strong':'neutral';
+    }
+
+    const xStr = xwoba!=null?xwoba.toFixed(3):'--';
+    const bH   = batHand||'R';
+    return `<div onclick="showZonePopup(event,'${side}',${z},'${label}','${xStr}','${status}','${bH}')"
+      style="width:${size}px;height:${size}px;background:${bg};opacity:${op};
+      border-radius:3px;cursor:pointer;border:1px solid ${bdr}"></div>`;
+  }
+
+  const batCells = grid.map(row=>row.map(z=>cell(z,'bat')).join('')).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
+  const spCells  = grid.map(row=>row.map(z=>cell(z,'pit')).join('')).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
 
   return {
     bat: `<div style="display:inline-block"><div style="display:flex;flex-direction:column;gap:2px">${batCells}</div></div>`,
     pit: `<div style="display:inline-block"><div style="display:flex;flex-direction:column;gap:2px">${spCells}</div></div>`,
   };
 }
+
+function showZonePopup(event, side, zone, label, xwoba, status, batHand){
+  event.stopPropagation();
+  document.getElementById('zone-popup')?.remove();
+
+  const isTop  = [7,8,9].includes(zone);
+  const isMid  = [4,5,6].includes(zone);
+  const isInner= batHand==='L' ? [7,4,1].includes(zone) : [9,6,3].includes(zone);
+  const heightLabel = isTop?'Up':isMid?'Middle':'Down';
+  const sideLabel   = isInner?'Inner':(zone===2||zone===5||zone===8)?'Middle':'Outer';
+
+  const statusMap = {
+    bat: {
+      overlap:  {c:'#ffd700',  t:'★ Hot overlap — pitcher weak exactly here'},
+      power:    {c:'var(--green)', t:'✓ Batter HR power zone'},
+      damage:   {c:'rgba(34,201,94,.8)', t:'✓ Top batter damage zone'},
+      neutral:  {c:'var(--t4)', t:'Not a primary batter zone'},
+    },
+    pit: {
+      overlap:  {c:'#ffd700',  t:'★ Hot overlap — batter strong here too'},
+      vulnerable:{c:'var(--red)', t:'⚠ Pitcher allows most damage here'},
+      strong:   {c:'#60a5fa', t:'◆ Pitcher strongest zone — tough for batter'},
+      neutral:  {c:'var(--t4)', t:'Average zone for pitcher'},
+    },
+  };
+  const st = statusMap[side][status] || {c:'var(--t4)', t:''};
+  const xwobaLbl = side==='bat' ? 'Batter xwOBA here' : 'xwOBA allowed here';
+  const xwobaNum = parseFloat(xwoba);
+  const xwobaClr = xwobaNum>=0.450?'#ffd700':xwobaNum>=0.350?'var(--green)':xwobaNum>=0.250?'var(--t2)':xwobaNum>0?'var(--red)':'var(--t4)';
+
+  const pop = document.createElement('div');
+  pop.id = 'zone-popup';
+  pop.style.cssText = `position:fixed;z-index:9999;background:var(--bg2);
+    border:1px solid var(--bdr);border-radius:10px;padding:10px 12px;
+    width:175px;box-shadow:0 4px 20px rgba(0,0,0,.6)`;
+  pop.innerHTML = `
+    <div style="font-size:.75rem;font-weight:800;color:var(--t1);margin-bottom:2px">
+      Zone ${zone} · ${label}
+    </div>
+    <div style="font-size:.62rem;color:var(--t4);margin-bottom:7px">${heightLabel} · ${sideLabel}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;
+      padding:5px 8px;background:var(--bg3);border-radius:6px;margin-bottom:6px">
+      <span style="font-size:.62rem;color:var(--t4)">${xwobaLbl}</span>
+      <b style="font-size:.75rem;color:${xwobaClr}">${xwoba==='--'?'--':xwoba}</b>
+    </div>
+    <div style="font-size:.64rem;color:${st.c}">${st.t}</div>
+  `;
+
+  const rect = event.target.getBoundingClientRect();
+  pop.style.top  = Math.min(rect.bottom+6, window.innerHeight-140) + 'px';
+  pop.style.left = Math.min(rect.left, window.innerWidth-185)+'px';
+  document.body.appendChild(pop);
+
+  const dismiss = e=>{ if(e.target!==event.target){ pop.remove(); document.removeEventListener('click',dismiss); }};
+  setTimeout(()=>document.addEventListener('click',dismiss),50);
+  setTimeout(()=>{ pop.remove(); document.removeEventListener('click',dismiss); }, 4000);
+}
+
 
 // ==================================================================
 //  ZONE HEATMAP RENDERER — mini 3x3 grid visual (used for slate card badge)
@@ -9335,7 +9399,7 @@ function renderDetail(r){
       // Arsenal pitch rows with batter performance overlay
       // Zone heatmap — built from cached _zoneMatch to stay stable across re-renders
       const zoneMatch   = r._zoneMatch;
-      const zoneHeatmap = zoneMatch ? buildZoneGrids(zoneMatch, r.batHand, 24) : null;
+      const zoneHeatmap = zoneMatch ? buildZoneGrids(zoneMatch, r.batHand, 24, r._batPid||r.id, r._spId) : null;
 
       let arsenalHTML = '';
       if(arsenal && Object.keys(arsenal.mix||{}).length){
