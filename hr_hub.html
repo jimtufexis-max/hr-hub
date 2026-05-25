@@ -9048,6 +9048,19 @@ function showDetail(id){
   showPage('detail');
   renderDetail(r);
 
+  // If zone maps not yet loaded, load them then re-render
+  const needsZoneMaps = _batterZoneMap===null || _pitcherZoneMap===null;
+  if(needsZoneMaps){
+    Promise.all([ensureBatterZoneMap(), ensurePitcherZoneMap()]).then(()=>{
+      // Recompute zone matchup with real data
+      if(batPid && spId) r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
+      const cur = S.allRows.find(x=>x.id===id);
+      if(cur && document.getElementById('page-detail')?.classList.contains('active')){
+        renderDetail(cur);
+      }
+    }).catch(()=>{});
+  }
+
   // Lazy-load count splits
   const _countId = String(r.id);
   getCountSplits(String(batPid)).then(counts=>{
