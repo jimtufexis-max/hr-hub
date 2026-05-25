@@ -7820,14 +7820,14 @@ function showZonePopup(event, side, zone, label, xwoba, status, batHand){
         ${pitLocRows.length?`<div style="font-size:.60rem;color:var(--t4);margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">pitch location here</div>
         ${pitLocRows.map(p=>{
           const lc=p.locPct>=12?'var(--amber)':p.locPct>=6?'var(--t2)':'var(--t4)';
-          const dc=p.dmgAvg>=0.500?'var(--red)':p.dmgAvg>=0.350?'var(--amber)':p.dmgAvg>0?'var(--t4)':'var(--t4)';
+          const dc=p.dmgAvg>=0.500?'var(--red)':p.dmgAvg>=0.400?'var(--amber)':p.dmgAvg>=0.250?'var(--t2)':p.dmgAvg>0?'var(--green)':'var(--t4)';
           return `<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">
             <div style="display:flex;justify-content:space-between">
               <span style="font-size:.62rem;color:var(--t4)">${PS[p.pt]||p.pt} <span style="opacity:.5">${p.pct.toFixed(0)}%</span></span>
               <span style="font-size:.65rem;font-weight:700;color:${lc}">${p.locPct}% here</span>
             </div>
             ${p.dmgAvg>0?`<div style="display:flex;justify-content:space-between">
-              <span style="font-size:.58rem;color:var(--t4)">dmg xwOBA</span>
+              <span style="font-size:.58rem;color:var(--t4)">dmg xwOBA <span style="opacity:.5">(low=good)</span></span>
               <span style="font-size:.60rem;color:${dc}">.${Math.round(p.dmgAvg*1000).toString().padStart(3,'0').slice(-3)}</span>
             </div>`:''}
           </div>`;
