@@ -7778,7 +7778,7 @@ function showZonePopup(event, side, zone, label, xwoba, status, batHand){
     width:200px;box-shadow:0 4px 20px rgba(0,0,0,.6)`;
 
   function buildContent(){
-    const xCF=v=>v>=0.500?'#ffd700':v>=0.400?'var(--green)':v>=0.250?'var(--t2)':'var(--red)';
+    const xCF=v=>v>=0.500?'#ffd700':v>=0.380?'var(--green)':v>=0.280?'var(--t2)':v>0?'var(--red)':'var(--t4)';
     let rows='';
     if(side==='bat' && ri!==null){
       let bestXw=null,totHR=0,pitRows=[];
@@ -7792,7 +7792,7 @@ function showZonePopup(event, side, zone, label, xwoba, status, batHand){
       rows=`
         ${bestXw!=null?`<div style="display:flex;justify-content:space-between;align-items:center;
           padding:5px 8px;background:var(--bg3);border-radius:6px;margin-bottom:5px">
-          <span style="font-size:.62rem;color:var(--t4)">xwOBA here (BvP)</span>
+          <span style="font-size:.62rem;color:var(--t4)">xwOBA here (BvP) <span style="opacity:.5">(high=good)</span></span>
           <b style="font-size:.78rem;color:${xCF(bestXw)}">.${Math.round(bestXw*1000).toString().padStart(3,'0').slice(-3)}</b>
         </div>`:`<div style="font-size:.62rem;color:var(--t4);margin-bottom:5px">No BvP data yet</div>`}
         ${totHR>0?`<div style="font-size:.62rem;color:var(--amber);margin-bottom:4px">${totHR} HR${totHR!==1?'s':''} in this zone</div>`:''}
