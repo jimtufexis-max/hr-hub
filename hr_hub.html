@@ -7662,8 +7662,65 @@ function calcZoneMatchup(batPid, spPid, batHand){
   return result;
 }
 
+function refreshZoneMatchup(id){
+  const r = S.allRows.find(x=>x.id===id);
+  if(!r) return;
+  const batPid = r._batPid||r.id;
+  const spId   = r._spId;
+  // Force clear cached zone match so it recomputes with freshest data
+  r._zoneMatch = null;
+  // Ensure zone maps loaded, then recompute and re-render
+  Promise.all([ensureBatterZoneMap(), ensurePitcherZoneMap()]).then(()=>{
+    if(batPid && spId) r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
+    if(document.getElementById('page-detail')?.classList.contains('active')){
+      renderDetail(r);
+    }
+  }).catch(()=>{});
+}
+
+
+// Pure function — same input always gives same output
+function buildZoneGrids(zm, batHand, size=24){
+  if(!zm) return null;
+  const grid = [[7,8,9],[4,5,6],[1,2,3]];
+  const hrZones  = new Set(batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
+  const batTop   = new Set(zm.overlap.concat(zm.hotOverlap||[]));
+  // Add remaining batter top zones from sorted data if available
+  const spVuln   = new Set(zm.overlap||[]);
+  const spStrong = new Set(zm.antiOverlap||[]);
+  // All highlighted zones from the matchup
+  const allBatHot = new Set((zm.hotOverlap||[]).concat(zm.overlap||[]));
+
+  const batCells = grid.map(row=>
+    row.map(z=>{
+      const hot  = allBatHot.has(z);
+      const isHR = hrZones.has(z);
+      const bg   = hot&&isHR?'#22c95e': hot?'rgba(34,201,94,.45)':'var(--bg3)';
+      const op   = hot?'1':'0.35';
+      return `<div style="width:${size}px;height:${size}px;background:${bg};opacity:${op};
+        border-radius:3px;border:1px solid rgba(255,255,255,.08)"></div>`;
+    }).join('')
+  ).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
+
+  const spCells = grid.map(row=>
+    row.map(z=>{
+      const vuln   = spVuln.has(z);
+      const strong = spStrong.has(z);
+      const bg     = vuln?'rgba(224,80,74,.65)': strong?'rgba(96,165,250,.5)':'var(--bg3)';
+      const op     = (vuln||strong)?'1':'0.35';
+      return `<div style="width:${size}px;height:${size}px;background:${bg};opacity:${op};
+        border-radius:3px;border:1px solid rgba(255,255,255,.08)"></div>`;
+    }).join('')
+  ).map(r=>`<div style="display:flex;gap:2px">${r}</div>`).join('');
+
+  return {
+    bat: `<div style="display:inline-block"><div style="display:flex;flex-direction:column;gap:2px">${batCells}</div></div>`,
+    pit: `<div style="display:inline-block"><div style="display:flex;flex-direction:column;gap:2px">${spCells}</div></div>`,
+  };
+}
+
 // ==================================================================
-//  ZONE HEATMAP RENDERER — mini 3x3 grid visual
+//  ZONE HEATMAP RENDERER — mini 3x3 grid visual (used for slate card badge)
 // ==================================================================
 function renderZoneHeatmap(batPid, spPid, batHand, size=28){
   // Get zone data — use estimated zones if real maps not loaded yet
@@ -9267,9 +9324,9 @@ function renderDetail(r){
       </div>`;
 
       // Arsenal pitch rows with batter performance overlay
-      // Zone heatmap — computed here so it's in scope for the return statement
-      const zoneHeatmap = renderZoneHeatmap(r._batPid, r._spId, r.batHand, 24);
+      // Zone heatmap — built from cached _zoneMatch to stay stable across re-renders
       const zoneMatch   = r._zoneMatch;
+      const zoneHeatmap = zoneMatch ? buildZoneGrids(zoneMatch, r.batHand, 24) : null;
 
       let arsenalHTML = '';
       if(arsenal && Object.keys(arsenal.mix||{}).length){
@@ -9404,22 +9461,36 @@ function renderDetail(r){
             ${zoneHeatmap.pit}
           </div>` : ''}
           <div style="flex:1;min-width:0">
-            ${zoneMatch ? `<div style="font-size:.70rem;font-weight:700;color:${
-              zoneMatch.hotOverlap?.length>=2?'#ffd700':
-              zoneMatch.hotOverlap?.length>=1?'var(--green)':
-              zoneMatch.antiOverlap?.length>=2?'var(--red)':'var(--t4)'}">
-              ${zoneMatch.hotOverlap?.length>=2?'🎯 Zone Domination':
-                zoneMatch.hotOverlap?.length>=1?'📍 Zone Overlap':
-                zoneMatch.antiOverlap?.length>=2?'🚫 Zone Mismatch':'—'}
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+              ${zoneMatch ? `<div style="font-size:.70rem;font-weight:700;color:${
+                zoneMatch.hotOverlap?.length>=2?'#ffd700':
+                zoneMatch.hotOverlap?.length>=1?'var(--green)':
+                zoneMatch.antiOverlap?.length>=2?'var(--red)':'var(--t4)'}">
+                ${zoneMatch.hotOverlap?.length>=2?'🎯 Zone Domination':
+                  zoneMatch.hotOverlap?.length>=1?'📍 Zone Overlap':
+                  zoneMatch.antiOverlap?.length>=2?'🚫 Zone Mismatch':'—'}
+              </div>` : '<div></div>'}
+              <button onclick="refreshZoneMatchup('${r.id}')"
+                style="padding:2px 7px;border-radius:6px;border:1px solid var(--bdr);
+                background:var(--bg3);color:var(--t4);font-size:.60rem;cursor:pointer;
+                line-height:1.4;flex-shrink:0">↻</button>
             </div>
-            <div style="font-size:.62rem;color:var(--t4);margin-top:3px;line-height:1.5">
+            ${zoneMatch ? `<div style="font-size:.62rem;color:var(--t4);margin-top:2px;line-height:1.5">
               ${zoneMatch.desc||''}
             </div>
             ${zoneMatch.zoneNames?.length ? `<div style="font-size:.60rem;color:var(--t4);margin-top:3px">
               Hot zones: ${zoneMatch.zoneNames.join(', ')}
-            </div>` : ''}` : ''}
+            </div>` : ''}
+            ${zoneMatch.fromRealData?`<div style="font-size:.55rem;color:var(--t4);margin-top:2px;opacity:.6">✦ real Statcast data</div>`:'<div style="font-size:.55rem;color:var(--t4);margin-top:2px;opacity:.6">estimated — tap ↻ for real data</div>'}
+            ` : ''}
           </div>
-        </div>` : ''}
+        </div>` : `<div style="display:flex;align-items:center;justify-content:space-between;
+          padding:6px 0 10px;border-bottom:1px solid var(--bg3);margin-bottom:10px">
+          <div style="font-size:.68rem;color:var(--t4)">Zone data loading…</div>
+          <button onclick="refreshZoneMatchup('${r.id}')"
+            style="padding:2px 7px;border-radius:6px;border:1px solid var(--bdr);
+            background:var(--bg3);color:var(--t4);font-size:.60rem;cursor:pointer">↻ Load</button>
+        </div>`}
 
         <!-- Tab selector -->
         <div style="display:flex;gap:6px;margin-bottom:12px">
