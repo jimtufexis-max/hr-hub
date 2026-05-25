@@ -9245,6 +9245,10 @@ function renderDetail(r){
       </div>`;
 
       // Arsenal pitch rows with batter performance overlay
+      // Zone heatmap — computed here so it's in scope for the return statement
+      const zoneHeatmap = renderZoneHeatmap(r._batPid, r._spId, r.batHand, 24);
+      const zoneMatch   = r._zoneMatch;
+
       let arsenalHTML = '';
       if(arsenal && Object.keys(arsenal.mix||{}).length){
         const pitches = Object.entries(arsenal.mix).filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1]);
@@ -9336,11 +9340,7 @@ function renderDetail(r){
             }).join('')}
           </div>`;
 
-        // Zone heatmap
-      const zoneHeatmap = renderZoneHeatmap(r._batPid, r._spId, r.batHand, 24);
-      const zoneMatch = r._zoneMatch;
-
-      const adjLine = pit._arsenalMult!=null && pit._arsenalMult!==1.0
+        const adjLine = pit._arsenalMult!=null && pit._arsenalMult!==1.0
           ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bg3);font-size:.68rem;color:var(--t4)">
               Arsenal adjustment: <b style="color:${pit._arsenalMult>=1?'var(--green)':'var(--red)'}">${pit._arsenalMult>=1?'+':''}${((pit._arsenalMult-1)*100).toFixed(0)}%</b>
               ${pit._arsenalDesc?`<span> — ${pit._arsenalDesc}</span>`:''}
