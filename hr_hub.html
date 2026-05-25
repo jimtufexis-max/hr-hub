@@ -2278,21 +2278,26 @@ function detectAngles(r){
   const priorPlatoon  = getPlatoonPrior(bH, pH);
   const platKingOk    = (r.szPA||0)>=60 || (r.barrel_pct!=null&&r.barrel_pct>=8) || (r.iso!=null&&r.iso>=0.170);
   const matchupLabel  = `${bH}HB vs ${pH}HP`;
+  // Use actual blended platoon value to confirm the advantage is real
+  const platoonIsActuallyPositive = r.platoon >= 1.05;
+  const platoonIsActuallyNegative = r.platoon < 0.90;
 
-  // Positive platoon angles
+  // Positive platoon angles — only show if the blended model value confirms it
   if(isCrossHand){
-    if(r.platoon>=1.20 && platKingOk){
-      a.push({icon:'🎯',cat:'platoon',tier:1,label:'Platoon King (+)',color:'#ffd700',
-        tip:`${matchupLabel} — favored cross-hand matchup. Model: +${Math.round((r.platoon-1)*100)}% HR boost`});
-    } else if(r.platoon>=1.10 || priorPlatoon>=1.10){
-      a.push({icon:'✅',cat:'platoon',tier:2,label:'Platoon Edge (+)',color:'var(--green)',
-        tip:`${matchupLabel} — cross-hand advantage. Prior: +${Math.round((priorPlatoon-1)*100)}%`});
+    if(platoonIsActuallyPositive){
+      if(r.platoon>=1.20 && platKingOk){
+        a.push({icon:'🎯',cat:'platoon',tier:1,label:'Platoon King (+)',color:'#ffd700',
+          tip:`${matchupLabel} — cross-hand advantage confirmed. Model: +${Math.round((r.platoon-1)*100)}%`});
+      } else if(r.platoon>=1.10 || priorPlatoon>=1.10){
+        a.push({icon:'✅',cat:'platoon',tier:2,label:'Platoon Edge (+)',color:'var(--green)',
+          tip:`${matchupLabel} — cross-hand advantage. Model: +${Math.round((r.platoon-1)*100)}%`});
+      }
+    } else if(platoonIsActuallyNegative){
+      // Cross-hand matchup but batter's actual splits are bad vs this pitcher hand
+      a.push({icon:'📊',cat:'platoon',tier:3,label:'Split Fade Despite Matchup (-)',color:'var(--amber)',
+        tip:`${matchupLabel} — theory says favorable but actual split data shows ${Math.round((1-r.platoon)*100)}% suppression`});
     }
-    // Cross-hand but actual splits drag it down — note the split underperformance
-    if(r.platoon<priorPlatoon-0.15){
-      a.push({icon:'📊',cat:'platoon',tier:3,label:'Split Underperforms (-)',color:'var(--amber)',
-        tip:`${matchupLabel} favored in theory but actual L/R split data is below expected`});
-    }
+    // r.platoon between 0.90-1.05: neutral, show nothing
   }
 
   // Negative platoon angles
@@ -2653,13 +2658,16 @@ function detectNegativeAngles(r){
   const isLvL2 = bH2==='L' && pH2==='L';
   const isRvR2 = bH2==='R' && pH2==='R';
   const isSameHand2 = isLvL2 || isRvR2;
+  const isCrossHand2 = !isSameHand2 && bH2!=='?' && pH2!=='?';
 
   if(isLvL2) neg.push({icon:'⚠️',label:'L vs L Fade (-)',
     tip:`LHB vs LHP — toughest platoon matchup. ~28% HR suppression`});
   else if(isRvR2) neg.push({icon:'🔵',label:'R vs R (-)',
     tip:`RHB vs RHP — same-hand disadvantage, ~12% HR suppression`});
-  else if(isSameHand2 && r.platoon<=0.76) neg.push({icon:'⚠️',label:'Same-Hand Fade (-)',
-    tip:`${bH2}HB vs ${pH2}HP — actual splits show ${Math.round((1-r.platoon)*100)}% HR suppression`});
+  // Cross-hand matchup but actual split data is poor
+  else if(isCrossHand2 && r.platoon!=null && r.platoon<0.90)
+    neg.push({icon:'📊',label:'Bad Splits vs This Hand (-)',
+      tip:`${bH2}HB vs ${pH2}HP is cross-hand but actual split data shows ${Math.round((1-r.platoon)*100)}% suppression — this batter historically struggles vs ${pH2}HP`});
   if(l15hr===0) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in recent 15 games.`});
   else if(l7hr===0&&l7ab>=18) neg.push({icon:'❄️',label:'Ice Cold L7 (-)',tip:`0 HRs in last 7 games.`});
 
