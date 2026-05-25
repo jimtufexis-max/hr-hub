@@ -7738,6 +7738,37 @@ function showZonePopup(event, side, zone, label, xwoba, status, batHand){
   event.stopPropagation();
   document.getElementById('zone-popup')?.remove();
 
+  // Map zone number (1-9) to zone3 [row][col] index
+  // Zone layout (catcher's view): 7|8|9 / 4|5|6 / 1|2|3
+  const ZONE_TO_RC = {7:[0,0],8:[0,1],9:[0,2],4:[1,0],5:[1,1],6:[1,2],1:[2,0],2:[2,1],3:[2,2]};
+  const [ri, ci] = ZONE_TO_RC[zone] || [null, null];
+
+  // Find the row in allRows to get BvP data
+  // Use _lastDetailId to know which player's detail is open
+  const r = S.allRows.find(x=>String(x.id)===String(window._lastDetailId||'')) || S.allRows[0];
+  const bvp = r?._bvp || {};
+  const pit = r?._pitcherStats || {};
+
+  // Gather data across all pitch types from BvP zone3 data
+  let bestXwoba = null, totalHR = 0, totalPA = 0, pitchBreakdown = [];
+
+  if(side === 'bat' && ri !== null){
+    const arsenal = pit.arsenal?.mix || {};
+    Object.entries(bvp).forEach(([pt, bdata])=>{
+      if(!bdata?.zone3xwoba || bdata.pa < 5) return;
+      const xw = bdata.zone3xwoba[ri]?.[ci];
+      const hr = bdata.zone3hr?.[ri]?.[ci] || 0;
+      const paPct = arsenal[pt] || 0;
+      if(xw != null && xw > 0){
+        totalHR += hr;
+        if(paPct >= 5) pitchBreakdown.push({pt, xw, hr, pct:paPct});
+        if(bestXwoba === null || xw > bestXwoba) bestXwoba = xw;
+      }
+    });
+    pitchBreakdown.sort((a,b)=>b.pct-a.pct);
+  }
+
+  // For pitcher side: use attack-zone xwOBA allowed (already in xwoba param)
   const isTop  = [7,8,9].includes(zone);
   const isMid  = [4,5,6].includes(zone);
   const isInner= batHand==='L' ? [7,4,1].includes(zone) : [9,6,3].includes(zone);
@@ -7746,49 +7777,72 @@ function showZonePopup(event, side, zone, label, xwoba, status, batHand){
 
   const statusMap = {
     bat: {
-      overlap:  {c:'#ffd700',  t:'★ Hot overlap — pitcher weak exactly here'},
+      overlap:  {c:'#ffd700',  t:'★ Hot overlap — pitcher weak here too'},
       power:    {c:'var(--green)', t:'✓ Batter HR power zone'},
       damage:   {c:'rgba(34,201,94,.8)', t:'✓ Top batter damage zone'},
       neutral:  {c:'var(--t4)', t:'Not a primary batter zone'},
     },
     pit: {
-      overlap:  {c:'#ffd700',  t:'★ Hot overlap — batter strong here too'},
-      vulnerable:{c:'var(--red)', t:'⚠ Pitcher allows most damage here'},
-      strong:   {c:'#60a5fa', t:'◆ Pitcher strongest zone — tough for batter'},
-      neutral:  {c:'var(--t4)', t:'Average zone for pitcher'},
+      overlap:  {c:'#ffd700',  t:'★ Hot overlap — batter strong here'},
+      vulnerable:{c:'var(--red)', t:'⚠ Pitcher most vulnerable here'},
+      strong:   {c:'#60a5fa', t:'◆ Pitcher strongest zone'},
+      neutral:  {c:'var(--t4)', t:'Average pitcher zone'},
     },
   };
-  const st = statusMap[side][status] || {c:'var(--t4)', t:''};
-  const xwobaLbl = side==='bat' ? 'Batter xwOBA here' : 'xwOBA allowed here';
-  const xwobaNum = parseFloat(xwoba);
-  const xwobaClr = xwobaNum>=0.450?'#ffd700':xwobaNum>=0.350?'var(--green)':xwobaNum>=0.250?'var(--t2)':xwobaNum>0?'var(--red)':'var(--t4)';
+  const st = statusMap[side]?.[status] || {c:'var(--t4)', t:''};
+
+  // Display xwOBA: use real BvP zone data for batter side, attack-zone for pitcher
+  const displayXw = side==='bat'
+    ? (bestXwoba != null ? bestXwoba.toFixed(3) : null)
+    : (xwoba !== '--' ? xwoba : null);
+
+  const xwobaNum = parseFloat(displayXw);
+  const xwobaClr = xwobaNum>=0.500?'#ffd700':xwobaNum>=0.400?'var(--green)':xwobaNum>=0.250?'var(--t2)':xwobaNum>0?'var(--red)':'var(--t4)';
+
+  const PITCH_SHORT = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Change',FS:'Split',KC:'K-Curve'};
 
   const pop = document.createElement('div');
   pop.id = 'zone-popup';
   pop.style.cssText = `position:fixed;z-index:9999;background:var(--bg2);
     border:1px solid var(--bdr);border-radius:10px;padding:10px 12px;
-    width:175px;box-shadow:0 4px 20px rgba(0,0,0,.6)`;
+    width:185px;box-shadow:0 4px 20px rgba(0,0,0,.6)`;
+
   pop.innerHTML = `
     <div style="font-size:.75rem;font-weight:800;color:var(--t1);margin-bottom:2px">
       Zone ${zone} · ${label}
     </div>
     <div style="font-size:.62rem;color:var(--t4);margin-bottom:7px">${heightLabel} · ${sideLabel}</div>
-    <div style="display:flex;justify-content:space-between;align-items:center;
+
+    ${displayXw ? `<div style="display:flex;justify-content:space-between;align-items:center;
       padding:5px 8px;background:var(--bg3);border-radius:6px;margin-bottom:6px">
-      <span style="font-size:.62rem;color:var(--t4)">${xwobaLbl}</span>
-      <b style="font-size:.75rem;color:${xwobaClr}">${xwoba==='--'?'--':xwoba}</b>
-    </div>
-    <div style="font-size:.64rem;color:${st.c}">${st.t}</div>
+      <span style="font-size:.62rem;color:var(--t4)">${side==='bat'?'xwOBA here (BvP)':'xwOBA allowed'}</span>
+      <b style="font-size:.78rem;color:${xwobaClr}">${displayXw}</b>
+    </div>` : `<div style="font-size:.62rem;color:var(--t4);margin-bottom:6px">No BvP data yet — tap ↻</div>`}
+
+    ${side==='bat' && totalHR>0 ? `<div style="font-size:.62rem;color:var(--amber);margin-bottom:5px">
+      ${totalHR} HR${totalHR!==1?'s':''} in this zone</div>` : ''}
+
+    ${side==='bat' && pitchBreakdown.length ? `
+    <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px">By pitch type:</div>
+    ${pitchBreakdown.slice(0,3).map(p=>{
+      const xClr = p.xw>=0.500?'#ffd700':p.xw>=0.400?'var(--green)':p.xw>=0.250?'var(--t2)':'var(--red)';
+      return `<div style="display:flex;justify-content:space-between;padding:2px 0">
+        <span style="font-size:.62rem;color:var(--t4)">${PITCH_SHORT[p.pt]||p.pt} (${p.pct.toFixed(0)}%)</span>
+        <span style="font-size:.65rem;font-weight:700;color:${xClr}">.${Math.round(p.xw*1000).toString().padStart(3,'0').slice(-3)}</span>
+      </div>`;
+    }).join('')}` : ''}
+
+    <div style="font-size:.63rem;color:${st.c};margin-top:4px">${st.t}</div>
   `;
 
   const rect = event.target.getBoundingClientRect();
-  pop.style.top  = Math.min(rect.bottom+6, window.innerHeight-140) + 'px';
-  pop.style.left = Math.min(rect.left, window.innerWidth-185)+'px';
+  pop.style.top  = Math.min(rect.bottom+6, window.innerHeight-200) + 'px';
+  pop.style.left = Math.min(rect.left, window.innerWidth-195) + 'px';
   document.body.appendChild(pop);
 
   const dismiss = e=>{ if(e.target!==event.target){ pop.remove(); document.removeEventListener('click',dismiss); }};
   setTimeout(()=>document.addEventListener('click',dismiss),50);
-  setTimeout(()=>{ pop.remove(); document.removeEventListener('click',dismiss); }, 4000);
+  setTimeout(()=>{ pop.remove(); document.removeEventListener('click',dismiss); }, 5000);
 }
 
 
@@ -9186,6 +9240,7 @@ function showDetail(id){
 
   queueForAutoTrack([r]);
   showPage('detail');
+  window._lastDetailId = id;
   renderDetail(r);
 
   // If zone maps not yet loaded, load them then re-render once
