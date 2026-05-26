@@ -8146,26 +8146,42 @@ async function loadGame(g){
 
   try{
 
-  // Fetch pitcher hands + season stats
-  status('Fetching pitcher data…');
-  lap('before pitcher hands');
-  const [awHand, hmHand] = await Promise.all([
+  // ALL critical fetches in parallel — one round of network calls
+  status('Loading game data…');
+  lap('before all fetches');
+  const [
+    awHand, hmHand,
+    awPitLog, hmPitLog,
+    awArsenal, hmArsenal,
+    umpData,
+    schedLineups,
+    wx,
+  ] = await Promise.all([
     getPitcherHand(g.awaySpId),
     getPitcherHand(g.homeSpId),
-  ]);
-  lap('after pitcher hands');
-
-  // CRITICAL PATH — single schedule fetch gets BOTH lineups AND confirmation status
-  const schedLineups = await fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups`).catch(()=>null);
-  const schedGame = schedLineups?.dates?.[0]?.games?.[0];
-
-  const [awPitLog,hmPitLog,awArsenal,hmArsenal,umpData] = await Promise.all([
-    getPitcherGameLog(g.awaySpId),  getPitcherGameLog(g.homeSpId),
-    getPitcherArsenal(g.awaySpId),  getPitcherArsenal(g.homeSpId),
+    getPitcherGameLog(g.awaySpId),
+    getPitcherGameLog(g.homeSpId),
+    getPitcherArsenal(g.awaySpId),
+    getPitcherArsenal(g.homeSpId),
     getUmpire(g.pk),
+    fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups`).catch(()=>null),
+    getWeather(g.venue, g.gameTime||g.gameDate),
   ]);
+  lap('after all fetches');
 
-  // Extract lineups from schedule response (already fetched above)
+  // Also fire rosters in parallel immediately — don't wait for above to finish
+  // (started above via Promise.all, now await both rosters together)
+  const [awRoster, hmRoster] = await Promise.all([
+    getRoster(g.away),
+    getRoster(g.home),
+  ]);
+  lap('after rosters');
+
+  const schedGame = schedLineups?.dates?.[0]?.games?.[0];
+  const gameState = schedGame?.status?.abstractGameState;
+  const pf = PARK[g.home] || 1.00;
+
+  // Extract lineups
   const extractLineup = (players) => {
     const result = {};
     (players||[]).forEach((p,i) => { result[String(p.id)] = i+1; });
@@ -8173,9 +8189,7 @@ async function loadGame(g){
   };
   let awLineup = extractLineup(schedGame?.lineups?.awayPlayers);
   let hmLineup = extractLineup(schedGame?.lineups?.homePlayers);
-  const gameState = schedGame?.status?.abstractGameState;
 
-  // If game started and lineups empty, get from boxscore
   if((gameState==='Live'||gameState==='Final') && Object.keys(awLineup).length < 8){
     const box = await fetchJSON(`${MLB}/game/${g.pk}/boxscore`).catch(()=>null);
     if(box?.teams){
@@ -8187,16 +8201,11 @@ async function loadGame(g){
   const lineupConfirmed = Object.keys(awLineup).length>=8 && Object.keys(hmLineup).length>=8
     || gameState==='Live' || gameState==='Final';
 
-  // Cache lineup results
   _playerCache[`lineup_${g.pk}_${g.awayId}`] = awLineup;
   _playerCache[`lineup_${g.pk}_${g.homeId}`] = hmLineup;
   if(lineupConfirmed) _playerCache[`lineup_confirmed_${g.pk}`] = true;
-  lap('after per-game fetches');
 
-  // SECONDARY — fire but don't await (B/C-grade signals, enrich later)
-  const awWorkload=null, hmWorkload=null, awRest=null, hmRest=null;
-  const awTeamHR=null, hmTeamHR=null, awBB=null, hmBB=null;
-  const awBullpen=null, hmBullpen=null;
+  // SECONDARY — fire but don't await
   Promise.all([
     getPitcherWorkload(g.awaySpId), getPitcherWorkload(g.homeSpId),
     getSPDaysRest(g.awaySpId),     getSPDaysRest(g.homeSpId),
@@ -8204,28 +8213,21 @@ async function loadGame(g){
     getBullpenQuality(g.away),     getBullpenQuality(g.home),
   ]).catch(()=>{});
 
-  const wx  = await getWeather(g.venue, g.gameTime||g.gameDate);
-  lap('after weather');
-  const pf  = PARK[g.home] || 1.00;
-
   const sides = [
-    {key:`${pk}_away`, team:g.away, oppHand:hmHand, pitLog:hmPitLog, spId:g.homeSpId, spNm:g.homeSpName},
-    {key:`${pk}_home`, team:g.home, oppHand:awHand, pitLog:awPitLog, spId:g.awaySpId, spNm:g.awaySpName},
+    {key:`${pk}_away`, team:g.away, roster:awRoster, oppHand:hmHand, pitLog:hmPitLog, spId:g.homeSpId, spNm:g.homeSpName, lineup:awLineup},
+    {key:`${pk}_home`, team:g.home, roster:hmRoster, oppHand:awHand, pitLog:awPitLog, spId:g.awaySpId, spNm:g.awaySpName, lineup:hmLineup},
   ];
 
-  for(const{key, team, oppHand, pitLog, spId, spNm} of sides){
+  for(const{key, team, roster, oppHand, pitLog, spId, spNm, lineup} of sides){
     if(S.cache[key]) continue;
-    status(`Loading ${team} roster…`);
-    lap(`before roster ${team}`);
-    const roster  = await getRoster(team);
-    lap(`after roster ${team} (${roster.length} players)`);
+    status(`Computing ${team} batters…`);
+    lap(`before ${team}`);
     if(!roster.length){
       console.error(`[loadGame] Empty roster for ${team}`);
-      el.innerHTML=`<div class="card" style="color:var(--red);padding:12px">No roster found for ${team} — check proxy/API</div>`;
-      return;
+      continue;
     }
     const hitters = roster.filter(h=>h.pos!=='P'&&h.pos!=='');
-    let _handDebugDone = false; // reset per team
+    let _handDebugDone = false;
 
     // Build pitcher stats object
     const savP   = (_savP||{})[String(spId)]||{};
@@ -8376,7 +8378,7 @@ async function loadGame(g){
         platoonSplits:   platoonMap[pid]    || null,
         priorSeasonRate: priorRateMap[pid]?.rate ?? null,
         isHome:          key.endsWith('_home'),
-        lineupPos:       (key.endsWith('_away') ? awLineup : hmLineup)?.[pid] || null,
+        lineupPos:       lineup?.[pid] || null,
         umpMult:         umpData?.mult ?? 1.0,
         teamHRMult:      (key.endsWith('_away') ? awTeamHR : hmTeamHR)?.mult ?? 1.0,
         stadiumMult:     getStadiumDimMult(g.home, resolvedHand||'R'),
