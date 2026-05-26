@@ -1,21 +1,28 @@
-// Service Worker v11 — network first, cache bust
-const CACHE = 'hr-hub-v11';
+// HR Hub Service Worker v20260526
+// This version clears all old caches and does NOT cache the HTML file
+const CACHE_NAME = 'hr-hub-v20260526';
 
-self.addEventListener('install', e => {
+self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil(
+self.addEventListener('activate', event => {
+  event.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.map(k => caches.delete(k)))
+      Promise.all(keys.map(key => caches.delete(key)))
     ).then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('fetch', e => {
-  // Always network first — never serve stale HTML
-  e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request))
-  );
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  // NEVER cache HTML — always fetch fresh
+  if(url.pathname.endsWith('.html') || url.pathname === '/'){
+    event.respondWith(
+      fetch(event.request, {cache:'no-store'}).catch(() => caches.match(event.request))
+    );
+    return;
+  }
+  // Everything else: network first, no caching
+  event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
 });
