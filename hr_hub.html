@@ -8336,15 +8336,31 @@ async function loadGame(g){
   const gameState = schedGame?.status?.abstractGameState;
   const pf = PARK[g.home] || 1.00;
 
-  // Extract lineups
+  // Extract lineups — handles both {id:N} objects and raw numeric IDs
   const extractLineup = (players) => {
     const result = {};
-    (players||[]).forEach((p,i) => { result[String(p.id)] = i+1; });
+    (players||[]).forEach((p,i) => {
+      const id = typeof p === 'object' ? (p.id||p.personId) : p;
+      if(id) result[String(id).replace(/\.0$/,'')] = i+1;
+    });
     return result;
   };
   let awLineup = extractLineup(schedGame?.lineups?.awayPlayers);
   let hmLineup = extractLineup(schedGame?.lineups?.homePlayers);
 
+  // If schedule/lineups empty, try live feed (available pre-game once lineup posted)
+  if(Object.keys(awLineup).length < 8 || Object.keys(hmLineup).length < 8){
+    const live = await fetchJSON(`${MLB}/game/${g.pk}/feed/live?fields=liveData,boxscore,teams,battingOrder`).catch(()=>null);
+    const liveTeams = live?.liveData?.boxscore?.teams;
+    if(liveTeams){
+      const aw2 = extractLineup(liveTeams.away?.battingOrder?.map(id=>({id})));
+      const hm2 = extractLineup(liveTeams.home?.battingOrder?.map(id=>({id})));
+      if(Object.keys(aw2).length >= 8) awLineup = aw2;
+      if(Object.keys(hm2).length >= 8) hmLineup = hm2;
+    }
+  }
+
+  // If game started/final and still empty, try boxscore
   if((gameState==='Live'||gameState==='Final') && Object.keys(awLineup).length < 8){
     const box = await fetchJSON(`${MLB}/game/${g.pk}/boxscore`).catch(()=>null);
     if(box?.teams){
@@ -8917,6 +8933,49 @@ function renderBestBets(){
 
 
 function renderSlate(){
+
+  // STYLE INJECTION — runs every render, bypasses SW cache
+  if(!document.getElementById('hr-hub-v2-styles')){
+    const s=document.createElement('style');
+    s.id='hr-hub-v2-styles';
+    s.textContent=`
+      .hitter-card{background:var(--bg2)!important;border:1px solid var(--bdr)!important;border-radius:14px!important;padding:13px 14px!important;margin-bottom:9px!important;cursor:pointer!important;border-left:4px solid var(--bdr)!important;transition:opacity .1s!important}
+      .hitter-card:active{opacity:.8!important}
+      .hitter-card.grade-a{border-left-color:var(--green)!important}
+      .hitter-card.grade-b{border-left-color:var(--amber)!important}
+      .hitter-card.grade-c{border-left-color:var(--red)!important}
+      .hc-row1{display:none!important}
+      .mult-row{display:none!important}
+      .hc-row2{display:none!important}
+      .prob-circle{display:none!important}
+      :root.light{--bg:#f2f5f9;--bg2:#ffffff;--bg3:#e8edf4;--bdr:#c8d4e0;--t1:#0d1520;--t2:#253545;--t3:#506070;--t4:#7a90a0;--amber:#c07800;--blue:#1a6ad0;--green:#0a8040;--red:#c03030}
+    `;
+    document.head.appendChild(s);
+  }
+
+  // THEME BUTTON — inject if missing
+  if(!document.getElementById('theme-btn')){
+    const savedTheme=localStorage.getItem('hr_hub_theme');
+    if(savedTheme==='light') document.documentElement.classList.add('light');
+    const hdr=document.getElementById('header');
+    if(hdr){
+      const btn=document.createElement('button');
+      btn.id='theme-btn';
+      btn.textContent=document.documentElement.classList.contains('light')?'☀️':'🌙';
+      btn.style.cssText='background:none;border:1px solid var(--bdr);color:var(--t4);font-size:1rem;cursor:pointer;padding:4px 7px;border-radius:6px;line-height:1;flex-shrink:0';
+      btn.onclick=()=>{const l=document.documentElement.classList.toggle('light');localStorage.setItem('hr_hub_theme',l?'light':'dark');btn.textContent=l?'☀️':'🌙';};
+      const first=hdr.querySelector('button');
+      if(first) hdr.insertBefore(btn,first); else hdr.appendChild(btn);
+    }
+  }
+
+  // CARD OVERRIDE — redefine renderHitterCard with new design so SW can't serve old version
+  window._cardOverrideApplied=window._cardOverrideApplied||false;
+  if(!window._cardOverrideApplied){
+    window._cardOverrideApplied=true;
+    window.renderHitterCard=_newRenderHitterCard;
+  }
+
   if(!S.allRows.length){
     const hl=document.getElementById('hitter-list');
     if(hl) hl.innerHTML='<div class="empty">No players loaded</div>';
@@ -9059,132 +9118,33 @@ function renderHitterCard(r,showGame){
 
 
   return`<div class="hitter-card grade-${gCls} ${pulseClass}" onclick="showDetail('${r.id}')">
-    <div class="hc-row1">
-      <div class="hc-headshot-wrap" style="position:relative">
-        <img class="hc-headshot" src="${headshotUrl}" alt="${r.name}"
-          onerror="this.style.display='none'">
-        ${r.lineupPos ? `<div style="position:absolute;bottom:-2px;right:-2px;
-          width:18px;height:18px;border-radius:50%;
-          background:${r.lineupPos<=4?'var(--amber)':r.lineupPos<=6?'var(--t3)':'var(--t4)'};
-          border:2px solid var(--bg2);display:flex;align-items:center;justify-content:center;
-          font-size:.58rem;font-weight:900;color:#000;line-height:1">${r.lineupPos}</div>` : ''}
+    <div style="display:flex;align-items:center;gap:11px;margin-bottom:9px">
+      <div style="position:relative;flex-shrink:0">
+        <img src="${headshotUrl}" alt="${r.name}" style="width:46px;height:46px;border-radius:50%;object-fit:cover;border:2.5px solid ${gc};background:var(--bg3);display:block" onerror="this.style.display='none'">
+        ${r.lineupPos?`<div style="position:absolute;bottom:-3px;right:-3px;width:18px;height:18px;border-radius:50%;background:${r.lineupPos<=4?'var(--amber)':r.lineupPos<=6?'var(--t3)':'rgba(100,116,139,.7)'};border:2px solid var(--bg2);display:flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:900;color:#000">${r.lineupPos}</div>`:''}
       </div>
       <div style="flex:1;min-width:0">
-        <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}${zoneBadge}${(()=>{
-          const _td=ds();const _st=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
-          const _al=_st.find(x=>x.id===r.id&&x.date===_td&&x.manualBet);
-          if(_al&&_al.actual!==undefined) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.2);color:var(--green);margin-left:4px">${_al.actual>0?'✅ HR':'❌ No HR'}</span>`;
-          if(_al) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.15);color:var(--amber);margin-left:4px">📌 tracked</span>`;
-          return '';
-        })()}</div>
-        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <b style="color:var(--amber)">Bat ${r.lineupPos}</b>`:''}${gameTag?` · ${gameTag}`:''}${!r.lineupConfirmed?` <span style="color:var(--red);font-size:.60rem">⚠️ unconfirmed</span>`:''} ${r.postponeRisk>=0.45?`<span style="color:var(--red);font-size:.60rem">🌧️ ${Math.round(r.postponeRisk*100)}% ppd</span>`:''}</div>
+        <div style="font-size:1.0rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}${(()=>{const td=ds();const st=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');const al=st.find(x=>x.id===r.id&&x.date===td&&x.manualBet);if(al&&al.actual!==undefined)return`<span style="font-size:.58rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green)">${al.actual>0?'✅':'❌'}</span>`;if(al)return`<span style="font-size:.58rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.1);color:var(--amber)">📌</span>`;return'';})()}</div>
+        <div style="font-size:.63rem;color:var(--t4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <b style="color:var(--amber)">Bat ${r.lineupPos}</b>`:''}${gameTag?` · ${gameTag}`:''}${!r.lineupConfirmed?' <span style="color:var(--red)">⚠ unconfirmed</span>':''}${r.postponeRisk>=0.45?` <span style="color:#60a5fa">🌧 ${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:center;gap:5px;flex-shrink:0">
-        <div class="prob-circle" style="border-color:${gc};color:${gc}">
-          <span class="pct">${pct}%</span>
-          <span class="lbl">${(()=>{const dc=calcDataConfidence(r);return grd+' '+dc.grade;})()}</span>
-        </div>
-        <button onclick="event.stopPropagation();generateShareCard('${r.id}')"
-          style="font-size:.52rem;padding:2px 6px;border-radius:4px;
-          border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);
-          cursor:pointer;white-space:nowrap">📤 Share</button>
+      <div style="flex-shrink:0;text-align:center;min-width:56px">
+        <div style="font-size:1.75rem;font-weight:900;line-height:1;color:${gc};letter-spacing:-.02em">${pct}%</div>
+        <div style="font-size:.55rem;font-weight:700;color:${gc};opacity:.75;text-transform:uppercase;letter-spacing:.06em;margin-top:1px">${grd}</div>
+        ${fdOdds!=null?`<div style="font-size:.63rem;font-weight:700;margin-top:1px;color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'}">${fdOdds>0?'+':''}${fdOdds}</div>`:''}
       </div>
     </div>
-    <div class="mult-row">
-      <div class="mult-item"><span class="mult-label">Anchor</span><span class="mult-val ${mCls(r.anchor/MLB_AVG)}">${(r.anchor*100).toFixed(1)}%</span></div>
-      <div class="mult-item"><span class="mult-label">Platoon</span><span class="mult-val ${mCls(r.platoon)}">${r.platoon.toFixed(2)}x</span></div>
-      <div class="mult-item"><span class="mult-label">SP</span><span class="mult-val ${mCls(r.pitcher)}">${r.pitcher.toFixed(2)}x</span></div>
-      <div class="mult-item"><span class="mult-label">Park/Wx</span><span class="mult-val ${mCls(r.parkwx)}">${r.parkwx.toFixed(2)}x</span></div>
-      <div class="mult-item" title="Times Through Order"><span class="mult-label">TTO</span><span class="mult-val ${r.ttoMult>=1.15?'up':r.ttoMult<=0.90?'dn':'flat'}">${r.ttoMult!=null?r.ttoMult.toFixed(2)+'x':'—'}</span></div>
+    ${cardAngles.length?`<div style="display:flex;gap:4px;margin-bottom:8px;overflow:hidden">${cardAngles.map(a=>`<span style="font-size:.63rem;font-weight:600;padding:2px 9px;border-radius:99px;background:${a.color}20;border:1px solid ${a.color}${a.tier===1?'60':'30'};color:${a.color};white-space:nowrap" title="${a.tip}">${a.icon} ${a.label}</span>`).join('')}${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length>3?`<span style="font-size:.60rem;color:var(--t4);align-self:center"> +${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length-3}</span>`:''}</div>`:''}
+    <div style="display:flex;gap:3px;margin-bottom:7px">
+      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',r.platoon.toFixed(2)+'×',r.platoon],['SP',r.pitcher.toFixed(2)+'×',r.pitcher],['Park',r.parkwx.toFixed(2)+'×',r.parkwx],['TTO',r.ttoMult!=null?r.ttoMult.toFixed(2)+'×':'—',r.ttoMult||1]].map(([lbl,val,m])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div></div>`).join('')}
     </div>
-    ${angleRow}
-    <div class="hc-row2" style="margin-top:6px">
-      <div style="font-size:.55rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;align-self:center;margin-right:4px;opacity:.7;flex-shrink:0">Szn</div>
-      ${statChip('Barrel%',r.barrel_pct,4,16,'%')}
-      ${statChip('Hard%',r.hard_hit_pct,32,55,'%')}
-      ${statChip('EV',r.avg_ev,87,95,' mph')}
-      ${statChip('Pull-Air%',r.pull_air_pct,8,22,'%')}
-      ${statChip('HR/FB%',r.hr_fb_pct,8,28,'%')}
-      ${r.swingSpeed!=null?statChip('Bat Spd',r.swingSpeed,65,78,' mph'):''}
-      ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)} xwOBA</span></div>`:''}
-      ${(()=>{ const pos=r.lineupPos; const expPA=pos?Math.max(3.5,Math.min(4.8,4.8-(pos-1)*0.15)):4.1; const xhr=r.prob*expPA; const clr=xhr>=0.35?'var(--green)':xhr>=0.20?'var(--amber)':'var(--t3)'; return`<div class="stat-chip" title="Expected HRs today"><span>xHR</span><span class="val" style="color:${clr}">${xhr.toFixed(2)}</span></div>`; })()}
+    <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+      <span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;opacity:.55">Szn</span>
+      ${statChip('Brl%',r.barrel_pct,4,16,'%')}${statChip('Hard%',r.hard_hit_pct,32,55,'%')}${statChip('EV',r.avg_ev,87,95,' mph')}${statChip('Pull%',r.pull_air_pct,8,22,'%')}${statChip('HR/FB',r.hr_fb_pct,8,28,'%')}
+      ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)}xw</span></div>`:''}
+      <div class="stat-chip"><span>xHR</span><span class="val" style="color:${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return r.prob*e>=0.35?'var(--green)':r.prob*e>=0.20?'var(--amber)':'var(--t3)'})()}">${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return(r.prob*e).toFixed(2)})()}</span></div>
     </div>
-    ${(()=>{
-      const g14=(r._recentGames||[]).slice(0,14);
-      const pa14=g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);
-      if(pa14<8) return '';
-      const hr14=g14.reduce((s,x)=>s+(x.hr||0),0);
-      const ab14=g14.reduce((s,x)=>s+(x.ab||0),0);
-      const tb14=g14.reduce((s,x)=>s+(x.tb||0),0);
-      const h14=g14.reduce((s,x)=>s+(x.h||0),0);
-      const slg14=ab14>0?tb14/ab14:null;
-      const avg14=ab14>0?h14/ab14:null;
-      const iso14=slg14!=null&&avg14!=null?slg14-avg14:null;
-      const sznRate=r.anchor||0.035;
-      const hrRate=pa14>0?hr14/pa14:0;
-      const vs=sznRate>0?hrRate/sznRate:1;
-      const arrow=vs>=1.25?'<span style="color:var(--green)">↑</span>':vs<=0.60?'<span style="color:var(--red)">↓</span>':'<span style="color:var(--t4)">→</span>';
-      const f3=v=>v!=null?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'—';
-      return `<div style="display:flex;gap:0;margin-top:3px;padding:5px 0 3px;
-        border-top:1px solid var(--bg3);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">
-        <div style="font-size:.56rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;align-self:center;margin-right:6px;opacity:.7">L14</div>
-        <div class="mult-item" title="HRs last 14 games vs season rate">
-          <span class="mult-label">HR</span>
-          <span class="mult-val" style="color:${hr14>=3?'var(--green)':hr14===0&&pa14>=30?'var(--red)':'var(--t2)'}">${hr14}${arrow}</span>
-        </div>
-        ${iso14!=null?`<div class="mult-item" title="ISO last 14 games (pure extra base power = SLG minus AVG)">
-          <span class="mult-label">ISO</span>
-          <span class="mult-val" style="color:${iso14>=.250?'var(--green)':iso14<=.100?'var(--red)':'var(--t2)'}">${f3(iso14)}</span>
-        </div>`:''}
-        ${slg14!=null?`<div class="mult-item" title="SLG last 14 games">
-          <span class="mult-label">SLG</span>
-          <span class="mult-val" style="color:${slg14>=.500?'var(--green)':slg14<=.280?'var(--red)':'var(--t2)'}">${f3(slg14)}</span>
-        </div>`:''}
-        ${avg14!=null?`<div class="mult-item" title="AVG last 14 games">
-          <span class="mult-label">AVG</span>
-          <span class="mult-val" style="color:${avg14>=.300?'var(--green)':avg14<=.160?'var(--red)':'var(--t2)'}">${f3(avg14)}</span>
-        </div>`:''}
-        <div class="mult-item" title="PA in last 14 games">
-          <span class="mult-label">PA</span>
-          <span class="mult-val" style="color:var(--t4)">${pa14}</span>
-        </div>
-      </div>`;
-    })()}
-
-
-    ${(()=>{
-      const fdO = getFDOdds(r.name);
-      if(!fdO) return `<div style="display:flex;align-items:center;justify-content:space-between;
-        margin-top:7px;padding-top:7px;border-top:1px solid var(--bg3)">
-        <span style="font-size:.62rem;color:var(--t4)">No FD odds loaded</span>
-        <span style="font-size:.60rem;color:var(--t4)">Enter line below for Kelly sizing</span>
-      </div>`;
-      const tier = getEdgeTier(r.prob, fdO);
-      const kelly = kellySize(r.prob, fdO);
-      const tierColors = {S:'#ffd700',A:'var(--green)',B:'var(--amber)',C:'var(--t4)',F:'var(--red)'};
-      const tc = tierColors[tier.tier]||'var(--t4)';
-      return `<div style="display:flex;align-items:center;gap:8px;margin-top:7px;
-        padding:7px 10px;border-radius:8px;background:var(--bg3);
-        border-left:3px solid ${tc}">
-        <div style="text-align:center;min-width:28px">
-          <div style="font-size:.55rem;color:var(--t4)">Tier</div>
-          <div style="font-size:.90rem;font-weight:900;color:${tc};line-height:1.1">${tier.tier}</div>
-        </div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:.68rem;font-weight:700;color:${tc}">${tier.label}</div>
-          <div style="display:flex;align-items:center;gap:6px;margin-top:2px;flex-wrap:wrap">
-            <span style="font-size:.62rem;color:var(--t4)">FD ${fdO>0?'+':''}${fdO}</span>
-            <span style="font-size:.65rem;font-weight:800;color:${tc}">${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge</span>
-            ${tier.ev>0?`<span style="font-size:.62rem;color:var(--green)">· +${tier.ev.toFixed(1)}% EV</span>`:''}
-          </div>
-        </div>
-        ${kelly&&kelly.units>0?`<div style="text-align:center;min-width:36px;
-          padding:4px 6px;border-radius:6px;background:${tc}22;border:1px solid ${tc}44">
-          <div style="font-size:.55rem;color:var(--t4)">Bet</div>
-          <div style="font-size:.78rem;font-weight:800;color:${tc}">${kelly.units}u</div>
-        </div>`:''}
-      </div>`;
-    })()}
+    ${(()=>{const g=r._recentGames||[];const g14=g.slice(0,14);const pa=g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);if(pa<8)return'';const hr=g14.reduce((s,x)=>s+(x.hr||0),0),ab=g14.reduce((s,x)=>s+(x.ab||0),0),tb=g14.reduce((s,x)=>s+(x.tb||0),0),h=g14.reduce((s,x)=>s+(x.h||0),0);const slg=ab>0?tb/ab:null,avg=ab>0?h/ab:null,iso=slg&&avg?slg-avg:null;const vs=(r.anchor||.035)>0?(hr/pa)/(r.anchor||.035):1;const arr=vs>=1.25?'<span style="color:var(--green)">↑</span>':vs<=0.60?'<span style="color:var(--red)">↓</span>':'<span style="color:var(--t4)">→</span>';const f=v=>v?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'—';return`<div style="display:flex;gap:4px;padding:6px 0;border-top:1px solid var(--bg3);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;align-items:center"><span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;opacity:.55;flex-shrink:0;margin-right:2px">L14</span><div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">HR</div><div style="font-size:.75rem;font-weight:800;color:${hr>=3?'var(--green)':hr===0&&pa>=30?'var(--red)':'var(--t2)'}">${hr}${arr}</div></div>${iso?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">ISO</div><div style="font-size:.75rem;font-weight:800;color:${iso>=.250?'var(--green)':iso<=.100?'var(--red)':'var(--t2)'}">${f(iso)}</div></div>`:''} ${slg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">SLG</div><div style="font-size:.75rem;font-weight:800;color:${slg>=.500?'var(--green)':slg<=.280?'var(--red)':'var(--t2)'}">${f(slg)}</div></div>`:''} ${avg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">AVG</div><div style="font-size:.75rem;font-weight:800;color:${avg>=.300?'var(--green)':avg<=.160?'var(--red)':'var(--t2)'}">${f(avg)}</div></div>`:''} <span style="font-size:.58rem;color:var(--t4);flex-shrink:0;padding:0 2px">${pa}PA</span></div>`;})()}
+    ${(()=>{const fdO=getFDOdds(r.name);if(!fdO)return'';const tier=getEdgeTier(r.prob,fdO);const kelly=kellySize(r.prob,fdO);if(!tier||tier.tier==='F')return'';const tc=tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':tier.tier==='B'?'var(--amber)':'var(--t4)';return`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:8px;background:${tc}12;border:1px solid ${tc}30;margin-top:5px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.1rem;font-weight:900;color:${tc};line-height:1">${tier.tier}</span><div><div style="font-size:.68rem;font-weight:700;color:${tc}">${tier.label}</div><div style="font-size:.60rem;color:var(--t4)">FD ${fdO>0?'+':''}${fdO} · ${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge</div></div></div>${kelly&&kelly.units>0?`<div style="text-align:center;padding:3px 8px;border-radius:6px;background:${tc}20;border:1px solid ${tc}40"><div style="font-size:.52rem;color:var(--t4)">Kelly</div><div style="font-size:.82rem;font-weight:900;color:${tc}">${kelly.units}u</div></div>`:''} <button onclick="event.stopPropagation();generateShareCard('${r.id}')" style="font-size:.60rem;padding:4px 8px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);cursor:pointer">📤</button></div>`;})()}
   </div>`;
 }
 
@@ -9193,6 +9153,52 @@ function statChip(lbl,v,lo,hi,suf,dec=1){
   const p=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
   const cls=p>=0.65?'good':p>=0.45?'warn':'bad';
   return`<div class="stat-chip ${cls}"><span>${lbl}</span><span class="val">${v.toFixed(dec)}${suf}</span></div>`;
+}
+
+function _newRenderHitterCard(r,showGame){
+  const pct=(r.prob*100).toFixed(1);
+  const [grd,gc,gCls]=probGrade(r.prob);
+  const gameTag=showGame?`<span style="font-size:.62rem;color:var(--t4)">${r.game}</span>`:'';
+  const fdOdds=getFDOdds(r.name);
+  const edgeData=fdOdds!=null?calcEdge(r.prob,fdOdds):null;
+  const edgeBadge=edgeData?(()=>{const tier=getEdgeTier(r.prob,fdOdds);if(!tier||tier.tier==='C'||tier.tier==='F')return'';const bg=tier.tier==='S'?'rgba(255,215,0,.2)':tier.tier==='A'?'rgba(34,201,94,.15)':'rgba(255,165,0,.15)';const clr=tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':'var(--amber)';return`<span style="font-size:.60rem;font-weight:800;padding:2px 6px;border-radius:4px;background:${bg};color:${clr}">${tier.tier} ${tier.kelly?.units>=0.5?tier.kelly.units+'u':''}</span>`;})():'';
+  const _zm=r._zoneMatch||calcZoneMatchup(r._batPid||r.id,r._spId,r.batHand);
+  const zoneBadge=_zm&&_zm.hotOverlap&&_zm.hotOverlap.length>=1?`<span style="font-size:.55rem;padding:1px 5px;border-radius:4px;background:${_zm.hotOverlap.length>=2?'rgba(255,215,0,.3)':'rgba(34,201,94,.2)'};color:${_zm.hotOverlap.length>=2?'#ffd700':'var(--green)'}">${_zm.hotOverlap.length>=2?'🎯 Zone Dom':'📍 Zone'}</span>`:'';
+  const angles=detectAngles(r);
+  const cardAngles=angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).slice(0,3);
+  const pulseClass=r.prob>=0.12?'pulse-gold':r.prob>=0.09?'pulse-green':'';
+  const headshotUrl=`https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/${r.id}/headshot/67/current`;
+  const trackTag=(()=>{const td=ds();const st=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');const al=st.find(x=>x.id===r.id&&x.date===td&&x.manualBet);if(al&&al.actual!==undefined)return`<span style="font-size:.58rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green)">${al.actual>0?'✅':'❌'}</span>`;if(al)return`<span style="font-size:.58rem;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.1);color:var(--amber)">📌</span>`;return'';})();
+
+  return`<div class="hitter-card grade-${gCls} ${pulseClass}" onclick="showDetail('${r.id}')">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="position:relative;flex-shrink:0">
+        <img src="${headshotUrl}" alt="${r.name}" style="width:46px;height:46px;border-radius:50%;object-fit:cover;border:2.5px solid ${gc};background:var(--bg3);display:block" onerror="this.style.display='none'">
+        ${r.lineupPos?`<div style="position:absolute;bottom:-3px;right:-3px;width:18px;height:18px;border-radius:50%;background:${r.lineupPos<=4?'var(--amber)':r.lineupPos<=6?'var(--t3)':'rgba(100,116,139,.7)'};border:2px solid var(--bg2);display:flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:900;color:#000">${r.lineupPos}</div>`:''}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:1.0rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name} ${edgeBadge} ${zoneBadge} ${trackTag}</div>
+        <div style="font-size:.63rem;color:var(--t4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <b style="color:var(--amber)">Bat ${r.lineupPos}</b>`:''}${gameTag?` · ${gameTag}`:''}${!r.lineupConfirmed?' <span style="color:var(--red)">⚠ unconfirmed</span>':''}${r.postponeRisk>=0.45?` <span style="color:#60a5fa">🌧${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
+      </div>
+      <div style="flex-shrink:0;text-align:center;min-width:56px">
+        <div style="font-size:1.75rem;font-weight:900;line-height:1;color:${gc};letter-spacing:-.02em">${pct}%</div>
+        <div style="font-size:.55rem;font-weight:700;color:${gc};opacity:.8;text-transform:uppercase;letter-spacing:.06em">${grd}</div>
+        ${fdOdds!=null?`<div style="font-size:.63rem;font-weight:700;color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'}">${fdOdds>0?'+':''}${fdOdds}</div>`:''}
+      </div>
+    </div>
+    ${cardAngles.length?`<div style="display:flex;gap:4px;margin-bottom:8px;overflow:hidden">${cardAngles.map(a=>`<span style="font-size:.63rem;font-weight:600;padding:2px 9px;border-radius:99px;background:${a.color}20;border:1px solid ${a.color}${a.tier===1?'60':'30'};color:${a.color};white-space:nowrap" title="${a.tip}">${a.icon} ${a.label}</span>`).join('')}${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length>3?`<span style="font-size:.60rem;color:var(--t4);align-self:center"> +${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length-3}</span>`:''}</div>`:''}
+    <div style="display:flex;gap:3px;margin-bottom:7px">
+      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',r.platoon.toFixed(2)+'×',r.platoon],['SP',r.pitcher.toFixed(2)+'×',r.pitcher],['Park',r.parkwx.toFixed(2)+'×',r.parkwx],['TTO',r.ttoMult!=null?r.ttoMult.toFixed(2)+'×':'—',r.ttoMult||1]].map(([lbl,val,m])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div></div>`).join('')}
+    </div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+      <span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;opacity:.55">Szn</span>
+      ${statChip('Brl%',r.barrel_pct,4,16,'%')}${statChip('Hard%',r.hard_hit_pct,32,55,'%')}${statChip('EV',r.avg_ev,87,95,' mph')}${statChip('Pull%',r.pull_air_pct,8,22,'%')}${statChip('HR/FB',r.hr_fb_pct,8,28,'%')}
+      ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)}xw</span></div>`:''}
+      <div class="stat-chip"><span>xHR</span><span class="val" style="color:${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return r.prob*e>=0.35?'var(--green)':r.prob*e>=0.20?'var(--amber)':'var(--t3)'})()}">${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return(r.prob*e).toFixed(2)})()}</span></div>
+    </div>
+    ${(()=>{const g=r._recentGames||[];const g14=g.slice(0,14);const pa=g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);if(pa<8)return'';const hr=g14.reduce((s,x)=>s+(x.hr||0),0),ab=g14.reduce((s,x)=>s+(x.ab||0),0),tb=g14.reduce((s,x)=>s+(x.tb||0),0),h=g14.reduce((s,x)=>s+(x.h||0),0);const slg=ab>0?tb/ab:null,avg=ab>0?h/ab:null,iso=slg&&avg?slg-avg:null;const vs=(r.anchor||.035)>0?(hr/pa)/(r.anchor||.035):1;const arr=vs>=1.25?'<span style="color:var(--green)">↑</span>':vs<=0.60?'<span style="color:var(--red)">↓</span>':'<span style="color:var(--t4)">→</span>';const f=v=>v?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'—';return`<div style="display:flex;gap:4px;padding:6px 0;border-top:1px solid var(--bg3);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;align-items:center"><span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;opacity:.55;flex-shrink:0;margin-right:2px">L14</span><div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">HR</div><div style="font-size:.75rem;font-weight:800;color:${hr>=3?'var(--green)':hr===0&&pa>=30?'var(--red)':'var(--t2)'}">${hr}${arr}</div></div>${iso?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">ISO</div><div style="font-size:.75rem;font-weight:800;color:${iso>=.250?'var(--green)':iso<=.100?'var(--red)':'var(--t2)'}">${f(iso)}</div></div>`:''} ${slg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">SLG</div><div style="font-size:.75rem;font-weight:800;color:${slg>=.500?'var(--green)':slg<=.280?'var(--red)':'var(--t2)'}">${f(slg)}</div></div>`:''} ${avg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">AVG</div><div style="font-size:.75rem;font-weight:800;color:${avg>=.300?'var(--green)':avg<=.160?'var(--red)':'var(--t2)'}">${f(avg)}</div></div>`:''} <span style="font-size:.58rem;color:var(--t4);flex-shrink:0;padding:0 2px">${pa}PA</span></div>`;})()}
+    ${(()=>{const fdO=getFDOdds(r.name);if(!fdO)return'';const tier=getEdgeTier(r.prob,fdO);const kelly=kellySize(r.prob,fdO);if(!tier||tier.tier==='F')return'';const tc=tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':tier.tier==='B'?'var(--amber)':'var(--t4)';return`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:8px;background:${tc}12;border:1px solid ${tc}30;margin-top:5px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.1rem;font-weight:900;color:${tc};line-height:1">${tier.tier}</span><div><div style="font-size:.68rem;font-weight:700;color:${tc}">${tier.label}</div><div style="font-size:.60rem;color:var(--t4)">FD ${fdO>0?'+':''}${fdO} · ${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge</div></div></div>${kelly&&kelly.units>0?`<div style="text-align:center;padding:3px 8px;border-radius:6px;background:${tc}20;border:1px solid ${tc}40"><div style="font-size:.52rem;color:var(--t4)">Kelly</div><div style="font-size:.82rem;font-weight:900;color:${tc}">${kelly.units}u</div></div>`:''}<button onclick="event.stopPropagation();generateShareCard('${r.id}')" style="font-size:.60rem;padding:4px 8px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);cursor:pointer">📤</button></div>`;})()}
+  </div>`;
 }
 
 function renderWeather(wx,homeTeam){
