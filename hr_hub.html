@@ -368,9 +368,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <div class="filter-pill" onclick="setSort('platoon',this)">Platoon</div>
         <div class="filter-pill" onclick="setSort('momentum',this)">L15 Hot</div>
         <div class="filter-pill" onclick="setSort('edge',this)">FD Edge</div>
-        <div id="lineup-refresh-btn" class="filter-pill"
-          onclick="var b=this;b.textContent='⏳';b.style.pointerEvents='none';refreshLineups().then(()=>{checkLineupLockAlert();b.textContent='📋 Lineups';b.style.pointerEvents='';const s=document.getElementById('lineup-status');if(s){const c=window.S?.allRows?.filter(r=>r.lineupConfirmed)?.length||0;s.textContent=c?c+' confirmed':''}})"
-          style="color:var(--amber);border-color:rgba(240,165,0,.4);white-space:nowrap;flex-shrink:0">📋 Lineups</div>
       </div>
       <div id="lineup-status" style="font-size:.60rem;color:var(--green);margin-bottom:4px;min-height:14px"></div>
       <div id="search-wrap">
@@ -11457,6 +11454,33 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 // ==================================================================
 function initApp(){
   populateABSelect();
+
+  // Inject lineup refresh button into filter row via JS
+  // This bypasses any service worker caching of static HTML
+  const filterRow = document.querySelector('.filter-row');
+  if(filterRow && !document.getElementById('lineup-refresh-btn')){
+    const btn = document.createElement('div');
+    btn.id = 'lineup-refresh-btn';
+    btn.className = 'filter-pill';
+    btn.textContent = '📋 Lineups';
+    btn.style.cssText = 'color:var(--amber);border-color:rgba(240,165,0,.4);white-space:nowrap;flex-shrink:0;cursor:pointer';
+    btn.onclick = function(){
+      const b = this;
+      b.textContent = '⏳';
+      b.style.pointerEvents = 'none';
+      refreshLineups().then(()=>{
+        checkLineupLockAlert();
+        b.textContent = '📋 Lineups';
+        b.style.pointerEvents = '';
+        const confirmed = (S.allRows||[]).filter(r=>r.lineupConfirmed).length;
+        const total = (S.allRows||[]).length;
+        const statusEl = document.getElementById('lineup-status');
+        if(statusEl && confirmed) statusEl.textContent = `✓ ${confirmed}/${total} confirmed`;
+      });
+    };
+    filterRow.appendChild(btn);
+  }
+
   loadSlate();
 }
 
