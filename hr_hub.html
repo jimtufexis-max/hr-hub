@@ -357,9 +357,13 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       <div id="date-lbl">Today</div>
       <button id="today-btn" onclick="goToday()">Today</button>
       <button onclick="shiftDate(1)">▶</button>
-      <button onclick="this.textContent='⏳';refreshLineups().then(()=>{checkLineupLockAlert();this.textContent='📋↺';})"
-        title="Re-check batting lineups"
-        style="margin-left:auto;font-size:.70rem;padding:4px 8px">📋↺</button>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:8px;margin-top:-4px">
+      <button id="lineup-refresh-btn"
+        onclick="this.textContent='⏳ checking…';this.disabled=true;refreshLineups().then(()=>{checkLineupLockAlert();this.textContent='📋 Refresh Lineups';this.disabled=false;})"
+        style="font-size:.65rem;padding:5px 12px;border-radius:8px;
+        border:1px solid rgba(240,165,0,.35);background:rgba(240,165,0,.08);
+        color:var(--amber);cursor:pointer;font-weight:600">📋 Refresh Lineups</button>
     </div>
     <div id="game-chips" class="chip-scroll"></div>
     <div id="wx-area"></div>
