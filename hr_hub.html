@@ -3506,87 +3506,53 @@ async function getBatterVsPitches(pid){
 // ==================================================================
 async function getLineup(gamePk, teamId){
   const key = `lineup_${gamePk}_${teamId}`;
-  // Only use cache if it has actual lineup data (non-empty result)
   if(_playerCache[key] && Object.keys(_playerCache[key]).length > 0) return _playerCache[key];
-
-  const extract = (battingOrder) => {
-    const result = {};
-    (battingOrder||[]).forEach((id,i) => { result[String(id)] = i+1; });
-    return result;
-  };
-
   try{
-    // 1. Try schedule with lineups hydration — most reliable pre-game source
+    // Single call — schedule with lineups hydration covers pre-game and in-progress
     const sched = await fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`).catch(()=>null);
     const game = sched?.dates?.[0]?.games?.[0];
-    if(game?.lineups){
-      const isAway = game.teams?.away?.team?.id === teamId;
-      const order = isAway
-        ? game.lineups.awayPlayers?.map(p=>p.id)
-        : game.lineups.homePlayers?.map(p=>p.id);
-      if(order?.length >= 8){
-        const result = extract(order);
+    const isAway = game?.teams?.away?.team?.id === teamId;
+    const players = isAway ? game?.lineups?.awayPlayers : game?.lineups?.homePlayers;
+    const order = (players||[]).map(p=>p.id);
+    if(order.length >= 8){
+      const result = {};
+      order.forEach((id,i) => { result[String(id)] = i+1; });
+      _playerCache[key] = result;
+      return result;
+    }
+    // Game started — try boxscore
+    if(game?.status?.abstractGameState === 'Live' || game?.status?.abstractGameState === 'Final'){
+      const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
+      const side = box?.teams?.away?.team?.id===teamId ? 'away' : 'home';
+      const batters = box?.teams?.[side]?.battingOrder||[];
+      if(batters.length >= 8){
+        const result = {};
+        batters.forEach((id,i) => { result[String(id)] = i+1; });
         _playerCache[key] = result;
         return result;
       }
     }
-
-    // 2. Try boxscore — works once game has started
-    const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
-    if(box?.teams){
-      const side = box.teams.away?.team?.id===teamId ? 'away' : 'home';
-      const order = box.teams[side]?.battingOrder||[];
-      if(order.length >= 8){
-        const result = extract(order);
-        _playerCache[key] = result;
-        return result;
-      }
-    }
-
-    // Nothing found — return empty but don't cache (try again next load)
     return {};
   }catch(e){ return {}; }
 }
 
 async function checkLineupConfirmed(gamePk){
   const key = `lineup_confirmed_${gamePk}`;
-  // Never cache false — lineups can be posted any time, must re-check
   if(_playerCache[key] === true) return true;
-
   try{
-    // 1. Check schedule/lineups endpoint
+    // Check if either team's lineup was already fetched successfully
+    const awayKey = Object.keys(_playerCache).find(k=>k===`lineup_${gamePk}_${Object.keys(_playerCache).find(k2=>k2.startsWith(`lineup_${gamePk}_`))||''}`);
+    // Just check the schedule once — getLineup already fetched this
     const sched = await fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`).catch(()=>null);
     const game = sched?.dates?.[0]?.games?.[0];
-    if(game?.lineups){
-      const awayPlayers = game.lineups.awayPlayers||[];
-      const homePlayers = game.lineups.homePlayers||[];
-      if(awayPlayers.length>=8 && homePlayers.length>=8){
-        _playerCache[key] = true;
-        return true;
-      }
-    }
-
-    // 2. Also check game status — if game is started/final, lineups are confirmed
-    const status = game?.status?.abstractGameState;
-    if(status === 'Live' || status === 'Final'){
-      _playerCache[key] = true;
-      return true;
-    }
-
-    // 3. Boxscore fallback
-    const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
-    const awayBox = box?.teams?.away?.battingOrder||[];
-    const homeBox = box?.teams?.home?.battingOrder||[];
-    if(awayBox.length>=8 && homeBox.length>=8){
-      _playerCache[key] = true;
-      return true;
-    }
-
-    // Not confirmed yet — don't cache false
+    const awayLen = (game?.lineups?.awayPlayers||[]).length;
+    const homeLen = (game?.lineups?.homePlayers||[]).length;
+    if(awayLen>=8 && homeLen>=8){ _playerCache[key]=true; return true; }
+    // Also confirmed if game is Live or Final
+    const state = game?.status?.abstractGameState;
+    if(state==='Live'||state==='Final'){ _playerCache[key]=true; return true; }
     return false;
-  }catch(e){
-    return false;
-  }
+  }catch(e){ return false; }
 }
 
 // ==================================================================
@@ -8184,14 +8150,42 @@ async function loadGame(g){
   ]);
   lap('after pitcher hands');
 
-  // CRITICAL PATH only — pitcher logs, arsenal, lineups, umpire
-  const [awPitLog,hmPitLog,awArsenal,hmArsenal,awLineup,hmLineup,umpData,lineupConfirmed] = await Promise.all([
+  // CRITICAL PATH — single schedule fetch gets BOTH lineups AND confirmation status
+  const schedLineups = await fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups`).catch(()=>null);
+  const schedGame = schedLineups?.dates?.[0]?.games?.[0];
+
+  const [awPitLog,hmPitLog,awArsenal,hmArsenal,umpData] = await Promise.all([
     getPitcherGameLog(g.awaySpId),  getPitcherGameLog(g.homeSpId),
     getPitcherArsenal(g.awaySpId),  getPitcherArsenal(g.homeSpId),
-    getLineup(g.pk, g.awayId||0),  getLineup(g.pk, g.homeId||0),
     getUmpire(g.pk),
-    checkLineupConfirmed(g.pk),
   ]);
+
+  // Extract lineups from schedule response (already fetched above)
+  const extractLineup = (players) => {
+    const result = {};
+    (players||[]).forEach((p,i) => { result[String(p.id)] = i+1; });
+    return result;
+  };
+  let awLineup = extractLineup(schedGame?.lineups?.awayPlayers);
+  let hmLineup = extractLineup(schedGame?.lineups?.homePlayers);
+  const gameState = schedGame?.status?.abstractGameState;
+
+  // If game started and lineups empty, get from boxscore
+  if((gameState==='Live'||gameState==='Final') && Object.keys(awLineup).length < 8){
+    const box = await fetchJSON(`${MLB}/game/${g.pk}/boxscore`).catch(()=>null);
+    if(box?.teams){
+      awLineup = extractLineup(box.teams.away?.battingOrder?.map(id=>({id})));
+      hmLineup = extractLineup(box.teams.home?.battingOrder?.map(id=>({id})));
+    }
+  }
+
+  const lineupConfirmed = Object.keys(awLineup).length>=8 && Object.keys(hmLineup).length>=8
+    || gameState==='Live' || gameState==='Final';
+
+  // Cache lineup results
+  _playerCache[`lineup_${g.pk}_${g.awayId}`] = awLineup;
+  _playerCache[`lineup_${g.pk}_${g.homeId}`] = hmLineup;
+  if(lineupConfirmed) _playerCache[`lineup_confirmed_${g.pk}`] = true;
   lap('after per-game fetches');
 
   // SECONDARY — fire but don't await (B/C-grade signals, enrich later)
@@ -8256,8 +8250,8 @@ async function loadGame(g){
       _arsenalWeaknesses: [],
     };
 
-    // Batch of 6 — MLB API rate limits ~10 req/sec, 5 calls × 6 batters = 30 concurrent
-    const BATCH = 6;
+    // Batch of 10 — fetch all batter data in parallel
+    const BATCH = 10;
     const recentGamesMap = {};
     const platoonMap = {};
     const homeAwayMap = {};
@@ -8267,15 +8261,13 @@ async function loadGame(g){
     status(`Loading ${hitters.length} ${team} batters…`);
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk = hitters.slice(i, i+BATCH);
-      const [recResults, platResults, statResults, haResults, priorResults] = await Promise.all([
-        Promise.allSettled(chunk.map(h=>getBatterRecentGames(String(h.id)))),
+      const [platResults, statResults, haResults, priorResults] = await Promise.all([
         Promise.allSettled(chunk.map(h=>getPlayerPlatoonSplits(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPlayerStats(String(h.id), SEASON))),
         Promise.allSettled(chunk.map(h=>getHomAwaySplits(String(h.id)))),
         Promise.allSettled(chunk.map(h=>getPriorSeasonRate(String(h.id)))),
       ]);
       chunk.forEach((h,j)=>{
-        if(recResults[j].status==='fulfilled')   recentGamesMap[String(h.id)] = recResults[j].value;
         if(platResults[j].status==='fulfilled')  platoonMap[String(h.id)]     = platResults[j].value;
         if(haResults[j].status==='fulfilled')    homeAwayMap[String(h.id)]    = haResults[j].value;
         if(priorResults[j].status==='fulfilled') priorRateMap[String(h.id)]   = priorResults[j].value;
