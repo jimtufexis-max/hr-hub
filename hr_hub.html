@@ -8605,7 +8605,8 @@ async function loadGame(g){
         if(row&&recent?.length) row._recentGames=recent;
       }))
     ).then(()=>{
-      if(S.allRows.length) renderSlate();
+      // Only re-render if this game is still selected
+      if(S.selPks.has(pk) && S.allRows.length) renderSlate();
     }).catch(()=>{});
   }
   console.log(`[loadGame] DONE ${g.away}@${g.home}`);
