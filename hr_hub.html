@@ -2790,8 +2790,20 @@ function fireSecondaryMaps(){
       ensureFGPitcherMap(),
       ensurePitcherWhiffMap(),
       ensurePlateDiscMap(),
+      ensureRollingMap(),
     ]).then(()=>{
-      console.log('[secondary] FG/whiff/disc maps ready — re-enriching pitcher stats');
+      console.log('[secondary] FG/whiff/disc/rolling maps ready — re-enriching stats');
+
+      // Enrich rows with L30 rolling Statcast data
+      for(const r of S.allRows||[]){
+        const pid = String(r.id);
+        const roll = (_rollingMap||{})[pid];
+        if(roll){
+          r._rollBrl = roll.brl;
+          r._rollEV  = roll.ev;
+          r._rollXw  = roll.xwoba;
+        }
+      }
 
       // Re-enrich pitcher stats on every row now that FG/whiff maps are loaded
       let enriched = 0;
@@ -8457,8 +8469,15 @@ async function loadGame(g){
     console.log(`[loadGame] ${key}: ${rows.length} rows computed`);
     rows.sort((a,b)=>b.prob-a.prob);
     S.cache[key] = rows;
-    // Auto-queue all players for result tracking
     queueForAutoTrack(rows);
+
+    // Fire recent games in background — enriches L14 form row after initial render
+    Promise.allSettled(
+      hitters.map(h => getBatterRecentGames(String(h.id)).then(recent=>{
+        const row = rows.find(r=>String(r.id)===String(h.id));
+        if(row && recent?.length) row._recentGames = recent;
+      }))
+    ).then(()=>{ if(S.allRows.length) renderSlate(); }).catch(()=>{});
   }
   console.log(`[loadGame] DONE ${g.away}@${g.home}`);
 
@@ -8919,10 +8938,54 @@ function renderHitterCard(r,showGame){
       <div class="mult-item"><span class="mult-label">Platoon</span><span class="mult-val ${mCls(r.platoon)}">${r.platoon.toFixed(2)}x</span></div>
       <div class="mult-item"><span class="mult-label">SP</span><span class="mult-val ${mCls(r.pitcher)}">${r.pitcher.toFixed(2)}x</span></div>
       <div class="mult-item"><span class="mult-label">Park/Wx</span><span class="mult-val ${mCls(r.parkwx)}">${r.parkwx.toFixed(2)}x</span></div>
-      <div class="mult-item" title="Times Through Order: how many times lineup has faced this pitcher"><span class="mult-label">TTO</span><span class="mult-val ${r.ttoMult>=1.15?'up':r.ttoMult<=0.90?'dn':'flat'}">${r.ttoMult!=null?r.ttoMult.toFixed(2)+'x':'—'}</span></div>
+      <div class="mult-item" title="Times Through Order"><span class="mult-label">TTO</span><span class="mult-val ${r.ttoMult>=1.15?'up':r.ttoMult<=0.90?'dn':'flat'}">${r.ttoMult!=null?r.ttoMult.toFixed(2)+'x':'—'}</span></div>
     </div>
+    ${(()=>{
+      // Recent form row — L30 rolling Statcast + L14 game log HRs
+      const g14   = (r._recentGames||[]).slice(0,14);
+      const pa14  = g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);
+      const hr14  = g14.reduce((s,x)=>s+(x.hr||0),0);
+      const hasRoll = r._rollBrl!=null || r._rollEV!=null;
+      const hasGame = pa14>=10;
+      if(!hasRoll && !hasGame) return '';
+
+      const trend = (recent, season, higher=true) => {
+        if(recent==null||season==null) return '';
+        const diff = recent - season;
+        const pct  = season > 0 ? diff/season : 0;
+        if(Math.abs(pct) < 0.08) return '<span style="color:var(--t4)">→</span>';
+        return pct > 0
+          ? `<span style="color:var(--green)">↑</span>`
+          : `<span style="color:var(--red)">↓</span>`;
+      };
+
+      const fmtV = (v, dec, suffix='') => v!=null ? v.toFixed(dec)+suffix : '—';
+
+      return `<div style="display:flex;gap:0;margin-top:3px;padding:5px 0 3px;
+        border-top:1px solid var(--bg3);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">
+        <div style="font-size:.56rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;
+          flex-shrink:0;align-self:center;margin-right:6px;opacity:.7">L30</div>
+        ${r._rollBrl!=null?`<div class="mult-item" title="Barrel% last 30 days vs season ${r.barrel_pct!=null?r.barrel_pct.toFixed(1)+'%':''}">
+          <span class="mult-label">Brl%</span>
+          <span class="mult-val" style="color:${r._rollBrl>=10?'var(--green)':r._rollBrl<=3?'var(--red)':'var(--t2)'}">${fmtV(r._rollBrl,1,'%')}${trend(r._rollBrl,r.barrel_pct)}</span>
+        </div>`:''}
+        ${r._rollEV!=null?`<div class="mult-item" title="Exit velocity last 30 days vs season ${r.avg_ev!=null?r.avg_ev.toFixed(1)+' mph':''}">
+          <span class="mult-label">EV</span>
+          <span class="mult-val" style="color:${r._rollEV>=93?'var(--green)':r._rollEV<=87?'var(--red)':'var(--t2)'}">${fmtV(r._rollEV,1)}${trend(r._rollEV,r.avg_ev)}</span>
+        </div>`:''}
+        ${r._rollXw!=null?`<div class="mult-item" title="xwOBA last 30 days">
+          <span class="mult-label">xwOBA</span>
+          <span class="mult-val" style="color:${r._rollXw>=.400?'var(--green)':r._rollXw<=.280?'var(--red)':'var(--t2)'}">${'.'+Math.round(r._rollXw*1000).toString().padStart(3,'0').slice(-3)}</span>
+        </div>`:''}
+        ${hasGame?`<div class="mult-item" title="HRs in last 14 games">
+          <span class="mult-label">L14 HR</span>
+          <span class="mult-val" style="color:${hr14>=3?'var(--green)':hr14===0&&pa14>=30?'var(--red)':'var(--t2)'}">${hr14}/${pa14>0?pa14+'PA':'—'}</span>
+        </div>`:''}
+      </div>`;
+    })()}
     ${angleRow}
     <div class="hc-row2" style="margin-top:6px">
+      <div style="font-size:.55rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;align-self:center;margin-right:4px;opacity:.7;flex-shrink:0">Szn</div>
       ${statChip('Barrel%',r.barrel_pct,4,16,'%')}
       ${statChip('Hard%',r.hard_hit_pct,32,55,'%')}
       ${statChip('EV',r.avg_ev,87,95,' mph')}
@@ -8930,7 +8993,7 @@ function renderHitterCard(r,showGame){
       ${statChip('HR/FB%',r.hr_fb_pct,8,28,'%')}
       ${r.swingSpeed!=null?statChip('Bat Spd',r.swingSpeed,65,78,' mph'):''}
       ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)} xwOBA</span></div>`:''}
-      ${(()=>{ const pos=r.lineupPos; const expPA=pos?Math.max(3.5,Math.min(4.8,4.8-(pos-1)*0.15)):4.1; const xhr=r.prob*expPA; const clr=xhr>=0.35?'var(--green)':xhr>=0.20?'var(--amber)':'var(--t3)'; return`<div class="stat-chip" title="Expected HRs today (per-PA prob × expected plate appearances)"><span>xHR</span><span class="val" style="color:${clr}">${xhr.toFixed(2)}</span></div>`; })()}
+      ${(()=>{ const pos=r.lineupPos; const expPA=pos?Math.max(3.5,Math.min(4.8,4.8-(pos-1)*0.15)):4.1; const xhr=r.prob*expPA; const clr=xhr>=0.35?'var(--green)':xhr>=0.20?'var(--amber)':'var(--t3)'; return`<div class="stat-chip" title="Expected HRs today"><span>xHR</span><span class="val" style="color:${clr}">${xhr.toFixed(2)}</span></div>`; })()}
     </div>
 
 
