@@ -1597,15 +1597,16 @@ var LG_HR9     = 1.35;    // league avg HR/9 innings 2024-25
 var LG_HR_FB   = 0.132;   // league avg HR/FB rate
 var LG_FB_PCT  = 0.365;   // league avg FB rate
 
-// Empirically derived coefficients from Statcast data (2019-2024 seasons)
-// These predict per-PA HR rate better than raw HR/PA after 30+ games
+// Calibrated coefficients — target: Judge (14% barrel) → ~7%/PA anchor,
+// MLB avg (6% barrel) → ~3.5%/PA anchor, before signal adjustments
+// The anchor is Statcast-based true talent, signals then adjust in log-odds space
 var LW = {
-  barrel:    0.0420, // 42% of barrels become HRs → strong HR predictor
-  pull_air:  0.0175, // 17.5% of pull airballs become HRs
-  hard_hit:  0.0028, // hard hit% marginal contribution above barrel
-  sweet_spot:0.0015, // sweet spot% small incremental signal
-  gb_penalty:-0.0018, // ground balls suppress HRs
-  intercept: -0.0005, // baseline correction
+  barrel:    0.042,  // primary: barrel% is strongest HR predictor
+  pull_air:  0.018,  // pull airballs add independent power signal
+  hard_hit:  0.003,  // marginal above barrel
+  sweet_spot:0.001,  // very small incremental signal
+  gb_penalty:-0.002, // GB suppression
+  intercept:  0.010, // calibrated baseline: typical bet → ~10%/game
 };
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
@@ -1643,10 +1644,19 @@ function calcAnchor(stats){
       + LW.hard_hit  * hh
       + LW.sweet_spot* ss
       + LW.gb_penalty* gb;
-    // Barrel × pull_air interaction — elite power hitters get synergy bonus
-    // A 15% barrel rate AND 22% pull-air rate is more than additive
-    const interaction = b * pa * 0.80;
+
+    // Barrel × pull_air interaction — elite power synergy
+    // Judge (14% barrel, 23% pull): 0.14×0.23×0.25 = 0.008 (8% bump, not 2.6%)
+    const interaction = b * pa * 0.25;
     statcastEst += interaction;
+
+    // ISO as direct signal — captures extra-base power independently
+    // ISO >.250 signals true HR power; use as small trim
+    if(stats.iso!=null){
+      const isoAdj = clamp((stats.iso - 0.160) * 0.015, -0.003, 0.010);
+      statcastEst += isoAdj;
+    }
+
     statcastEst = clamp(statcastEst, 0.005, 0.115);
   }
 
@@ -1801,7 +1811,7 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const lineupPosForPA = batterStats.lineupPos;
   const overallRate = batterStats.szPA>=50?batterStats.szHR/batterStats.szPA:anchor;
 
-  // ── PLATOON (weight: 0.45) ────────────────────────────────────────
+  // ── PLATOON (weight: 0.35, reduced from 0.45 — platoon effect is real but smaller) ──
   const arsenalPlatMod = calcArsenalPlatoonMod(
     pitcherStats?.arsenal, batterStats.batVsPitch,
     batterStats.batHand, pitcherStats?.pitHand||'R'
@@ -1809,28 +1819,42 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platRateGated = (batterStats.platSample>=50) ? batterStats.platRate : null;
   const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
     platRateGated, overallRate, arsenalPlatMod);
-  lo += logOddsAdj(platoon) * 0.45;
+  lo += logOddsAdj(platoon) * 0.35;
 
-  // ── PITCHER (weight: 0.50, higher because BvP now integrated) ────
+  // ── PITCHER (weight: 0.55 — largest single signal) ───────────────
   const pitcher = calcPitcherMult(pitcherStats);
-  lo += logOddsAdj(pitcher) * 0.50;
+  lo += logOddsAdj(pitcher) * 0.55;
 
-  // ── PLATOON × PITCHER INTERACTION ─────────────────────────────────
-  // When BOTH platoon and pitcher are favorable, the combination is
-  // more than additive — capture this correlation explicitly
-  // e.g. LHB vs RHP (platoon 1.18) AND soft pitcher (1.15) → extra +5%
+  // ── TIMES THROUGH ORDER (TTO) PENALTY ────────────────────────────
+  // One of the strongest predictors — batters learn pitchers each time through
+  // TTO1 (1st time): pitcher advantage → suppress HR
+  // TTO2 (2nd time): neutral
+  // TTO3+ (3rd time): batter advantage → boost HR ~35%
+  // Estimated from lineup position + projected pitcher IP
+  const expIPForTTO = calcExpectedInnings(pitcherStats);
+  const lineupPosNum = lineupPosForPA || 5;
+  // Approximate which TTO this batter sees based on lineup pos + pitcher IP
+  // Leadoff sees TTO3 when SP goes 7+ IP; cleanup sees TTO3 around 8+ IP
+  const pasThroughOrder = expIPForTTO * (27/9); // ~3 PA per inning, 9 batters
+  const ttoNum = pasThroughOrder > 0
+    ? Math.min(3, Math.ceil((lineupPosNum + pasThroughOrder/3) / 9))
+    : 2;
+  // TTO effect on HR: TTO1 = -15%, TTO2 = 0%, TTO3 = +20%
+  const ttoMult = ttoNum<=1 ? 0.85 : ttoNum>=3 ? 1.20 : 1.0;
+  if(ttoMult !== 1.0) lo += logOddsAdj(ttoMult) * 0.40;
+
+  // ── PLATOON × PITCHER INTERACTION ────────────────────────────────
   if(platoon > 1.05 && pitcher > 1.05){
-    const interactionBonus = (platoon - 1.0) * (pitcher - 1.0) * 1.5;
-    lo += clamp(interactionBonus, 0, 0.12);
+    const interactionBonus = (platoon - 1.0) * (pitcher - 1.0) * 1.2;
+    lo += clamp(interactionBonus, 0, 0.10);
   } else if(platoon < 0.95 && pitcher < 0.95){
-    // Both unfavorable — double penalty
-    const interactionPenalty = (1.0 - platoon) * (1.0 - pitcher) * 1.5;
-    lo -= clamp(interactionPenalty, 0, 0.15);
+    const interactionPenalty = (1.0 - platoon) * (1.0 - pitcher) * 1.2;
+    lo -= clamp(interactionPenalty, 0, 0.12);
   }
 
-  // ── PARK × WEATHER (weight: 0.45) ────────────────────────────────
+  // ── PARK × WEATHER (weight: 0.35, reduced — park is real but overstated) ──
   const parkwx = calcParkWxMult(pf, wx||{}, batterStats.batHand);
-  lo += logOddsAdj(parkwx) * 0.45;
+  lo += logOddsAdj(parkwx) * 0.35;
 
   // ── MOMENTUM REMOVED ──────────────────────────────────────────────
   // Studies show L15 HR rate explains <3% of next-game HR variance
@@ -1888,9 +1912,9 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     lo += logOddsAdj(blendedBullpen) * 0.12;
   }
 
-  // Cap per-PA at 11% — realistic elite ceiling (1 HR per ~9 PA)
-  const prob=clamp(sigmoid(lo),0.005,0.11);
-  return{prob,anchor,platoon,pitcher,parkwx,momentum:1.0,
+  // Cap per-PA at 10% — ~1 HR per 10 PA is a realistic elite ceiling
+  const prob=clamp(sigmoid(lo),0.005,0.10);
+  return{prob,anchor,platoon,pitcher,parkwx,momentum:1.0,ttoMult,
          homeAwayMult,paMultiplier,umpMult,hvhMult};
 }
 
@@ -3326,7 +3350,10 @@ async function getBatterVsPitches(pid){
         const loc5 = Array.from({length:5},()=>Array(5).fill(0)); // pitch frequency
         const zone3xwoba = Array.from({length:3},()=>Array(3).fill(0)); // sum xwOBA
         const zone3xwobaCount = Array.from({length:3},()=>Array(3).fill(0));
-        const zone3hr = Array.from({length:3},()=>Array(3).fill(0)); // HR count
+        const zone3hr   = Array.from({length:3},()=>Array(3).fill(0)); // HR count
+        const zone3ab   = Array.from({length:3},()=>Array(3).fill(0)); // AB count
+        const zone3tb   = Array.from({length:3},()=>Array(3).fill(0)); // total bases
+        const zone3h    = Array.from({length:3},()=>Array(3).fill(0)); // hits
 
         for(const p of pitches){
           const px = parseFloat(p.plate_x);
@@ -3349,6 +3376,16 @@ async function getBatterVsPitches(pid){
             zone3xwoba[row3][col3] += xw;
             zone3xwobaCount[row3][col3]++;
             if((p.events||'').toLowerCase()==='home_run') zone3hr[row3][col3]++;
+            // Track AB-level stats per zone
+            const evt = (p.events||'').toLowerCase();
+            const isAB = ['single','double','triple','home_run','field_out','strikeout',
+              'grounded_into_double_play','force_out','field_error','strikeout_double_play','double_play'].includes(evt);
+            if(isAB){
+              zone3ab[row3][col3]++;
+              const tbVal = evt==='single'?1:evt==='double'?2:evt==='triple'?3:evt==='home_run'?4:0;
+              zone3tb[row3][col3] += tbVal;
+              if(tbVal>0) zone3h[row3][col3]++;
+            }
           }
         }
 
@@ -3361,6 +3398,14 @@ async function getBatterVsPitches(pid){
           row.map((sum,ci)=>zone3xwobaCount[ri][ci]>0
             ? Math.round(sum/zone3xwobaCount[ri][ci]*1000)/1000 : 0)
         );
+
+        // SLG, AVG, ISO per zone
+        const zone3slg = zone3ab.map((row,ri)=>
+          row.map((ab,ci)=>ab>0?Math.round(zone3tb[ri][ci]/ab*1000)/1000:0));
+        const zone3avg = zone3ab.map((row,ri)=>
+          row.map((ab,ci)=>ab>0?Math.round(zone3h[ri][ci]/ab*1000)/1000:0));
+        const zone3iso = zone3slg.map((row,ri)=>
+          row.map((slg,ci)=>Math.max(0,Math.round((slg-zone3avg[ri][ci])*1000)/1000)));
 
         const gb = pitches.filter(p=>String(p.bb_type||'').toLowerCase()==='ground_ball').length;
         const fb = pitches.filter(p=>String(p.bb_type||'').toLowerCase()==='fly_ball').length;
@@ -3390,6 +3435,7 @@ async function getBatterVsPitches(pid){
           hardPct:Math.round(hard/Math.max(pitches.filter(p=>parseFloat(p.launch_speed)>0).length,1)*100),
           hrFbPct:Math.round(hrs/Math.max(fb+ld+pu,1)*100),
           loc5pct, zone3xwoba:zone3xwobaAvg, zone3hr,
+          zone3slg, zone3avg, zone3iso, zone3ab,
           spray: sprayPts,
         };
       }
@@ -9144,8 +9190,72 @@ async function togglePitchDrill(drillId, spId, batId, pt){
     : null;
   const totalHR3 = zone3hr ? zone3hr.flat().reduce((a,b)=>a+b,0) : 0;
 
-  const PITCH_NAMES_MAP = {FF:'4-Seam FB',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curveball',CH:'Changeup',FS:'Splitter',KC:'Knuckle-Curve'};
-  const ptName = PITCH_NAMES_MAP[pt]||pt;
+  const zone3slg = bvpPt?.zone3slg;
+  const zone3iso = bvpPt?.zone3iso;
+  const zone3avg = bvpPt?.zone3avg;
+  const zone3ab  = bvpPt?.zone3ab;
+
+  // Color functions for each metric
+  const slgColor = v => {
+    if(v>=1.000) return '#92400e';
+    if(v>=0.700) return '#166534';
+    if(v>=0.400) return '#14532d';
+    if(v>=0.200) return '#1a2b1a';
+    if(v>0) return '#111d11';
+    return '#0d1117';
+  };
+  const isoColor = v => {
+    if(v>=0.400) return '#92400e';
+    if(v>=0.250) return '#166534';
+    if(v>=0.150) return '#14532d';
+    if(v>=0.050) return '#1a2b1a';
+    if(v>0) return '#111d11';
+    return '#0d1117';
+  };
+  const avgColor = v => {
+    if(v>=0.400) return '#92400e';
+    if(v>=0.300) return '#166534';
+    if(v>=0.200) return '#14532d';
+    if(v>0) return '#1a2b1a';
+    return '#0d1117';
+  };
+
+  const fmtZone = (v, decimals=3) => v>0
+    ? '.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3) : '.000';
+
+  // Compute averages for each metric
+  const zoneAvg = data => {
+    if(!data) return null;
+    const flat=data.flat().filter(v=>v>0);
+    return flat.length ? fmtZone(flat.reduce((a,b)=>a+b)/flat.length) : null;
+  };
+
+  const metrics = [
+    {key:'xwoba', label:'xwOBA', data:zone3xw,  color:xwobaColor, avg:zoneAvg(zone3xw)},
+    {key:'slg',   label:'SLG',   data:zone3slg, color:slgColor,   avg:zoneAvg(zone3slg)},
+    {key:'iso',   label:'ISO',   data:zone3iso, color:isoColor,   avg:zoneAvg(zone3iso)},
+    {key:'avg',   label:'AVG',   data:zone3avg, color:avgColor,   avg:zoneAvg(zone3avg)},
+  ].filter(m=>m.data);
+
+  const metricSelId = `zone-metric-${batId}-${spId}-${pt}`.replace(/[^a-z0-9]/gi,'-');
+  const zoneGridId  = `zone-grid-${batId}-${spId}-${pt}`.replace(/[^a-z0-9]/gi,'-');
+
+  // Function stored on window to allow onclick to work
+  window[`zoneSelect_${metricSelId}`] = function(key){
+    const m = metrics.find(x=>x.key===key);
+    if(!m) return;
+    // Update button styles
+    metrics.forEach(x=>{
+      const btn=document.getElementById(`zm-btn-${metricSelId}-${x.key}`);
+      if(btn) btn.style.cssText=`padding:3px 8px;border-radius:5px;border:none;cursor:pointer;
+        font-size:.62rem;font-weight:700;
+        background:${x.key===key?'var(--amber)':'var(--bg3)'};
+        color:${x.key===key?'#000':'var(--t4)'}`;
+    });
+    // Re-render the grid
+    const el=document.getElementById(zoneGridId);
+    if(el) el.innerHTML=grid3WithOverlap(m.data, m.label, fmtZone, m.color, m.avg, overlapMask);
+  };
 
   content.innerHTML = `
     <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:10px">
@@ -9169,17 +9279,29 @@ async function togglePitchDrill(drillId, spId, batId, pt){
       </div>
     </div>` : `<div style="font-size:.65rem;color:var(--t4);margin-bottom:10px">Pitcher location: loading…</div>`}
 
-    ${zone3xw||zone3hr ? `
+    ${metrics.length ? `
     <div>
-      <div style="font-size:.62rem;font-weight:700;color:var(--t4);
-        text-transform:uppercase;margin-bottom:8px;letter-spacing:.04em">
-        ${bvpPt.pa?bvpPt.pa+'PA — ':'' }Batter vs ${ptName} — All Zones
-        <span style="color:var(--amber);font-size:.55rem"> ★ gold border = best overlap</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:.62rem;font-weight:700;color:var(--t4);
+          text-transform:uppercase;letter-spacing:.04em">
+          ${bvpPt.pa?bvpPt.pa+'PA — ':'' }Batter vs ${ptName}
+          <span style="color:var(--amber);font-size:.55rem"> ★ gold = best overlap</span>
+        </div>
+        <div style="display:flex;gap:4px">
+          ${metrics.map(m=>`
+            <button id="zm-btn-${metricSelId}-${m.key}"
+              onclick="window['zoneSelect_${metricSelId}']('${m.key}')"
+              style="padding:3px 8px;border-radius:5px;border:none;cursor:pointer;
+              font-size:.62rem;font-weight:700;
+              background:${m.key==='xwoba'?'var(--amber)':'var(--bg3)'};
+              color:${m.key==='xwoba'?'#000':'var(--t4)'}">${m.label}</button>
+          `).join('')}
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        ${grid3WithOverlap(zone3xw,'xwOBA*',
-          v=>v>=0.050?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'.000',
-          xwobaColor, avgXw, overlapMask)}
+        <div id="${zoneGridId}">
+          ${grid3WithOverlap(metrics[0].data, metrics[0].label, fmtZone, metrics[0].color, metrics[0].avg, overlapMask)}
+        </div>
         ${grid3(zone3hr,'HR',
           v=>v>0?String(Math.round(v)):'0',
           hrZoneColor, totalHR3?totalHR3+' total':null)}
