@@ -4023,26 +4023,22 @@ async function ensureRollingMap(){
 async function fetchTeamRecentStatcast(pids){
   if(!pids||!pids.length) return {};
   const key = `team_recent_${pids.slice().sort().join('_')}`;
-  const cached = _playerCache[key];
-  // Clear bad cache entries where barrel shows 0 for hitters (bad old calculation)
-  if(cached && Object.values(cached).some(v=>v.barrel_pct===0 && v.hard_hit_pct>20)){
-    delete _playerCache[key];
-  }
   if(_playerCache[key]) return _playerCache[key];
   try{
     const endDate   = ds();
     const startDate = ds(new Date(Date.now() - 30*864e5));
 
-    // Use the pre-aggregated exit velocity leaderboard with date range
-    // This gives brl_percent, ev95percent, avg_hit_speed — same fields as season leaderboard
+    // Use exact same URL as season leaderboard + date range params
     const url = `https://baseballsavant.mlb.com/leaderboard/statcast`
-      + `?type=batter&year=${SEASON}&position=&team=&min=10`
-      + `&date_range=custom&start_dt=${startDate}&end_dt=${endDate}`
-      + `&csv=true`;
+      + `?type=batter&year=${SEASON}&position=&team=&min=1`
+      + `&date_range=custom&start_dt=${startDate}&end_dt=${endDate}&csv=true`;
 
-    const r = await fetch(PROXY + encodeURIComponent(url));
-    if(!r.ok) throw new Error(`recent sc ${r.status}`);
+    const ctrl = new AbortController();
+    setTimeout(()=>ctrl.abort(), 15000);
+    const r = await fetch(PROXY + encodeURIComponent(url), {signal:ctrl.signal});
+    if(!r.ok) throw new Error(`L30 sc ${r.status}`);
     const rows = parseCSVText(await r.text());
+    console.log('[L30 Statcast] rows:', rows.length, 'sample cols:', Object.keys(rows[0]||{}).slice(0,8));
 
     const pidSet = new Set(pids.map(String));
     const result = {};
@@ -4051,22 +4047,39 @@ async function fetchTeamRecentStatcast(pids){
       const pid = String(row.player_id||row.batter||'').replace(/\.0$/,'');
       if(!pid || !pidSet.has(pid)) continue;
 
-      const brl = parseFloat(row.brl_percent ?? row.barrel_batted_rate ?? '');
-      const hh  = parseFloat(row.ev95percent ?? '');
-      const ev  = parseFloat(row.avg_hit_speed ?? row.avg_exit_velocity ?? '');
+      // brl_percent comes as e.g. "8.3" (already a percentage)
+      const brl = parseF(row.brl_percent ?? row.barrel_batted_rate ?? row.brl_pa);
+      const hh  = parseF(row.ev95percent ?? row.hard_hit_percent);
+      const ev  = parseF(row.avg_hit_speed ?? row.avg_exit_velocity ?? row.avg_launch_speed);
 
-      if(isNaN(brl) && isNaN(hh) && isNaN(ev)) continue;
+      if(brl==null && hh==null && ev==null) continue;
+
+      // Savant sometimes returns barrel as decimal (0.083) instead of percent (8.3)
+      // Detect by checking if all non-null barrel values are < 1.0
       result[pid] = {
-        barrel_pct:   isNaN(brl) ? null : Math.round(brl*10)/10,
-        hard_hit_pct: isNaN(hh)  ? null : Math.round(hh*10)/10,
-        avg_ev:       isNaN(ev)  ? null : Math.round(ev*10)/10,
+        barrel_pct:   brl,
+        hard_hit_pct: hh,
+        avg_ev:       ev,
+        _raw: true
       };
     }
 
+    // Fix decimal vs percent: if median barrel < 1.0, values are in decimal form
+    const brlVals = Object.values(result).map(v=>v.barrel_pct).filter(v=>v!=null&&v>0);
+    const isDecimal = brlVals.length > 0 && brlVals.every(v=>v < 1.0);
+    if(isDecimal){
+      console.log('[L30 Statcast] converting decimal → percent');
+      for(const v of Object.values(result)){
+        if(v.barrel_pct!=null)   v.barrel_pct   = Math.round(v.barrel_pct*1000)/10;
+        if(v.hard_hit_pct!=null) v.hard_hit_pct = Math.round(v.hard_hit_pct*1000)/10;
+      }
+    }
+
+    console.log('[L30 Statcast] matched:', Object.keys(result).length, 'of', pids.length);
     _playerCache[key] = result;
     return result;
   }catch(e){
-    console.warn('[TeamRecentSC]:', e.message);
+    console.warn('[L30 Statcast]:', e.message);
     _playerCache[key] = {};
     return {};
   }
