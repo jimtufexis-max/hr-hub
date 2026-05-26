@@ -11362,22 +11362,16 @@ function refreshData(){
 }
 
 // ==================================================================
-//  PWA — Service Worker + Install Prompt
+//  PWA — Service Worker disabled to prevent caching issues
 // ==================================================================
 if('serviceWorker' in navigator){
-  // Force unregister any stale service workers so new HTML is always served fresh
+  // Unregister ALL service workers and clear ALL caches
   navigator.serviceWorker.getRegistrations().then(regs=>{
-    regs.forEach(reg => reg.unregister());
+    regs.forEach(reg=>{ console.log('[SW] Unregistering:', reg.scope); reg.unregister(); });
   });
-  // Clear all caches so old HTML files aren't served
   if('caches' in window){
-    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+    caches.keys().then(keys=>{ keys.forEach(k=>{ console.log('[Cache] Deleting:', k); caches.delete(k); }); });
   }
-  // Re-register with updated SW
-  navigator.serviceWorker.register('sw.js?v=20260526').then(reg=>{
-    reg.update();
-    console.log('SW registered:', reg.scope);
-  }).catch(e=>console.warn('SW registration failed:',e));
 }
 
 let _installPrompt=null;
