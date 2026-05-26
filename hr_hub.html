@@ -334,7 +334,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     style="margin-left:auto;background:none;border:none;color:var(--green);cursor:pointer;font-size:.9rem">✕</button>
 </div>
 <div id="header">
-  <div id="header-title">⚾ HR <span>Hub</span> <span style="font-size:.70rem;color:var(--amber);font-weight:700">v526</span></div>
+  <div id="header-title">⚾ HR <span>Hub</span></div>
   <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="refreshOdds();this.textContent='↺ refreshing...'">FD odds: loading…</div>
   <div id="header-date"></div>
   <button onclick="refreshData()" style="background:none;border:none;color:var(--t4);font-size:.8rem;cursor:pointer;padding:4px 8px;border:1px solid var(--bdr);border-radius:6px">↺</button>
@@ -8766,25 +8766,6 @@ function renderBestBets(){
 
 
 function renderSlate(){
-  // Inject lineup refresh button if not already there — runs with current JS regardless of SW cache
-  const filterRow = document.querySelector('.filter-row');
-  if(filterRow && !document.getElementById('lineup-refresh-btn')){
-    const btn = document.createElement('div');
-    btn.id = 'lineup-refresh-btn';
-    btn.className = 'filter-pill';
-    btn.textContent = '📋 Lineups';
-    btn.style.cssText = 'color:var(--amber);border-color:rgba(240,165,0,.4);white-space:nowrap;flex-shrink:0;cursor:pointer';
-    btn.onclick = function(){
-      const b=this; b.textContent='⏳'; b.style.pointerEvents='none';
-      refreshLineups().then(()=>{
-        checkLineupLockAlert(); b.textContent='📋 Lineups'; b.style.pointerEvents='';
-        const n=(S.allRows||[]).filter(r=>r.lineupConfirmed).length;
-        const s=document.getElementById('lineup-status');
-        if(s) s.textContent=n?`✓ ${n} confirmed`:'';
-      });
-    };
-    filterRow.appendChild(btn);
-  }
   if(!S.allRows.length){
     const hl=document.getElementById('hitter-list');
     if(hl) hl.innerHTML='<div class="empty">No players loaded</div>';
@@ -11486,33 +11467,6 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 // ==================================================================
 function initApp(){
   populateABSelect();
-
-  // Inject lineup refresh button into filter row via JS
-  // This bypasses any service worker caching of static HTML
-  const filterRow = document.querySelector('.filter-row');
-  if(filterRow && !document.getElementById('lineup-refresh-btn')){
-    const btn = document.createElement('div');
-    btn.id = 'lineup-refresh-btn';
-    btn.className = 'filter-pill';
-    btn.textContent = '📋 Lineups';
-    btn.style.cssText = 'color:var(--amber);border-color:rgba(240,165,0,.4);white-space:nowrap;flex-shrink:0;cursor:pointer';
-    btn.onclick = function(){
-      const b = this;
-      b.textContent = '⏳';
-      b.style.pointerEvents = 'none';
-      refreshLineups().then(()=>{
-        checkLineupLockAlert();
-        b.textContent = '📋 Lineups';
-        b.style.pointerEvents = '';
-        const confirmed = (S.allRows||[]).filter(r=>r.lineupConfirmed).length;
-        const total = (S.allRows||[]).length;
-        const statusEl = document.getElementById('lineup-status');
-        if(statusEl && confirmed) statusEl.textContent = `✓ ${confirmed}/${total} confirmed`;
-      });
-    };
-    filterRow.appendChild(btn);
-  }
-
   loadSlate();
 }
 
