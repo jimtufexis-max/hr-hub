@@ -9052,15 +9052,28 @@ async function togglePitchDrill(drillId, spId, batId, pt){
 
   panel.style.display = 'block';
   if(arrow) arrow.style.transform = 'rotate(180deg)';
-  if(content.dataset.loaded) return; // already loaded
 
-  content.innerHTML = '<div style="color:var(--t4)">Loading zone data…</div>';
+  // Check if already loaded AND has zone3slg (new field — re-render if missing)
+  const cached = _playerCache[`bvp_${batId}`];
+  // If cached but missing new zone3 fields, clear cache to force re-fetch
+  if(cached && Object.values(cached).some(v=>v?.pa>0 && v?.zone3slg===undefined)){
+    delete _playerCache[`bvp_${batId}`];
+  }
+  const freshCached = _playerCache[`bvp_${batId}`];
+  const hasNewFields = freshCached && Object.values(freshCached).some(v=>v?.zone3slg!=null);
+  if(content.dataset.loaded && hasNewFields) return;
 
-  // Fetch both in parallel
+  content.innerHTML = '<div style="color:var(--t4);font-size:.68rem;padding:4px 0">Loading zone data…</div>';
+
+  // Fetch pitcher location + BvP data in parallel
+  // If BvP not cached yet or was cleared, fetch it now
+  const bvpPromise = freshCached
+    ? Promise.resolve(freshCached)
+    : getBatterVsPitchType(batId).catch(()=>null);
+
   const [throwLoc, batData] = await Promise.all([
     fetchPitcherThrowLocation(spId, pt).catch(()=>null),
-    // Re-use cached BvP data
-    Promise.resolve(_playerCache[`bvp_${batId}`]),
+    bvpPromise,
   ]);
 
   const bvpPt = batData?.[pt] || {};
