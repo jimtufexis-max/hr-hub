@@ -88,12 +88,13 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
   border-color:rgba(240,165,0,.3)}
 
 /* ── Hitter cards ─────────────────────────────────────────────── */
-.hitter-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:12px;
-  padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
-.hitter-card:active{border-color:var(--blue)}
-.hitter-card.grade-a{border-left:3px solid var(--green)}
-.hitter-card.grade-b{border-left:3px solid var(--amber)}
-.hitter-card.grade-c{border-left:3px solid var(--red)}
+.hitter-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:14px;
+  padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:opacity .1s;
+  border-left:4px solid var(--bdr)}
+.hitter-card:active{opacity:.8}
+.hitter-card.grade-a{border-left-color:var(--green)}
+.hitter-card.grade-b{border-left-color:var(--amber)}
+.hitter-card.grade-c{border-left-color:var(--red)}
 
 /* ── Pulse glow for elite plays ───────────────────────────────── */
 @keyframes pulse-glow{
