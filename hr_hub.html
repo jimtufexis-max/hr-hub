@@ -3464,9 +3464,20 @@ async function getLineup(gamePk, teamId){
   const key = `lineup_${gamePk}_${teamId}`;
   if(_playerCache[key] !== undefined) return _playerCache[key];
   try{
-    const d = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`);
-    const side = d.teams?.away?.team?.id===teamId ? 'away' : 'home';
-    const batters = d.teams?.[side]?.battingOrder || [];
+    // Try the live feed first — contains pre-game lineups
+    const d = await fetchJSON(`${MLB}/game/${gamePk}/feed/live?fields=liveData,boxscore,teams,battingOrder,players,id`);
+    const teams = d?.liveData?.boxscore?.teams;
+    let batters = [];
+    if(teams){
+      const side = teams.away?.team?.id===teamId ? 'away' : 'home';
+      batters = teams[side]?.battingOrder || [];
+    }
+    // Fall back to boxscore if live feed empty
+    if(!batters.length){
+      const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`);
+      const side = box?.teams?.away?.team?.id===teamId ? 'away' : 'home';
+      batters = box?.teams?.[side]?.battingOrder || [];
+    }
     const result = {};
     batters.forEach((id,i) => { result[String(id)] = i+1; });
     _playerCache[key] = result;
@@ -5159,14 +5170,22 @@ async function checkLineupConfirmed(gamePk){
   const key = `lineup_confirmed_${gamePk}`;
   if(_playerCache[key]!==undefined) return _playerCache[key];
   try{
-    const d = await fetchJSON(`${MLB}/game/${gamePk}/linescore`);
-    // If game has a linescore, it's in progress or finished
-    const status = d.currentInning!=null || d.innings?.length>0;
-    // Also check boxscore batting order
+    // Use live feed — has pre-game lineups once posted (~3-4 hrs before)
+    const d = await fetchJSON(`${MLB}/game/${gamePk}/feed/live?fields=liveData,boxscore,teams,battingOrder`);
+    const teams = d?.liveData?.boxscore?.teams;
+    const awayOrder = teams?.away?.battingOrder||[];
+    const homeOrder = teams?.home?.battingOrder||[];
+
+    if(awayOrder.length>=8 && homeOrder.length>=8){
+      _playerCache[key] = true;
+      return true;
+    }
+
+    // Also try boxscore fallback
     const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
-    const awayOrder = box?.teams?.away?.battingOrder||[];
-    const homeOrder = box?.teams?.home?.battingOrder||[];
-    const confirmed = awayOrder.length>=8 && homeOrder.length>=8;
+    const awayBox = box?.teams?.away?.battingOrder||[];
+    const homeBox = box?.teams?.home?.battingOrder||[];
+    const confirmed = awayBox.length>=8 && homeBox.length>=8;
     _playerCache[key] = confirmed;
     return confirmed;
   }catch(e){
@@ -8796,9 +8815,14 @@ function renderHitterCard(r,showGame){
 
   return`<div class="hitter-card grade-${gCls} ${pulseClass}" onclick="showDetail('${r.id}')">
     <div class="hc-row1">
-      <div class="hc-headshot-wrap">
+      <div class="hc-headshot-wrap" style="position:relative">
         <img class="hc-headshot" src="${headshotUrl}" alt="${r.name}"
           onerror="this.style.display='none'">
+        ${r.lineupPos ? `<div style="position:absolute;bottom:-2px;right:-2px;
+          width:18px;height:18px;border-radius:50%;
+          background:${r.lineupPos<=4?'var(--amber)':r.lineupPos<=6?'var(--t3)':'var(--t4)'};
+          border:2px solid var(--bg2);display:flex;align-items:center;justify-content:center;
+          font-size:.58rem;font-weight:900;color:#000;line-height:1">${r.lineupPos}</div>` : ''}
       </div>
       <div style="flex:1;min-width:0">
         <div class="hc-name">${r.name}${l15tag}${fdTag}${edgeBadge}${zoneBadge}${(()=>{
@@ -8808,7 +8832,7 @@ function renderHitterCard(r,showGame){
           if(_al) return `<span style="font-size:.6rem;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.15);color:var(--amber);margin-left:4px">📌 tracked</span>`;
           return '';
         })()}</div>
-        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <span style="color:var(--amber)">#${r.lineupPos}</span>`:''} ${gameTag}${!r.lineupConfirmed?` <span style="color:var(--red);font-size:.60rem">⚠️ lineup unconfirmed</span>`:''} ${r.postponeRisk>=0.45?`<span style="color:var(--red);font-size:.60rem">🌧️ ppd risk ${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
+        <div style="font-size:.68rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <b style="color:var(--amber)">Bat ${r.lineupPos}</b>`:''}${gameTag?` · ${gameTag}`:''}${!r.lineupConfirmed?` <span style="color:var(--red);font-size:.60rem">⚠️ unconfirmed</span>`:''} ${r.postponeRisk>=0.45?`<span style="color:var(--red);font-size:.60rem">🌧️ ${Math.round(r.postponeRisk*100)}% ppd</span>`:''}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:center;gap:5px;flex-shrink:0">
         <div class="prob-circle" style="border-color:${gc};color:${gc}">
@@ -8826,7 +8850,7 @@ function renderHitterCard(r,showGame){
       <div class="mult-item"><span class="mult-label">Platoon</span><span class="mult-val ${mCls(r.platoon)}">${r.platoon.toFixed(2)}x</span></div>
       <div class="mult-item"><span class="mult-label">SP</span><span class="mult-val ${mCls(r.pitcher)}">${r.pitcher.toFixed(2)}x</span></div>
       <div class="mult-item"><span class="mult-label">Park/Wx</span><span class="mult-val ${mCls(r.parkwx)}">${r.parkwx.toFixed(2)}x</span></div>
-      <div class="mult-item"><span class="mult-label">L15</span><span class="mult-val ${mCls(r.momentum)}">${r.momentum.toFixed(2)}x</span></div>
+      <div class="mult-item" title="Times Through Order: how many times lineup has faced this pitcher"><span class="mult-label">TTO</span><span class="mult-val ${r.ttoMult>=1.15?'up':r.ttoMult<=0.90?'dn':'flat'}">${r.ttoMult!=null?r.ttoMult.toFixed(2)+'x':'—'}</span></div>
     </div>
     ${angleRow}
     <div class="hc-row2" style="margin-top:6px">
