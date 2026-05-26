@@ -338,8 +338,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="refreshOdds();this.textContent='↺ refreshing...'">FD odds: loading…</div>
   <div id="header-date"></div>
   <button onclick="refreshData()" style="background:none;border:none;color:var(--t4);font-size:.8rem;cursor:pointer;padding:4px 8px;border:1px solid var(--bdr);border-radius:6px">↺</button>
-  <button onclick="refreshLineups().then(()=>checkLineupLockAlert())" title="Re-check lineups"
-    style="background:none;border:none;color:var(--t4);font-size:.75rem;cursor:pointer;padding:4px 6px;border:1px solid var(--bdr);border-radius:6px">📋↺</button>
   <button onclick="document.querySelector('.page.active')?.id==='page-info'?showPage(_prevPage):showPage('info')" id="nav-info-header"
     style="background:none;border:1px solid var(--bdr);border-radius:6px;
     color:var(--t4);font-size:.80rem;cursor:pointer;padding:4px 9px;
@@ -359,6 +357,9 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       <div id="date-lbl">Today</div>
       <button id="today-btn" onclick="goToday()">Today</button>
       <button onclick="shiftDate(1)">▶</button>
+      <button onclick="this.textContent='⏳';refreshLineups().then(()=>{checkLineupLockAlert();this.textContent='📋↺';})"
+        title="Re-check batting lineups"
+        style="margin-left:auto;font-size:.70rem;padding:4px 8px">📋↺</button>
     </div>
     <div id="game-chips" class="chip-scroll"></div>
     <div id="wx-area"></div>
