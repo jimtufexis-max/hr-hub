@@ -2946,7 +2946,18 @@ async function refreshLineups(){
   if(!gamesToRefresh.length) return;
 
   await Promise.allSettled(gamesToRefresh.map(g => loadGame(g)));
-  S.allRows = Object.values(S.cache).flat().filter(r=>r.prob>0);
+
+  // Rebuild allRows from SELECTED games only (not entire cache)
+  const seen = new Set();
+  S.allRows = [];
+  for(const pk of S.selPks){
+    for(const side of ['away','home']){
+      const cached = S.cache[`${pk}_${side}`]||[];
+      for(const r of cached){
+        if(!seen.has(r.id)){ seen.add(r.id); S.allRows.push(r); }
+      }
+    }
+  }
   renderSlate();
   const confirmed = S.allRows.filter(r=>r.lineupConfirmed).length;
   const statusEl = document.getElementById('lineup-status');
