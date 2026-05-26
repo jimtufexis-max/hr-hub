@@ -11585,7 +11585,7 @@ if('serviceWorker' in navigator){
     caches.keys().then(keys=>keys.forEach(k=>caches.delete(k)));
   }
   // Register sw2.js — old SW never cached this filename so it passes through
-  navigator.serviceWorker.register('sw2.js').then(reg=>{
+  navigator.serviceWorker.register('sw2.js?v=20260527b').then(reg=>{
     reg.update();
   }).catch(()=>{});
 }
@@ -11664,6 +11664,35 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 // ==================================================================
 function initApp(){
   populateABSelect();
+
+  // Apply saved theme — runs even if SW serves old HTML
+  const savedTheme = localStorage.getItem('hr_hub_theme');
+  if(savedTheme === 'light') document.documentElement.classList.add('light');
+
+  // Inject theme button if missing (SW may serve old HTML without it)
+  if(!document.getElementById('theme-btn')){
+    const hdr = document.querySelector('#header');
+    if(hdr){
+      const btn = document.createElement('button');
+      btn.id = 'theme-btn';
+      btn.textContent = document.documentElement.classList.contains('light') ? '☀️' : '🌙';
+      btn.style.cssText = 'background:none;border:1px solid var(--bdr);color:var(--t4);font-size:1rem;cursor:pointer;padding:4px 8px;border-radius:6px;line-height:1;margin-right:4px';
+      btn.onclick = toggleTheme;
+      // Insert before the refresh button
+      const refreshBtn = hdr.querySelector('button');
+      if(refreshBtn) hdr.insertBefore(btn, refreshBtn);
+      else hdr.appendChild(btn);
+    }
+  }
+
+  // Inject light mode CSS if missing
+  if(!document.getElementById('light-mode-css')){
+    const style = document.createElement('style');
+    style.id = 'light-mode-css';
+    style.textContent = `:root.light{--bg:#f2f5f9;--bg2:#ffffff;--bg3:#e8edf4;--bdr:#c8d4e0;--t1:#0d1520;--t2:#253545;--t3:#506070;--t4:#7a90a0;--amber:#c07800;--blue:#1a6ad0;--green:#0a8040;--red:#c03030}`;
+    document.head.appendChild(style);
+  }
+
   loadSlate();
 }
 
