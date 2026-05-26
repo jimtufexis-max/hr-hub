@@ -9041,7 +9041,7 @@ async function togglePitchDrill(drillId, spId, batId, pt){
   const panel = document.getElementById(drillId);
   const arrow = document.getElementById(drillId+'_arr');
   const content = document.getElementById(drillId+'_content');
-  if(!panel) return;
+  if(!panel||!content) return;
 
   const isOpen = panel.style.display !== 'none';
   if(isOpen){
@@ -9052,6 +9052,15 @@ async function togglePitchDrill(drillId, spId, batId, pt){
 
   panel.style.display = 'block';
   if(arrow) arrow.style.transform = 'rotate(180deg)';
+
+  // Guard: treat string "undefined"/"null" as missing
+  const cleanSpId  = (spId  && spId!=='undefined'  && spId!=='null')  ? spId  : null;
+  const cleanBatId = (batId && batId!=='undefined' && batId!=='null') ? batId : null;
+
+  if(!cleanSpId || !cleanBatId){
+    content.innerHTML='<div style="color:var(--red);font-size:.65rem">Missing pitcher or batter ID — reload player detail</div>';
+    return;
+  }
 
   // Check if already loaded AND has zone3slg (new field — re-render if missing)
   const cached = _playerCache[`bvp_${batId}`];
@@ -9077,10 +9086,13 @@ async function togglePitchDrill(drillId, spId, batId, pt){
   ]);
 
   const bvpPt = batData?.[pt] || {};
-  const loc5  = throwLoc?.loc5pct;
-  const dmg5  = throwLoc?.dmg5avg;
-  const zone3xw = bvpPt?.zone3xwoba;
+  const loc5    = throwLoc?.loc5pct;
+  const dmg5    = throwLoc?.dmg5avg;
+  const zone3xw  = bvpPt?.zone3xwoba;
   const zone3hr  = bvpPt?.zone3hr;
+  const zone3slg = bvpPt?.zone3slg;
+  const zone3iso = bvpPt?.zone3iso;
+  const zone3avg = bvpPt?.zone3avg;
 
   // Helper: render a 5x5 grid
   const grid5 = (data, label, fmtFn, colorFn) => {
@@ -9203,9 +9215,6 @@ async function togglePitchDrill(drillId, spId, batId, pt){
     : null;
   const totalHR3 = zone3hr ? zone3hr.flat().reduce((a,b)=>a+b,0) : 0;
 
-  const zone3slg = bvpPt?.zone3slg;
-  const zone3iso = bvpPt?.zone3iso;
-  const zone3avg = bvpPt?.zone3avg;
   const zone3ab  = bvpPt?.zone3ab;
 
   // Color functions for each metric
