@@ -11368,7 +11368,17 @@ function refreshData(){
 //  PWA — Service Worker + Install Prompt
 // ==================================================================
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').then(reg=>{
+  // Force unregister any stale service workers so new HTML is always served fresh
+  navigator.serviceWorker.getRegistrations().then(regs=>{
+    regs.forEach(reg => reg.unregister());
+  });
+  // Clear all caches so old HTML files aren't served
+  if('caches' in window){
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+  }
+  // Re-register with updated SW
+  navigator.serviceWorker.register('sw.js?v=20260526').then(reg=>{
+    reg.update();
     console.log('SW registered:', reg.scope);
   }).catch(e=>console.warn('SW registration failed:',e));
 }
