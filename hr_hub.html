@@ -9061,14 +9061,15 @@ async function togglePitchDrill(drillId, spId, batId, pt){
     content.innerHTML='<div style="color:var(--red);font-size:.65rem">Missing pitcher or batter ID — reload player detail</div>';
     return;
   }
+  const ptName = {FF:'4-Seam FB',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curveball',CH:'Changeup',FS:'Splitter',KC:'Knuckle-Curve',KN:'Knuckle'}[pt] || pt;
 
   // Check if already loaded AND has zone3slg (new field — re-render if missing)
-  const cached = _playerCache[`bvp_${batId}`];
+  const cached = _playerCache[`bvp_${cleanBatId}`];
   // If cached but missing new zone3 fields, clear cache to force re-fetch
   if(cached && Object.values(cached).some(v=>v?.pa>0 && v?.zone3slg===undefined)){
-    delete _playerCache[`bvp_${batId}`];
+    delete _playerCache[`bvp_${cleanBatId}`];
   }
-  const freshCached = _playerCache[`bvp_${batId}`];
+  const freshCached = _playerCache[`bvp_${cleanBatId}`];
   const hasNewFields = freshCached && Object.values(freshCached).some(v=>v?.zone3slg!=null);
   if(content.dataset.loaded && hasNewFields) return;
 
@@ -9078,10 +9079,10 @@ async function togglePitchDrill(drillId, spId, batId, pt){
   // If BvP not cached yet or was cleared, fetch it now
   const bvpPromise = freshCached
     ? Promise.resolve(freshCached)
-    : getBatterVsPitchType(batId).catch(()=>null);
+    : getBatterVsPitchType(cleanBatId).catch(()=>null);
 
   const [throwLoc, batData] = await Promise.all([
-    fetchPitcherThrowLocation(spId, pt).catch(()=>null),
+    fetchPitcherThrowLocation(cleanSpId, pt).catch(()=>null),
     bvpPromise,
   ]);
 
@@ -9259,8 +9260,8 @@ async function togglePitchDrill(drillId, spId, batId, pt){
     {key:'avg',   label:'AVG',   data:zone3avg, color:avgColor,   avg:zoneAvg(zone3avg)},
   ].filter(m=>m.data);
 
-  const metricSelId = `zone-metric-${batId}-${spId}-${pt}`.replace(/[^a-z0-9]/gi,'-');
-  const zoneGridId  = `zone-grid-${batId}-${spId}-${pt}`.replace(/[^a-z0-9]/gi,'-');
+  const metricSelId = `zone-metric-${cleanBatId}-${cleanSpId}-${pt}`.replace(/[^a-z0-9]/gi,'-');
+  const zoneGridId  = `zone-grid-${cleanBatId}-${cleanSpId}-${pt}`.replace(/[^a-z0-9]/gi,'-');
 
   // Function stored on window to allow onclick to work
   window[`zoneSelect_${metricSelId}`] = function(key){
