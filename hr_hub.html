@@ -338,6 +338,8 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="refreshOdds();this.textContent='↺ refreshing...'">FD odds: loading…</div>
   <div id="header-date"></div>
   <button onclick="refreshData()" style="background:none;border:none;color:var(--t4);font-size:.8rem;cursor:pointer;padding:4px 8px;border:1px solid var(--bdr);border-radius:6px">↺</button>
+  <button onclick="refreshLineups().then(()=>checkLineupLockAlert())" title="Re-check lineups"
+    style="background:none;border:none;color:var(--t4);font-size:.75rem;cursor:pointer;padding:4px 6px;border:1px solid var(--bdr);border-radius:6px">📋↺</button>
   <button onclick="document.querySelector('.page.active')?.id==='page-info'?showPage(_prevPage):showPage('info')" id="nav-info-header"
     style="background:none;border:1px solid var(--bdr);border-radius:6px;
     color:var(--t4);font-size:.80rem;cursor:pointer;padding:4px 9px;
@@ -2909,8 +2911,39 @@ function normName(v){
 // ==================================================================
 let gamesCache=[];
 
+async function refreshLineups(){
+  // Re-check lineup confirmation for any game that isn't confirmed yet
+  // Also clears stale empty lineup caches so they get re-fetched
+  const unconfirmedPks = [...new Set(
+    S.allRows
+      .filter(r => !r.lineupConfirmed)
+      .map(r => r._gamePk || r.gamePk)
+      .filter(Boolean)
+  )];
+
+  if(!unconfirmedPks.length) return;
+
+  // Clear stale caches for these games so getLineup re-fetches
+  unconfirmedPks.forEach(pk => {
+    delete _playerCache[`lineup_confirmed_${pk}`];
+    // Clear team lineup caches too
+    Object.keys(_playerCache).forEach(k => {
+      if(k.startsWith(`lineup_${pk}_`)) delete _playerCache[k];
+    });
+    // Clear the full game cache so loadGame re-runs
+    const awKey = `${pk}_away`, hmKey = `${pk}_home`;
+    delete S.cache[awKey];
+    delete S.cache[hmKey];
+  });
+
+  // Re-run games that need lineup refresh
+  const gamesToRefresh = gamesCache.filter(g => unconfirmedPks.includes(g.pk));
+  if(!gamesToRefresh.length) return;
+
+  await Promise.allSettled(gamesToRefresh.map(g => loadGame(g)));
+}
+
 async function loadSlate(){
-  const dateLbl = document.getElementById('date-lbl');
   const headerDate = document.getElementById('header-date');
   const hitterList = document.getElementById('hitter-list');
   const gameChips = document.getElementById('game-chips');
@@ -3085,6 +3118,9 @@ async function loadSelectedGames(){
     renderSlate();
     renderDailySummary();
     checkLineupLockAlert();
+    // Auto-refresh lineups in background for any unconfirmed games
+    const hasUnconfirmed = S.allRows.some(r=>!r.lineupConfirmed);
+    if(hasUnconfirmed) setTimeout(()=>refreshLineups(), 1500);
   }catch(renderErr){
     console.error('[renderSlate] CRASH:', renderErr.message, renderErr.stack);
     document.getElementById('hitter-list').innerHTML=
@@ -3462,27 +3498,87 @@ async function getBatterVsPitches(pid){
 // ==================================================================
 async function getLineup(gamePk, teamId){
   const key = `lineup_${gamePk}_${teamId}`;
-  if(_playerCache[key] !== undefined) return _playerCache[key];
-  try{
-    // Try the live feed first — contains pre-game lineups
-    const d = await fetchJSON(`${MLB}/game/${gamePk}/feed/live?fields=liveData,boxscore,teams,battingOrder,players,id`);
-    const teams = d?.liveData?.boxscore?.teams;
-    let batters = [];
-    if(teams){
-      const side = teams.away?.team?.id===teamId ? 'away' : 'home';
-      batters = teams[side]?.battingOrder || [];
-    }
-    // Fall back to boxscore if live feed empty
-    if(!batters.length){
-      const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`);
-      const side = box?.teams?.away?.team?.id===teamId ? 'away' : 'home';
-      batters = box?.teams?.[side]?.battingOrder || [];
-    }
+  // Only use cache if it has actual lineup data (non-empty result)
+  if(_playerCache[key] && Object.keys(_playerCache[key]).length > 0) return _playerCache[key];
+
+  const extract = (battingOrder) => {
     const result = {};
-    batters.forEach((id,i) => { result[String(id)] = i+1; });
-    _playerCache[key] = result;
+    (battingOrder||[]).forEach((id,i) => { result[String(id)] = i+1; });
     return result;
-  }catch(e){ _playerCache[key]={}; return {}; }
+  };
+
+  try{
+    // 1. Try schedule with lineups hydration — most reliable pre-game source
+    const sched = await fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`).catch(()=>null);
+    const game = sched?.dates?.[0]?.games?.[0];
+    if(game?.lineups){
+      const isAway = game.teams?.away?.team?.id === teamId;
+      const order = isAway
+        ? game.lineups.awayPlayers?.map(p=>p.id)
+        : game.lineups.homePlayers?.map(p=>p.id);
+      if(order?.length >= 8){
+        const result = extract(order);
+        _playerCache[key] = result;
+        return result;
+      }
+    }
+
+    // 2. Try boxscore — works once game has started
+    const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
+    if(box?.teams){
+      const side = box.teams.away?.team?.id===teamId ? 'away' : 'home';
+      const order = box.teams[side]?.battingOrder||[];
+      if(order.length >= 8){
+        const result = extract(order);
+        _playerCache[key] = result;
+        return result;
+      }
+    }
+
+    // Nothing found — return empty but don't cache (try again next load)
+    return {};
+  }catch(e){ return {}; }
+}
+
+async function checkLineupConfirmed(gamePk){
+  const key = `lineup_confirmed_${gamePk}`;
+  // Never cache false — lineups can be posted any time, must re-check
+  if(_playerCache[key] === true) return true;
+
+  try{
+    // 1. Check schedule/lineups endpoint
+    const sched = await fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`).catch(()=>null);
+    const game = sched?.dates?.[0]?.games?.[0];
+    if(game?.lineups){
+      const awayPlayers = game.lineups.awayPlayers||[];
+      const homePlayers = game.lineups.homePlayers||[];
+      if(awayPlayers.length>=8 && homePlayers.length>=8){
+        _playerCache[key] = true;
+        return true;
+      }
+    }
+
+    // 2. Also check game status — if game is started/final, lineups are confirmed
+    const status = game?.status?.abstractGameState;
+    if(status === 'Live' || status === 'Final'){
+      _playerCache[key] = true;
+      return true;
+    }
+
+    // 3. Boxscore fallback
+    const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
+    const awayBox = box?.teams?.away?.battingOrder||[];
+    const homeBox = box?.teams?.home?.battingOrder||[];
+    if(awayBox.length>=8 && homeBox.length>=8){
+      _playerCache[key] = true;
+      return true;
+    }
+
+    // Not confirmed yet — don't cache false
+    return false;
+  }catch(e){
+    return false;
+  }
 }
 
 // ==================================================================
@@ -5166,34 +5262,6 @@ function showTrackedList(filter){
 //  MLB posts lineups ~3.5 hours before game time
 //  If not confirmed, probabilities assume projected lineup = risk
 // ==================================================================
-async function checkLineupConfirmed(gamePk){
-  const key = `lineup_confirmed_${gamePk}`;
-  if(_playerCache[key]!==undefined) return _playerCache[key];
-  try{
-    // Use live feed — has pre-game lineups once posted (~3-4 hrs before)
-    const d = await fetchJSON(`${MLB}/game/${gamePk}/feed/live?fields=liveData,boxscore,teams,battingOrder`);
-    const teams = d?.liveData?.boxscore?.teams;
-    const awayOrder = teams?.away?.battingOrder||[];
-    const homeOrder = teams?.home?.battingOrder||[];
-
-    if(awayOrder.length>=8 && homeOrder.length>=8){
-      _playerCache[key] = true;
-      return true;
-    }
-
-    // Also try boxscore fallback
-    const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
-    const awayBox = box?.teams?.away?.battingOrder||[];
-    const homeBox = box?.teams?.home?.battingOrder||[];
-    const confirmed = awayBox.length>=8 && homeBox.length>=8;
-    _playerCache[key] = confirmed;
-    return confirmed;
-  }catch(e){
-    _playerCache[key] = false;
-    return false;
-  }
-}
-
 // ==================================================================
 //  SP FLY BALL / GROUND BALL RATES — from FanGraphs or MLB API
 //  GB-heavy SP = fewer HRs regardless of HR/9
@@ -8310,6 +8378,7 @@ async function loadGame(g){
         platDiscMult:    calcPlateDiscMult(pid),
         bullpenMult:     (key.endsWith('_away') ? hmBullpen : awBullpen)?.mult ?? 1.0,
         lineupConfirmed: lineupConfirmed || false,
+        _gamePk:         pk,
         postponeRisk:    calcPostponementRisk(wx),
         spGBRate:        (key.endsWith('_away') ? hmBB : awBB)?.gbRate ?? null,
         spFBRate:        (key.endsWith('_away') ? hmBB : awBB)?.fbRate ?? null,
