@@ -2795,6 +2795,7 @@ function fireSecondaryMaps(){
       console.log('[secondary] FG/whiff/disc/rolling maps ready — re-enriching stats');
 
       // Enrich rows with L30 rolling Statcast data
+      let rollEnriched = 0;
       for(const r of S.allRows||[]){
         const pid = String(r.id);
         const roll = (_rollingMap||{})[pid];
@@ -2802,8 +2803,10 @@ function fireSecondaryMaps(){
           r._rollBrl = roll.brl;
           r._rollEV  = roll.ev;
           r._rollXw  = roll.xwoba;
+          rollEnriched++;
         }
       }
+      if(rollEnriched > 0) renderSlate();
 
       // Re-enrich pitcher stats on every row now that FG/whiff maps are loaded
       let enriched = 0;
@@ -8471,7 +8474,15 @@ async function loadGame(g){
     S.cache[key] = rows;
     queueForAutoTrack(rows);
 
-    // Fire recent games in background — enriches L14 form row after initial render
+    // Apply rolling map immediately if already loaded
+    if(_rollingMap && Object.keys(_rollingMap).length > 0){
+      for(const r of rows){
+        const roll = _rollingMap[String(r.id)];
+        if(roll){ r._rollBrl=roll.brl; r._rollEV=roll.ev; r._rollXw=roll.xwoba; }
+      }
+    }
+
+    // Fire recent games in background — enriches L14 HR count after render
     Promise.allSettled(
       hitters.map(h => getBatterRecentGames(String(h.id)).then(recent=>{
         const row = rows.find(r=>String(r.id)===String(h.id));
