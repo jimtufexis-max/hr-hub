@@ -358,13 +358,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       <button id="today-btn" onclick="goToday()">Today</button>
       <button onclick="shiftDate(1)">▶</button>
     </div>
-    <div style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:8px;margin-top:-4px">
-      <button id="lineup-refresh-btn"
-        onclick="this.textContent='⏳ checking…';this.disabled=true;refreshLineups().then(()=>{checkLineupLockAlert();this.textContent='📋 Refresh Lineups';this.disabled=false;})"
-        style="font-size:.65rem;padding:5px 12px;border-radius:8px;
-        border:1px solid rgba(240,165,0,.35);background:rgba(240,165,0,.08);
-        color:var(--amber);cursor:pointer;font-weight:600">📋 Refresh Lineups</button>
-    </div>
     <div id="game-chips" class="chip-scroll"></div>
     <div id="wx-area"></div>
     <div id="filters-area">
@@ -375,7 +368,11 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <div class="filter-pill" onclick="setSort('platoon',this)">Platoon</div>
         <div class="filter-pill" onclick="setSort('momentum',this)">L15 Hot</div>
         <div class="filter-pill" onclick="setSort('edge',this)">FD Edge</div>
+        <div id="lineup-refresh-btn" class="filter-pill"
+          onclick="var b=this;b.textContent='⏳';b.style.pointerEvents='none';refreshLineups().then(()=>{checkLineupLockAlert();b.textContent='📋 Lineups';b.style.pointerEvents='';const s=document.getElementById('lineup-status');if(s){const c=window.S?.allRows?.filter(r=>r.lineupConfirmed)?.length||0;s.textContent=c?c+' confirmed':''}})"
+          style="color:var(--amber);border-color:rgba(240,165,0,.4);white-space:nowrap;flex-shrink:0">📋 Lineups</div>
       </div>
+      <div id="lineup-status" style="font-size:.60rem;color:var(--green);margin-bottom:4px;min-height:14px"></div>
       <div id="search-wrap">
         <span id="search-icon">🔍</span>
         <input id="search-input" type="text" placeholder="Search player..." oninput="renderSlate()">
@@ -2946,6 +2943,13 @@ async function refreshLineups(){
   if(!gamesToRefresh.length) return;
 
   await Promise.allSettled(gamesToRefresh.map(g => loadGame(g)));
+  S.allRows = Object.values(S.cache).flat().filter(r=>r.prob>0);
+  renderSlate();
+  const confirmed = S.allRows.filter(r=>r.lineupConfirmed).length;
+  const statusEl = document.getElementById('lineup-status');
+  if(statusEl) statusEl.textContent = confirmed
+    ? `✓ ${confirmed} of ${S.allRows.length} confirmed`
+    : 'No lineups confirmed yet';
 }
 
 async function loadSlate(){
