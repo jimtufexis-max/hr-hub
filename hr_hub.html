@@ -530,18 +530,19 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
     <!-- Model Formula -->
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">⚡ Probability Model v5</div>
+      <div class="slbl">⚡ Probability Model v6</div>
 
       <!-- Core formula -->
       <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
         padding:10px 12px;background:var(--bg3);border-radius:8px;margin-bottom:12px;line-height:1.9">
         <span style="color:var(--t4)">// Step 1: Statcast anchor (per-plate-appearance)</span><br>
-        anchor = barrel% × 0.042 + pull_air% × 0.0175<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ hard_hit% × 0.0028 + sweet_spot% × 0.0015<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;− gb% × 0.0018 + (barrel% × pull_air%) × 0.80<br>
+        anchor = 0.010 + barrel% × 0.042 + pull_air% × 0.018<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ hard_hit% × 0.003 + sweet_spot% × 0.001<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;− gb% × 0.002 + (barrel% × pull_air%) × 0.25<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ ISO_adj &nbsp;<span style="color:var(--t4)">// ISO above .160 adds small bonus</span><br>
         <span style="color:var(--t4)">// Step 2: Signal adjustment in log-odds space</span><br>
         lo = logit(anchor) + Σ(signal × weight)<br>
-        perPA = sigmoid(lo) &nbsp;<span style="color:var(--t4)">// capped 11% per PA</span><br>
+        perPA = sigmoid(lo) &nbsp;<span style="color:var(--t4)">// capped 10% per PA</span><br>
         <span style="color:var(--t4)">// Step 3: Per-game conversion</span><br>
         perGame = 1 − (1 − perPA)^expPA &nbsp;<span style="color:var(--t4)">// raw true-talent</span>
       </div>
@@ -553,26 +554,17 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
             color:var(--amber);font-family:'JetBrains Mono',monospace">Anchor</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Statcast linear weights (primary) blended with HR/PA outcome rate.
-            Statcast stabilizes in ~50 PA vs 300+ PA for outcome rate.
-            Barrel×pull_air interaction captures elite power synergy.
+            Statcast linear weights + ISO trim. Blended with HR/PA outcome rate
+            as sample grows (max 60% outcome trust at 350+ PA).
+            Interaction term captures barrel×pull_air synergy (reduced from v5).
           </div>
         </div>
 
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Platoon ×0.45</div>
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Pitcher ×0.55</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Handedness vs pitcher + actual split rate (50+ PA gate) + arsenal modifier.
-            LHB vs RHP +18% boost · RHB vs LHP +22% boost.
-          </div>
-        </div>
-
-        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Pitcher ×0.50</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            xFIP 35% · Barrel% allowed 30% · HR/FB 20% · HR/9 recent 15%.
+            Largest single signal. xFIP 35% · Barrel% allowed 30% · HR/FB 20% · HR/9 recent 15%.
             BvP arsenal: batter's ISO vs each pitch type × SP usage mix.
             Rest days, whiff rate, walk rate modifiers applied.
           </div>
@@ -580,21 +572,40 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#f472b6;font-family:'JetBrains Mono',monospace">Interaction</div>
+            color:#f97316;font-family:'JetBrains Mono',monospace">TTO ×0.40</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Platoon × Pitcher: when both signals agree, the combined effect
-            is more than additive. LHB vs RHP AND soft SP = extra bonus.
-            Correlated signals shouldn't be treated independently.
+            Times Through Order — NEW in v6. One of the strongest predictors in baseball.
+            TTO1 (1st time through): −15% · TTO2: neutral · TTO3+: +20%.
+            Estimated from lineup position + projected SP innings.
           </div>
         </div>
 
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Park/Wx ×0.45</div>
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Park/Wx ×0.35</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Handedness-adjusted park factor + wind direction/speed + temperature.
-            Dome teams (TOR, HOU, TB, SEA, ARI, MIA, MIL, MIN) bypass weather entirely.
-            Wind toward CF: +HR boost. Headwind: −HR suppression.
+            Handedness-adjusted park factor + wind + temperature.
+            Reduced from 0.45 — park was over-contributing to model bias.
+            Dome teams bypass weather entirely.
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Platoon ×0.35</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            Reduced from 0.45 — platoon effect is real but smaller than originally weighted.
+            Handedness + actual split rate (50+ PA gate) + arsenal modifier.
+            LHB vs RHP +18% · RHB vs LHP +22%.
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
+          <div style="min-width:110px;font-size:.67rem;font-weight:700;
+            color:#f472b6;font-family:'JetBrains Mono',monospace">Interaction</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
+            Platoon × Pitcher: when both agree, effect is more than additive.
+            Penalty when both unfavorable. Coefficient 1.2× (reduced from 1.5×).
           </div>
         </div>
 
@@ -612,8 +623,8 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
             color:#ef4444;font-family:'JetBrains Mono',monospace">Momentum ✗</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Removed in v5. L15 HR rate explains &lt;3% of next-game HR variance.
-            Hot/cold streaks are mostly noise — including them introduced recency bias.
+            Removed. L15 HR rate explains &lt;3% of next-game variance.
+            Hot/cold streaks are noise — including them introduced recency bias.
           </div>
         </div>
 
@@ -628,24 +639,24 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       </div>
       <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
         padding:10px 12px;background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.8">
-        expPA = 4.8 − (lineupPos − 1) × 0.15 &nbsp;<span style="color:var(--t4)">// leadoff=4.8, 9-hole=3.3</span><br>
+        expPA = 4.8 − (lineupPos − 1) × 0.15 &nbsp;<span style="color:var(--t4)">// leadoff=4.8, 9-hole=3.2</span><br>
         perGame = 1 − (1 − perPA)^expPA
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
         <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
-          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~13%/game</div>
+          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~10%/game</div>
           <div style="font-size:.55rem;color:var(--t4);margin-top:1px">MLB avg</div>
-          <div style="font-size:.53rem;color:var(--t4)">3.5%/PA</div>
+          <div style="font-size:.53rem;color:var(--t4)">neutral signals</div>
         </div>
         <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
-          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~21%/game</div>
+          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~17%/game</div>
           <div style="font-size:.55rem;color:var(--t4);margin-top:1px">Good slugger</div>
-          <div style="font-size:.53rem;color:var(--t4)">5.5%/PA</div>
+          <div style="font-size:.53rem;color:var(--t4)">avg pitcher</div>
         </div>
         <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
-          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~33%/game</div>
+          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~25%/game</div>
           <div style="font-size:.55rem;color:var(--t4);margin-top:1px">Judge tier</div>
-          <div style="font-size:.53rem;color:var(--t4)">9%/PA</div>
+          <div style="font-size:.53rem;color:var(--t4)">favorable matchup</div>
         </div>
       </div>
       <div style="font-size:.62rem;color:var(--t4);line-height:1.6;padding:8px 10px;
@@ -713,7 +724,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
             display:flex;align-items:center;justify-content:center;
             font-size:.70rem;font-weight:900;color:var(--green)">A</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
-            Barrel% · Pull-air% · xFIP · Barrel% allowed · Park factor · Platoon splits (50+ PA) · Wind · Statcast anchor
+            Barrel% · Pull-air% · xFIP · Barrel% allowed · Park factor · Times Through Order (TTO) · Platoon splits (50+ PA) · Wind
           </div>
         </div>
         <div style="display:flex;align-items:flex-start;gap:10px">
@@ -722,7 +733,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
             display:flex;align-items:center;justify-content:center;
             font-size:.70rem;font-weight:900;color:var(--amber)">B</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
-            Arsenal platoon mod · HR/FB rate · Home/away split · Lineup position · Temperature · Stadium dimensions · Career vs SP (40+ PA)
+            ISO trim · Arsenal platoon mod · HR/FB rate · Home/away split · Lineup position · Temperature · Stadium dimensions · Career vs SP (40+ PA)
           </div>
         </div>
         <div style="display:flex;align-items:flex-start;gap:10px">
