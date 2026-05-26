@@ -4023,59 +4023,46 @@ async function ensureRollingMap(){
 async function fetchTeamRecentStatcast(pids){
   if(!pids||!pids.length) return {};
   const key = `team_recent_${pids.slice().sort().join('_')}`;
-  // Clear cached value if it has suspicious 0% barrel rates (old bad calculation)
   const cached = _playerCache[key];
-  if(cached && Object.values(cached).some(v=>v.barrel_pct===0)){
+  // Clear bad cache entries where barrel shows 0 for hitters (bad old calculation)
+  if(cached && Object.values(cached).some(v=>v.barrel_pct===0 && v.hard_hit_pct>20)){
     delete _playerCache[key];
   }
   if(_playerCache[key]) return _playerCache[key];
   try{
     const endDate   = ds();
     const startDate = ds(new Date(Date.now() - 30*864e5));
-    // Build multi-player lookup query — all pids in one request
-    const pidParams = pids.map(p=>`batters_lookup%5B%5D=${p}`).join('&');
-    const url = `https://baseballsavant.mlb.com/statcast_search/csv?all=true`
-      + `&hfSea=${SEASON}%7C&player_type=batter`
-      + `&game_date_gt=${startDate}&game_date_lt=${endDate}`
-      + `&${pidParams}`
-      + `&type=details&hfGT=R%7C&min_results=0&group_by=name&sort_col=pitches&sort_order=desc&`;
+
+    // Use the pre-aggregated exit velocity leaderboard with date range
+    // This gives brl_percent, ev95percent, avg_hit_speed — same fields as season leaderboard
+    const url = `https://baseballsavant.mlb.com/leaderboard/statcast`
+      + `?type=batter&year=${SEASON}&position=&team=&min=10`
+      + `&date_range=custom&start_dt=${startDate}&end_dt=${endDate}`
+      + `&csv=true`;
+
     const r = await fetch(PROXY + encodeURIComponent(url));
     if(!r.ok) throw new Error(`recent sc ${r.status}`);
     const rows = parseCSVText(await r.text());
 
-    // Aggregate per player — batted ball events only
-    const acc = {};
-    for(const row of rows){
-      const pid = String(row.batter||row.player_id||'').replace(/\.0$/,'');
-      if(!pid) continue;
-      if(!acc[pid]) acc[pid] = {barrelCount:0, hardCount:0, evSum:0, bbCount:0};
-      const a = acc[pid];
-
-      const ev     = parseFloat(row.launch_speed||row.hit_speed||0)||0;
-      const bbType = (row.bb_type||row.batted_ball_type||'').toLowerCase().trim();
-
-      // Only count actual batted ball events (have a bb_type and exit velocity)
-      if(!bbType || ev <= 0) continue;
-      a.bbCount++; // batted ball event denominator
-      a.evSum += ev;
-
-      // Barrel: official Statcast field is 'barrel' = 1, or bb_type = 'barrel'
-      const isBarrel = parseInt(row.barrel)===1 || bbType==='barrel';
-      if(isBarrel) a.barrelCount++;
-
-      // Hard hit: EV >= 95 mph on batted balls
-      if(ev >= 95) a.hardCount++;
-    }
-
+    const pidSet = new Set(pids.map(String));
     const result = {};
-    for(const [pid, a] of Object.entries(acc)){
-      if(a.bbCount < 5) continue; // need at least 5 batted balls
+
+    for(const row of rows){
+      const pid = String(row.player_id||row.batter||'').replace(/\.0$/,'');
+      if(!pid || !pidSet.has(pid)) continue;
+
+      const brl = parseFloat(row.brl_percent ?? row.barrel_batted_rate ?? '');
+      const hh  = parseFloat(row.ev95percent ?? '');
+      const ev  = parseFloat(row.avg_hit_speed ?? row.avg_exit_velocity ?? '');
+
+      if(isNaN(brl) && isNaN(hh) && isNaN(ev)) continue;
       result[pid] = {
-        barrel_pct:   Math.round(a.barrelCount / a.bbCount * 1000) / 10,
-        hard_hit_pct: Math.round(a.hardCount   / a.bbCount * 1000) / 10,
-        avg_ev:       Math.round(a.evSum        / a.bbCount * 10)  / 10,
+        barrel_pct:   isNaN(brl) ? null : Math.round(brl*10)/10,
+        hard_hit_pct: isNaN(hh)  ? null : Math.round(hh*10)/10,
+        avg_ev:       isNaN(ev)  ? null : Math.round(ev*10)/10,
       };
     }
+
     _playerCache[key] = result;
     return result;
   }catch(e){
