@@ -11569,25 +11569,8 @@ function renderABLog(rows){
 // ==================================================================
 function refreshData(){
   S.cache={};S.allRows=[];S.selPks.clear();
-  _fetchCache.clear(); // Force fresh fetch — avoids stale cache on retry
+  _fetchCache.clear();
   loadSlate();
-}
-
-// ==================================================================
-//  PWA — register sw2.js (new filename bypasses old SW cache)
-// ==================================================================
-if('serviceWorker' in navigator){
-  // Kill all existing registrations and caches
-  navigator.serviceWorker.getRegistrations().then(regs=>{
-    regs.forEach(reg=>reg.unregister());
-  });
-  if('caches' in window){
-    caches.keys().then(keys=>keys.forEach(k=>caches.delete(k)));
-  }
-  // Register sw2.js — old SW never cached this filename so it passes through
-  navigator.serviceWorker.register('sw2.js?v=20260527b').then(reg=>{
-    reg.update();
-  }).catch(()=>{});
 }
 
 let _installPrompt=null;
