@@ -3044,6 +3044,24 @@ function renderGameChips(){
       ${timeStr?`<div style="font-size:.55rem;color:var(--t4)">${timeStr}</div>`:''}
     </div>`;
     }).join('');
+    // Lineup refresh button — appended here so it always shows regardless of SW cache
+    const lineupBtn = document.createElement('div');
+    lineupBtn.id = 'lineup-refresh-btn';
+    lineupBtn.className = 'chip';
+    lineupBtn.innerHTML = '📋';
+    lineupBtn.title = 'Refresh Lineups';
+    lineupBtn.style.cssText = 'background:rgba(240,165,0,.15);border-color:rgba(240,165,0,.5);color:var(--amber);flex-shrink:0';
+    lineupBtn.onclick = function(){
+      this.innerHTML='⏳';
+      const b=this;
+      refreshLineups().then(()=>{
+        b.innerHTML='📋';
+        checkLineupLockAlert();
+        const n=(S.allRows||[]).filter(r=>r.lineupConfirmed).length;
+        if(n) b.innerHTML=`📋<span style="font-size:.55rem;display:block;color:var(--green)">${n}✓</span>`;
+      });
+    };
+    el.appendChild(lineupBtn);
   }catch(e){
     console.error('[renderGameChips]',e.message);
     el.innerHTML='<div style="color:var(--red);font-size:.72rem;padding:4px">Error loading game chips: '+e.message+'</div>';
@@ -8747,6 +8765,25 @@ function renderBestBets(){
 
 
 function renderSlate(){
+  // Inject lineup refresh button if not already there — runs with current JS regardless of SW cache
+  const filterRow = document.querySelector('.filter-row');
+  if(filterRow && !document.getElementById('lineup-refresh-btn')){
+    const btn = document.createElement('div');
+    btn.id = 'lineup-refresh-btn';
+    btn.className = 'filter-pill';
+    btn.textContent = '📋 Lineups';
+    btn.style.cssText = 'color:var(--amber);border-color:rgba(240,165,0,.4);white-space:nowrap;flex-shrink:0;cursor:pointer';
+    btn.onclick = function(){
+      const b=this; b.textContent='⏳'; b.style.pointerEvents='none';
+      refreshLineups().then(()=>{
+        checkLineupLockAlert(); b.textContent='📋 Lineups'; b.style.pointerEvents='';
+        const n=(S.allRows||[]).filter(r=>r.lineupConfirmed).length;
+        const s=document.getElementById('lineup-status');
+        if(s) s.textContent=n?`✓ ${n} confirmed`:'';
+      });
+    };
+    filterRow.appendChild(btn);
+  }
   if(!S.allRows.length){
     const hl=document.getElementById('hitter-list');
     if(hl) hl.innerHTML='<div class="empty">No players loaded</div>';
