@@ -28,6 +28,11 @@
   --safe-top:env(safe-area-inset-top,0px);
   --safe-bot:env(safe-area-inset-bottom,0px);
 }
+:root.light{
+  --bg:#f2f5f9;--bg2:#ffffff;--bg3:#e8edf4;--bdr:#c8d4e0;
+  --t1:#0d1520;--t2:#253545;--t3:#506070;--t4:#7a90a0;
+  --amber:#c07800;--blue:#1a6ad0;--green:#0a8040;--red:#c03030;
+}
 html,body{height:100%;background:var(--bg);color:var(--t2);
   font-family:'Inter',system-ui,sans-serif;font-size:15px;overflow:hidden}
 
@@ -338,6 +343,9 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   <div id="header-title">⚾ HR <span>Hub</span> <span style="font-size:.65rem;color:var(--t4);font-weight:500;letter-spacing:.02em">v2.0</span></div>
   <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="refreshOdds();this.textContent='↺ refreshing...'">FD odds: loading…</div>
   <div id="header-date"></div>
+  <button onclick="toggleTheme()" id="theme-btn"
+    style="background:none;border:none;color:var(--t4);font-size:1rem;cursor:pointer;
+    padding:4px 8px;border:1px solid var(--bdr);border-radius:6px;line-height:1">🌙</button>
   <button onclick="refreshData()" style="background:none;border:none;color:var(--t4);font-size:.8rem;cursor:pointer;padding:4px 8px;border:1px solid var(--bdr);border-radius:6px">↺</button>
   <button onclick="document.querySelector('.page.active')?.id==='page-info'?showPage(_prevPage):showPage('info')" id="nav-info-header"
     style="background:none;border:1px solid var(--bdr);border-radius:6px;
@@ -1169,7 +1177,25 @@ function goToday(){S.date=new Date();S.selPks.clear();S.allRows=[];loadSlate()}
 // ==================================================================
 //  NAVIGATION
 // ==================================================================
-let _prevPage = 'slate';
+function toggleTheme(){
+  const isLight = document.documentElement.classList.toggle('light');
+  localStorage.setItem('hr_hub_theme', isLight ? 'light' : 'dark');
+  document.getElementById('theme-btn').textContent = isLight ? '☀️' : '🌙';
+}
+
+// Apply saved theme on load
+(()=>{
+  const saved = localStorage.getItem('hr_hub_theme');
+  if(saved === 'light'){
+    document.documentElement.classList.add('light');
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const btn = document.getElementById('theme-btn');
+      if(btn) btn.textContent = '☀️';
+    });
+  }
+})();
+
+
 
 function showPage(name){
   // Track previous page so Info button can return
