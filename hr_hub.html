@@ -4027,61 +4027,48 @@ async function fetchTeamRecentStatcast(pids){
   try{
     const endDate   = ds();
     const startDate = ds(new Date(Date.now() - 30*864e5));
-
-    // Use exact same URL as season leaderboard + date range params
-    const url = `https://baseballsavant.mlb.com/leaderboard/statcast`
-      + `?type=batter&year=${SEASON}&position=&team=&min=1`
-      + `&date_range=custom&start_dt=${startDate}&end_dt=${endDate}&csv=true`;
-
+    const pidParams = pids.map(p=>`batters_lookup%5B%5D=${p}`).join('&');
+    const url = `https://baseballsavant.mlb.com/statcast_search/csv?all=true`
+      + `&hfSea=${SEASON}%7C&player_type=batter`
+      + `&game_date_gt=${startDate}&game_date_lt=${endDate}`
+      + `&hfGT=R%7C&type=details&min_results=0&group_by=name`
+      + `&sort_col=pitches&sort_order=desc&${pidParams}`;
     const ctrl = new AbortController();
-    setTimeout(()=>ctrl.abort(), 15000);
+    setTimeout(()=>ctrl.abort(), 20000);
     const r = await fetch(PROXY + encodeURIComponent(url), {signal:ctrl.signal});
-    if(!r.ok) throw new Error(`L30 sc ${r.status}`);
+    if(!r.ok) throw new Error(`L30 ${r.status}`);
     const rows = parseCSVText(await r.text());
-    console.log('[L30 Statcast] rows:', rows.length, 'sample cols:', Object.keys(rows[0]||{}).slice(0,8));
-
-    const pidSet = new Set(pids.map(String));
-    const result = {};
-
+    if(!rows.length){ _playerCache[key]={}; return {}; }
+    console.log('[L30] cols:', Object.keys(rows[0]).filter(k=>
+      k.includes('barrel')||k.includes('launch')||k.includes('ev')||k.includes('bb_type')).join(','));
+    const acc = {};
     for(const row of rows){
-      const pid = String(row.player_id||row.batter||'').replace(/\.0$/,'');
-      if(!pid || !pidSet.has(pid)) continue;
-
-      // brl_percent comes as e.g. "8.3" (already a percentage)
-      const brl = parseF(row.brl_percent ?? row.barrel_batted_rate ?? row.brl_pa);
-      const hh  = parseF(row.ev95percent ?? row.hard_hit_percent);
-      const ev  = parseF(row.avg_hit_speed ?? row.avg_exit_velocity ?? row.avg_launch_speed);
-
-      if(brl==null && hh==null && ev==null) continue;
-
-      // Savant sometimes returns barrel as decimal (0.083) instead of percent (8.3)
-      // Detect by checking if all non-null barrel values are < 1.0
-      result[pid] = {
-        barrel_pct:   brl,
-        hard_hit_pct: hh,
-        avg_ev:       ev,
-        _raw: true
+      const pid = String(row.batter||row.player_id||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      const ev = parseFloat(row.launch_speed||0);
+      if(ev <= 0) continue;
+      if(!acc[pid]) acc[pid]={n:0,evSum:0,hard:0,barrel:0};
+      const a=acc[pid]; a.n++; a.evSum+=ev;
+      if(ev>=95) a.hard++;
+      const lsa=parseInt(row.launch_speed_angle||0);
+      const bf=parseInt(row.barrel||0);
+      if(lsa===6||bf===1) a.barrel++;
+    }
+    const result={};
+    for(const [pid,a] of Object.entries(acc)){
+      if(a.n<5) continue;
+      result[pid]={
+        barrel_pct:   Math.round(a.barrel/a.n*1000)/10,
+        hard_hit_pct: Math.round(a.hard/a.n*1000)/10,
+        avg_ev:       Math.round(a.evSum/a.n*10)/10,
       };
     }
-
-    // Fix decimal vs percent: if median barrel < 1.0, values are in decimal form
-    const brlVals = Object.values(result).map(v=>v.barrel_pct).filter(v=>v!=null&&v>0);
-    const isDecimal = brlVals.length > 0 && brlVals.every(v=>v < 1.0);
-    if(isDecimal){
-      console.log('[L30 Statcast] converting decimal → percent');
-      for(const v of Object.values(result)){
-        if(v.barrel_pct!=null)   v.barrel_pct   = Math.round(v.barrel_pct*1000)/10;
-        if(v.hard_hit_pct!=null) v.hard_hit_pct = Math.round(v.hard_hit_pct*1000)/10;
-      }
-    }
-
-    console.log('[L30 Statcast] matched:', Object.keys(result).length, 'of', pids.length);
-    _playerCache[key] = result;
-    return result;
+    console.log('[L30] players:', Object.keys(result).length,
+      'sample:', Object.entries(result).slice(0,2).map(([p,v])=>`${p}:brl${v.barrel_pct}%`).join(' '));
+    _playerCache[key]=result; return result;
   }catch(e){
-    console.warn('[L30 Statcast]:', e.message);
-    _playerCache[key] = {};
-    return {};
+    console.warn('[L30]:', e.message);
+    _playerCache[key]={}; return {};
   }
 }
 
