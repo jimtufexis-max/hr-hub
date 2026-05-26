@@ -4017,7 +4017,63 @@ async function ensureRollingMap(){
 }
 
 // ==================================================================
-//  PARK HR FACTORS by HANDEDNESS — L/R specific park factors
+//  BATCH RECENT STATCAST — fetch L30 barrel%/EV/hard-hit for a team
+//  Single CSV request for all batters at once via batters_lookup[]
+// ==================================================================
+async function fetchTeamRecentStatcast(pids){
+  if(!pids||!pids.length) return {};
+  const key = `team_recent_${pids.slice().sort().join('_')}`;
+  if(_playerCache[key]) return _playerCache[key];
+  try{
+    const endDate   = ds();
+    const startDate = ds(new Date(Date.now() - 30*864e5));
+    // Build multi-player lookup query — all pids in one request
+    const pidParams = pids.map(p=>`batters_lookup%5B%5D=${p}`).join('&');
+    const url = `https://baseballsavant.mlb.com/statcast_search/csv?all=true`
+      + `&hfSea=${SEASON}%7C&player_type=batter`
+      + `&game_date_gt=${startDate}&game_date_lt=${endDate}`
+      + `&${pidParams}`
+      + `&type=details&hfGT=R%7C&min_results=0&group_by=name&sort_col=pitches&sort_order=desc&`;
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    if(!r.ok) throw new Error(`recent sc ${r.status}`);
+    const rows = parseCSVText(await r.text());
+
+    // Aggregate per player
+    const acc = {};
+    for(const row of rows){
+      const pid = String(row.batter||row.player_id||'').replace(/\.0$/,'');
+      if(!pid) continue;
+      if(!acc[pid]) acc[pid] = {barrelCount:0, hardCount:0, evSum:0, evCount:0, pitches:0};
+      const a = acc[pid];
+      a.pitches++;
+      const ev = parseFloat(row.launch_speed||row.hit_speed||0)||0;
+      const type = (row.bb_type||row.batted_ball_type||'').toLowerCase();
+      const isBarrel = row.barrel==='1'||row.barrel===1||type==='barrel';
+      const isHard = ev >= 95;
+      if(ev > 0){ a.evSum+=ev; a.evCount++; }
+      if(isBarrel) a.barrelCount++;
+      if(isHard) a.hardCount++;
+    }
+
+    const result = {};
+    for(const [pid, a] of Object.entries(acc)){
+      if(a.evCount < 5) continue; // too few batted balls
+      result[pid] = {
+        barrel_pct: a.evCount > 0 ? Math.round(a.barrelCount/a.evCount*1000)/10 : null,
+        hard_hit_pct: a.evCount > 0 ? Math.round(a.hardCount/a.evCount*1000)/10 : null,
+        avg_ev: a.evCount > 0 ? Math.round(a.evSum/a.evCount*10)/10 : null,
+      };
+    }
+    _playerCache[key] = result;
+    return result;
+  }catch(e){
+    console.warn('[TeamRecentSC]:', e.message);
+    _playerCache[key] = {};
+    return {};
+  }
+}
+
+
 //  Savant park factors endpoint has handedness splits
 // ==================================================================
 const PARK_HR_FACTOR_LR = {
@@ -8466,13 +8522,25 @@ async function loadGame(g){
     S.cache[key] = rows;
     queueForAutoTrack(rows);
 
-    // Fire recent games in background — enriches L14 row after render
-    Promise.allSettled(
-      hitters.map(h => getBatterRecentGames(String(h.id)).then(recent=>{
-        const row = rows.find(r=>String(r.id)===String(h.id));
-        if(row && recent?.length) row._recentGames = recent;
-      }))
-    ).then(()=>{ if(S.allRows.length) renderSlate(); }).catch(()=>{});
+    // Background: batch recent Statcast (L30 barrel/EV/hard-hit) — one fetch for whole team
+    const pids = hitters.map(h=>String(h.id));
+    Promise.all([
+      fetchTeamRecentStatcast(pids),
+      Promise.allSettled(hitters.map(h=>getBatterRecentGames(String(h.id)).then(recent=>{
+        const row=rows.find(r=>String(r.id)===String(h.id));
+        if(row&&recent?.length) row._recentGames=recent;
+      }))),
+    ]).then(([recentSC])=>{
+      for(const row of rows){
+        const sc = recentSC[String(row.id)];
+        if(sc){
+          row._recentBarrel   = sc.barrel_pct;
+          row._recentHardHit  = sc.hard_hit_pct;
+          row._recentEV       = sc.avg_ev;
+        }
+      }
+      if(S.allRows.length) renderSlate();
+    }).catch(()=>{});
   }
   console.log(`[loadGame] DONE ${g.away}@${g.home}`);
 
@@ -8988,6 +9056,30 @@ function renderHitterCard(r,showGame){
       ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)} xwOBA</span></div>`:''}
       ${(()=>{ const pos=r.lineupPos; const expPA=pos?Math.max(3.5,Math.min(4.8,4.8-(pos-1)*0.15)):4.1; const xhr=r.prob*expPA; const clr=xhr>=0.35?'var(--green)':xhr>=0.20?'var(--amber)':'var(--t3)'; return`<div class="stat-chip" title="Expected HRs today"><span>xHR</span><span class="val" style="color:${clr}">${xhr.toFixed(2)}</span></div>`; })()}
     </div>
+    ${(()=>{
+      // L30 recent Statcast row — only shown when background fetch completes
+      const hasL30 = r._recentBarrel!=null || r._recentHardHit!=null || r._recentEV!=null;
+      if(!hasL30) return '';
+      const arr = (recent, season) => {
+        if(recent==null||season==null||season===0) return '';
+        const d = (recent-season)/season;
+        return d>=0.10?`<span style="color:var(--green);font-size:.55rem">↑</span>`
+             : d<=-0.10?`<span style="color:var(--red);font-size:.55rem">↓</span>`
+             : `<span style="color:var(--t4);font-size:.55rem">→</span>`;
+      };
+      return `<div class="hc-row2" style="margin-top:3px;padding-top:4px;border-top:1px solid var(--bg3)">
+        <div style="font-size:.55rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;align-self:center;margin-right:4px;opacity:.7;flex-shrink:0">L30</div>
+        ${r._recentBarrel!=null?`<div class="stat-chip" title="Barrel% last 30 days (season: ${r.barrel_pct?.toFixed(1)||'--'}%)">
+          <span>Barrel%</span><span class="val" style="color:${r._recentBarrel>=10?'var(--green)':r._recentBarrel<=3?'var(--red)':'var(--t2)'}">${r._recentBarrel.toFixed(1)}%${arr(r._recentBarrel,r.barrel_pct)}</span>
+        </div>`:''}
+        ${r._recentHardHit!=null?`<div class="stat-chip" title="Hard hit% last 30 days (season: ${r.hard_hit_pct?.toFixed(1)||'--'}%)">
+          <span>Hard%</span><span class="val" style="color:${r._recentHardHit>=50?'var(--green)':r._recentHardHit<=32?'var(--red)':'var(--t2)'}">${r._recentHardHit.toFixed(1)}%${arr(r._recentHardHit,r.hard_hit_pct)}</span>
+        </div>`:''}
+        ${r._recentEV!=null?`<div class="stat-chip" title="Exit velocity last 30 days (season: ${r.avg_ev?.toFixed(1)||'--'} mph)">
+          <span>EV</span><span class="val" style="color:${r._recentEV>=93?'var(--green)':r._recentEV<=87?'var(--red)':'var(--t2)'}">${r._recentEV.toFixed(1)}${arr(r._recentEV,r.avg_ev)}</span>
+        </div>`:''}
+      </div>`;
+    })()}
 
 
     ${(()=>{
