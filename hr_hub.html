@@ -4837,8 +4837,13 @@ async function renderResultsTab(){
     const today     = ds();
     const yesterday = ds(new Date(Date.now()-864e5));
 
-    // Load day results (cached — does NOT re-run auto-resolve on every render)
-    const dayResults = _dayResultsCache || await loadDayResults();
+    // Load day results (cached) — isolated so failure doesn't kill bet history
+    let dayResults = [];
+    try{
+      dayResults = _dayResultsCache || await loadDayResults();
+    }catch(e){
+      console.warn('[results] loadDayResults failed:', e.message);
+    }
 
     const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
     const tracked = stored.filter(r=>r.manualBet===true);
@@ -5162,7 +5167,10 @@ async function renderResultsTab(){
     renderHitRateTracker(hrtEl);
 
   }catch(e){
-    el.innerHTML=`<div class="card" style="color:var(--red);font-size:.75rem">${e.message}</div>`;
+    el.innerHTML=`<div class="card" style="color:var(--red);font-size:.75rem">
+      <b>Results Error: ${e.message}</b>
+      <pre style="font-size:.60rem;white-space:pre-wrap;margin-top:6px">${e.stack?.split('\n').slice(0,4).join('\n')}</pre>
+    </div>`;
     console.error('[results]',e.stack);
   }
 }
@@ -8262,6 +8270,9 @@ async function loadGame(g){
   if(lineupConfirmed) _playerCache[`lineup_confirmed_${g.pk}`] = true;
 
   // SECONDARY — fire but don't await
+  const awWorkload=null, hmWorkload=null, awRest=null, hmRest=null;
+  const awTeamHR=null, hmTeamHR=null, awBB=null, hmBB=null;
+  const awBullpen=null, hmBullpen=null;
   Promise.all([
     getPitcherWorkload(g.awaySpId), getPitcherWorkload(g.homeSpId),
     getSPDaysRest(g.awaySpId),     getSPDaysRest(g.homeSpId),
