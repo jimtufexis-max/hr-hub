@@ -2796,17 +2796,7 @@ function fireSecondaryMaps(){
 
       // Enrich rows with L30 rolling Statcast data
       let rollEnriched = 0;
-      for(const r of S.allRows||[]){
-        const pid = String(r.id);
-        const roll = (_rollingMap||{})[pid];
-        if(roll){
-          r._rollBrl = roll.brl;
-          r._rollEV  = roll.ev;
-          r._rollXw  = roll.xwoba;
-          rollEnriched++;
-        }
-      }
-      if(rollEnriched > 0) renderSlate();
+      if(rollEnriched > 0) renderSlate(); // placeholder — real data via game log
 
       // Re-enrich pitcher stats on every row now that FG/whiff maps are loaded
       let enriched = 0;
@@ -8474,15 +8464,7 @@ async function loadGame(g){
     S.cache[key] = rows;
     queueForAutoTrack(rows);
 
-    // Apply rolling map immediately if already loaded
-    if(_rollingMap && Object.keys(_rollingMap).length > 0){
-      for(const r of rows){
-        const roll = _rollingMap[String(r.id)];
-        if(roll){ r._rollBrl=roll.brl; r._rollEV=roll.ev; r._rollXw=roll.xwoba; }
-      }
-    }
-
-    // Fire recent games in background — enriches L14 HR count after render
+    // Fire recent games in background — enriches L14 row after render
     Promise.allSettled(
       hitters.map(h => getBatterRecentGames(String(h.id)).then(recent=>{
         const row = rows.find(r=>String(r.id)===String(h.id));
@@ -8952,46 +8934,44 @@ function renderHitterCard(r,showGame){
       <div class="mult-item" title="Times Through Order"><span class="mult-label">TTO</span><span class="mult-val ${r.ttoMult>=1.15?'up':r.ttoMult<=0.90?'dn':'flat'}">${r.ttoMult!=null?r.ttoMult.toFixed(2)+'x':'—'}</span></div>
     </div>
     ${(()=>{
-      // Recent form row — L30 rolling Statcast + L14 game log HRs
-      const g14   = (r._recentGames||[]).slice(0,14);
-      const pa14  = g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);
-      const hr14  = g14.reduce((s,x)=>s+(x.hr||0),0);
-      const hasRoll = r._rollBrl!=null || r._rollEV!=null;
-      const hasGame = pa14>=10;
-      if(!hasRoll && !hasGame) return '';
-
-      const trend = (recent, season, higher=true) => {
-        if(recent==null||season==null) return '';
-        const diff = recent - season;
-        const pct  = season > 0 ? diff/season : 0;
-        if(Math.abs(pct) < 0.08) return '<span style="color:var(--t4)">→</span>';
-        return pct > 0
-          ? `<span style="color:var(--green)">↑</span>`
-          : `<span style="color:var(--red)">↓</span>`;
-      };
-
-      const fmtV = (v, dec, suffix='') => v!=null ? v.toFixed(dec)+suffix : '—';
-
+      const g14 = (r._recentGames||[]).slice(0,14);
+      const pa14 = g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);
+      if(pa14 < 10) return '';
+      const hr14 = g14.reduce((s,x)=>s+(x.hr||0),0);
+      const ab14 = g14.reduce((s,x)=>s+(x.ab||0),0);
+      const tb14 = g14.reduce((s,x)=>s+(x.tb||0),0);
+      const h14  = g14.reduce((s,x)=>s+(x.h||0),0);
+      const slg14 = ab14>0 ? tb14/ab14 : null;
+      const avg14 = ab14>0 ? h14/ab14 : null;
+      const hrRate14 = pa14>0 ? hr14/pa14 : 0;
+      const seasonRate = r.anchor||0.035;
+      const vs = seasonRate>0 ? hrRate14/seasonRate : 1;
+      const arrow = vs>=1.20?`<span style="color:var(--green)">↑</span>`:vs<=0.65?`<span style="color:var(--red)">↓</span>`:`<span style="color:var(--t4)">→</span>`;
+      const fmt = (v,d=3) => v!=null?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'—';
       return `<div style="display:flex;gap:0;margin-top:3px;padding:5px 0 3px;
         border-top:1px solid var(--bg3);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">
         <div style="font-size:.56rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;
-          flex-shrink:0;align-self:center;margin-right:6px;opacity:.7">L30</div>
-        ${r._rollBrl!=null?`<div class="mult-item" title="Barrel% last 30 days vs season ${r.barrel_pct!=null?r.barrel_pct.toFixed(1)+'%':''}">
-          <span class="mult-label">Brl%</span>
-          <span class="mult-val" style="color:${r._rollBrl>=10?'var(--green)':r._rollBrl<=3?'var(--red)':'var(--t2)'}">${fmtV(r._rollBrl,1,'%')}${trend(r._rollBrl,r.barrel_pct)}</span>
+          flex-shrink:0;align-self:center;margin-right:6px;opacity:.7">L14</div>
+        <div class="mult-item" title="HR rate last 14 games vs season">
+          <span class="mult-label">HR/PA</span>
+          <span class="mult-val" style="color:${vs>=1.20?'var(--green)':vs<=0.65?'var(--red)':'var(--t2)'}">${(hrRate14*100).toFixed(1)}%${arrow}</span>
+        </div>
+        <div class="mult-item" title="HRs in last 14 games">
+          <span class="mult-label">HRs</span>
+          <span class="mult-val" style="color:${hr14>=3?'var(--green)':hr14===0&&pa14>=30?'var(--red)':'var(--t2)'}">${hr14}</span>
+        </div>
+        ${slg14!=null?`<div class="mult-item" title="SLG last 14 games">
+          <span class="mult-label">SLG</span>
+          <span class="mult-val" style="color:${slg14>=.500?'var(--green)':slg14<=.280?'var(--red)':'var(--t2)'}">${fmt(slg14)}</span>
         </div>`:''}
-        ${r._rollEV!=null?`<div class="mult-item" title="Exit velocity last 30 days vs season ${r.avg_ev!=null?r.avg_ev.toFixed(1)+' mph':''}">
-          <span class="mult-label">EV</span>
-          <span class="mult-val" style="color:${r._rollEV>=93?'var(--green)':r._rollEV<=87?'var(--red)':'var(--t2)'}">${fmtV(r._rollEV,1)}${trend(r._rollEV,r.avg_ev)}</span>
+        ${avg14!=null?`<div class="mult-item" title="AVG last 14 games">
+          <span class="mult-label">AVG</span>
+          <span class="mult-val" style="color:${avg14>=.300?'var(--green)':avg14<=.160?'var(--red)':'var(--t2)'}">${fmt(avg14)}</span>
         </div>`:''}
-        ${r._rollXw!=null?`<div class="mult-item" title="xwOBA last 30 days">
-          <span class="mult-label">xwOBA</span>
-          <span class="mult-val" style="color:${r._rollXw>=.400?'var(--green)':r._rollXw<=.280?'var(--red)':'var(--t2)'}">${'.'+Math.round(r._rollXw*1000).toString().padStart(3,'0').slice(-3)}</span>
-        </div>`:''}
-        ${hasGame?`<div class="mult-item" title="HRs in last 14 games">
-          <span class="mult-label">L14 HR</span>
-          <span class="mult-val" style="color:${hr14>=3?'var(--green)':hr14===0&&pa14>=30?'var(--red)':'var(--t2)'}">${hr14}/${pa14>0?pa14+'PA':'—'}</span>
-        </div>`:''}
+        <div class="mult-item" title="Plate appearances in last 14 games">
+          <span class="mult-label">PA</span>
+          <span class="mult-val" style="color:var(--t4)">${pa14}</span>
+        </div>
       </div>`;
     })()}
     ${angleRow}
