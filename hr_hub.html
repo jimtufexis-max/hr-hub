@@ -1330,11 +1330,23 @@ async function getGames(){
   return games;
 }
 
+// Cache team IDs to avoid re-fetching all teams on every roster call
+let _teamIdCache = null;
+async function getTeamId(abbr){
+  if(!_teamIdCache){
+    const td = await fetchJSON(`${MLB}/teams?sportId=1&season=${SEASON}`);
+    _teamIdCache = {};
+    (td.teams||[]).forEach(t=>{ _teamIdCache[t.abbreviation]=t.id; });
+  }
+  return _teamIdCache[abbr]||null;
+}
+
 async function getRoster(abbr){
-  const td=await fetchJSON(`${MLB}/teams?sportId=1&season=${SEASON}`);
-  const team=(td.teams||[]).find(t=>t.abbreviation===abbr);
-  if(!team)return[];
-  const r=await fetchJSON(`${MLB}/teams/${team.id}/roster?rosterType=active&season=${SEASON}&hydrate=person`);
+  const cacheKey = `roster_${abbr}`;
+  if(_playerCache[cacheKey]) return _playerCache[cacheKey];
+  const teamId = await getTeamId(abbr);
+  if(!teamId){ _playerCache[cacheKey]=[]; return []; }
+  const r=await fetchJSON(`${MLB}/teams/${teamId}/roster?rosterType=active&season=${SEASON}&hydrate=person`);
   const players = (r.roster||[]).map(p=>{
     const person = p.person||{};
     // MLB API returns batSide as {code:'L',description:'Left'} with hydrate=person
@@ -1346,11 +1358,11 @@ async function getRoster(abbr){
       pos:p.position?.abbreviation||'',batHand};
   }).filter(p=>p.pos!=='P'&&p.pos!=='');
 
-  // Debug: confirm batHand is populated
   const sample = players.slice(0,5).map(p=>`${p.name.split(' ')[1]||p.name}:${p.batHand||'?'}`);
   console.log(`[Roster ${abbr}] batHand sample:`, sample.join(', '));
   const nullCount = players.filter(p=>!p.batHand).length;
-  if(nullCount>0) console.warn(`[Roster ${abbr}] ${nullCount} players missing batHand — will use getPlayerStats fallback`);
+  if(nullCount>0) console.warn(`[Roster ${abbr}] ${nullCount} players missing batHand`);
+  _playerCache[cacheKey] = players;
   return players;
 }
 
@@ -8540,8 +8552,10 @@ async function loadGame(g){
       _arsenalWeaknesses: [],
     };
 
-    // Batch of 10 — fetch all batter data in parallel
-    const BATCH = 10;
+    // Adaptive batch size: smaller when loading many games simultaneously
+    // Prevents overwhelming the proxy worker and crashing iOS
+    const BATCH = S.selPks.size >= 5 ? 4 : S.selPks.size >= 3 ? 6 : 10;
+    const BATCH_DELAY = S.selPks.size >= 5 ? 100 : 0; // ms between batches
     const recentGamesMap = {};
     const platoonMap = {};
     const homeAwayMap = {};
@@ -8562,6 +8576,10 @@ async function loadGame(g){
         if(haResults[j].status==='fulfilled')    homeAwayMap[String(h.id)]    = haResults[j].value;
         if(priorResults[j].status==='fulfilled') priorRateMap[String(h.id)]   = priorResults[j].value;
       });
+      // Yield to browser between batches on large slates
+      if(BATCH_DELAY > 0 && i + BATCH < hitters.length){
+        await new Promise(res => setTimeout(res, BATCH_DELAY));
+      }
     }
 
     lap(`after batter batch ${team}`);
