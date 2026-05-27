@@ -2544,11 +2544,17 @@ function detectAngles(r){
     a.push({icon:'💤',cat:'sleeper',tier:1,label:'Sleeper Pick (+)',color:'#a78bfa',
       tip:`Under-the-radar play: ${sleeperData.reasons[0]}`});
 
-  // Due flag — positive regression pending
-  const dueData = detectDue(r);
-  if(dueData&&dueData.score>=4)
-    a.push({icon:'⏰',cat:'due',tier:2,label:'Regression Due (+)',color:'var(--amber)',
-      tip:`Overdue for HRs: ${dueData.reasons[0]}`});
+  // ── HEATING UP / DUE — heat score from 6 conditions ────────────
+  const heat = calcHeatScore(r);
+  if(heat.score >= 5){
+    a.push({icon:'🌋',cat:'due',tier:1,label:'Due (+)',color:'#ffd700',
+      tip:`${heat.score}/6 heat signals: ${heat.metLabels.join(', ')} — strong regression case`});
+  } else if(heat.score >= 3){
+    a.push({icon:'🌡️',cat:'heating',tier:2,label:'Heating Up (+)',color:'var(--amber)',
+      tip:`${heat.score}/6 heat signals: ${heat.metLabels.join(', ')}`});
+  }
+
+  // Regression Due
 
   // Bullpen quality
   if(r.bullpenMult!=null&&r.bullpenMult>=1.12)
@@ -2689,7 +2695,7 @@ function detectAngles(r){
   }
 
   // Park/weather
-  if(r.team==='COL'||r.game?.includes('@COL')) a.push({icon:'🏔️',cat:'park',tier:1,label:'Coors Field (+)',color:'var(--amber)',tip:'Mile High — ball travels ~10% farther'});
+  if(r.game?.includes('@COL') || (r.team==='COL' && r.isHome)) a.push({icon:'🏔️',cat:'park',tier:1,label:'Coors Field (+)',color:'var(--amber)',tip:'Mile High — ball travels ~10% farther'});
   else if(r.pf>=1.08) a.push({icon:'🏟️',cat:'park',tier:2,label:'HR Park (+)',color:'var(--amber)',tip:`Park factor ${r.pf.toFixed(2)}x`});
   if(wx.temp!=null&&wx.temp>=85) a.push({icon:'☀️',cat:'temp',tier:2,label:'Heat Game (+)',color:'var(--amber)',tip:`${Math.round(wx.temp)}F`});
   if(wx.wind>=12&&r.parkwx>=1.08) a.push({icon:'💨',cat:'wind',tier:1,label:'Wind Out (+)',color:'var(--green)',tip:`${windLabel(wx.wind,wx.wdir)} toward power alley`});
@@ -2737,7 +2743,83 @@ function detectAngles(r){
   return Object.values(best).sort((x,y)=>{if(x.cat==='combo')return -1;if(y.cat==='combo')return 1;return x.tier-y.tier;});
 }
 
+function calcHeatScore(r){
+  // Returns {score, conditions:[{id,label,met}]} for 6 heat conditions
+  const g = r._recentGames || [];
+  const g3 = g.slice(0,3);
+  const g7 = g.slice(0,7);
+
+  // ── Condition 1: Barrel event in last 3 games ─────────────────────
+  // Proxy: HR or extra-base hit in a game (game log lacks per-pitch barrel data)
+  const g3_barrel = g3.some(gm => gm.hr > 0 || (gm.xbh > 0 && (gm.tb||0) >= 2));
+
+  // ── Condition 2: Barrel% ≥ MLB 50th percentile (~8%) ─────────────
+  const barrel50 = (r.barrel_pct || 0) >= 8;
+
+  // ── Condition 3: Drought Z-score > 0 ─────────────────────────────
+  // BIPs since last HR vs expected interval, using Poisson approximation
+  // expectedDrought = expected BIPs per HR = (szBIP / szHR)
+  // szBIP ≈ szPA * 0.65 (remove walks ~15% + Ks ~20% from PA)
+  const szHR  = r.szHR  || 0;
+  const szPA  = r.szPA  || 0;
+  const droughtZ = (() => {
+    if(szHR < 1 || szPA < 40) return -1;
+    const szBIP = szPA * 0.65;
+    const expectedDrought = szBIP / szHR; // BIPs per HR
+    // Count BIPs since last HR from game log
+    let bipsSinceHR = 0;
+    for(const gm of g){
+      if((gm.hr||0) > 0) break;
+      bipsSinceHR += Math.max(0, (gm.ab||0) - (gm.so||0));
+    }
+    // Z = (observed - expected) / sqrt(expected)  [Poisson]
+    if(expectedDrought <= 0) return -1;
+    return (bipsSinceHR - expectedDrought) / Math.sqrt(expectedDrought);
+  })();
+  const droughtPos = droughtZ > 0;
+
+  // ── Condition 4: Launch angle trending into HR window (18–32°) ───
+  // Use season avgLA + L14 SLG trend as proxy for LA shift
+  const laInWindow = (() => {
+    const szLA = r.avgLA;
+    if(szLA == null) return false;
+    // Already in HR window
+    if(szLA >= 18 && szLA <= 32) return true;
+    // Close to HR window (14-18 or 32-36) AND L14 SLG trending up vs season
+    const g14 = g.slice(0,14);
+    const ab14 = g14.reduce((s,x)=>s+(x.ab||0),0);
+    const tb14 = g14.reduce((s,x)=>s+(x.tb||0),0);
+    const slg14 = ab14 >= 15 ? tb14/ab14 : null;
+    // Season SLG estimate from szHR + ISO
+    const szISO = r.iso || 0;
+    const sznSLG = szISO > 0 ? szISO + 0.250 : null; // rough estimate
+    const trendingUp = slg14 != null && sznSLG != null && slg14 > sznSLG * 1.08;
+    return (szLA >= 14 && szLA < 18 && trendingUp) ||  // sub-optimal but improving
+           (szLA > 32 && szLA <= 36 && trendingUp);    // too high but squaring up
+  })();
+
+  // ── Condition 5: HR-friendly SP ──────────────────────────────────
+  const hrFriendlySP = (r.pitcher || 1) >= 1.10;
+
+  // ── Condition 6: HR-friendly park ────────────────────────────────
+  const hrFriendlyPark = (r.pf || 1) >= 1.08 || (r.parkwx || 1) >= 1.08;
+
+  const conds = [
+    { id:'barrel-l3',  label:'Barrel L3G',      met: g3_barrel      },
+    { id:'barrel-pct', label:'Barrel% ≥ avg',    met: barrel50       },
+    { id:'drought-z',  label:'HR Drought Z>0',   met: droughtPos     },
+    { id:'la-window',  label:'LA in HR window',  met: laInWindow     },
+    { id:'sp-hr',      label:'HR-Friendly SP',   met: hrFriendlySP   },
+    { id:'park-hr',    label:'HR-Friendly Park',  met: hrFriendlyPark },
+  ];
+
+  const score = conds.filter(c=>c.met).length;
+  const metLabels = conds.filter(c=>c.met).map(c=>c.label);
+  return { score, conds, metLabels };
+}
+
 function detectNegativeAngles(r){
+
   const neg=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||r._wx||{};
   const l15hr=r.l15hr||g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
   const l7hr=g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
@@ -4616,74 +4698,116 @@ function importBetHistory(){
 // Render model performance card
 function renderTagGuide(){
   const el=document.getElementById('tag-guide-grid');
-  if(!el||el.childElementCount>0) return; // only render once
-  const tags=[
-    ['COMBO'],
-    ['⭐ Elite Spot','var(--green)','4+ signals aligned, real power base'],
-    ['🌟 Prime Spot','var(--green)','Platoon + power + form aligned'],
-    ['💤 Sleeper','#a78bfa','Under-the-radar matchup edge today'],
-    ['⏰ Regression Due','var(--amber)','xwOBA above wOBA — HRs incoming'],
-    ['PLATOON'],
-    ['🎯 Platoon King','var(--green)','Best cross-hand matchup (1.20x+)'],
-    ['✅ Platoon Edge','var(--green)','Favorable handedness (1.10–1.20x)'],
-    ['⚠️ L vs L Fade','var(--red)','LHB vs LHP — ~28% HR suppression, toughest matchup'],
-    ['FORM'],
-    ['🔥 On Fire','var(--green)','2+ HRs in last 3 games'],
-    ['⚡ L7 Surge','var(--green)','Recent rate 1.8x above season'],
-    ['🧊 HR Drought','var(--red)','0 HRs in 15G, solid season rate'],
-    ['🍀 Luck Regression','#90c0ff','xwOBA well above actual wOBA'],
-    ['POWER'],
-    ['🛢️ Barrel King','var(--green)','Barrel% 20/15/11%+ (avg 8%)'],
-    ['🎯 Pull-Air King','var(--green)','Pull-air% 22/18/15%+ (avg 12.5%)'],
-    ['🚀 HR Machine','var(--green)','HR/FB 28/22%+ (avg 13%)'],
-    ['🔨 Iron Fists','var(--green)','Hard hit% 56/50%+ (avg 38%)'],
-    ['⚡ Nuclear EV','var(--green)','Exit velo 95/92 mph+ (avg 88.5)'],
-    ['💣 Power Freak','var(--green)','ISO .300/.240+ (avg .165)'],
-    ['🏏 Elite Bat Speed','#ffd700','Swing speed 75+ mph (avg 70)'],
-    ['PITCHER'],
-    ['🧨 Dinger Machine','var(--green)','SP 3.0+ HR/9 recent'],
-    ['📤 HR-Prone SP','var(--green)','SP xFIP 5.0+ or HR/9 above avg'],
-    ['🧱 Shutdown SP','var(--red)','SP xFIP ≤3.50 — elite suppressor'],
-    ['📉 SP Losing Velo','var(--green)','FB down 0.8+ mph vs last season'],
-    ['⬆️ Fly Ball SP','var(--green)','44%+ FB rate — HR-friendly'],
-    ['⬇️ Ground Ball SP','var(--red)','52%+ GB rate — suppresses HRs'],
-    ['🌀 High-K SP','var(--red)','32%+ whiff rate — fewer balls in play'],
-    ['🎵 Crushes [Pitch]','var(--green)','Batter ISO 1.5x+ avg vs this pitch'],
-    ['🎵 Weak vs [Pitch]','var(--red)','Batter ISO 0.6x avg vs this pitch'],
-    ['CONTEXT'],
-    ['🏟️ HR Park','var(--green)','Park factor 1.08x+'],
-    ['💨 Wind Out','var(--green)','12+ mph blowing toward power alley'],
-    ['🌀 Wind In','var(--red)','12+ mph headwind'],
-    ['🏠 Home Splits','var(--green)','Better HR rate home vs away'],
-    ['⚔️ Career vs SP','#ffd700','2+ career HRs vs this pitcher'],
-    ['👨‍⚖️ HR-Friendly Ump','#90c0ff','Ump historically boosts HR rate'],
-    ['😓 SP Short Rest','var(--green)','SP on ≤3 days rest — fatigued'],
-    ['VALUE'],
-    ['💰 FD Value','var(--green)','Model beats FD implied 5%+'],
-    ['🚫 Overpriced','var(--red)','Book has the edge — skip'],
-    ['⚠️ PPD Risk','var(--red)','40%+ postponement chance'],
-    ['⚠️ Lineup TBD','var(--red)','Official lineup not yet posted'],
+  if(!el||el.childElementCount>0) return;
+
+  // Master tag definitions — [label, color, shortDesc, longDesc]
+  const TAGS = {
+    // COMBO
+    'elite-spot':    ['⭐ Elite Spot',    'var(--green)',  '5 signals + power + hittable SP','Requires ALL of: (1) 5+ distinct positive signal categories firing, (2) anchor rate 20%+ above MLB average, (3) strong power base — barrel% ≥11% or pull-air% ≥16% or ISO ≥.210, (4) pitcher multiplier ≥1.10x meaning the SP is genuinely hittable, (5) zero red-flag negatives. When all 5 gates clear, the play is as stacked as it gets. These are the highest-conviction plays on the slate.'],
+    'sleeper':       ['💤 Sleeper',       '#a78bfa',       'Under-the-radar edge',         'Strong matchup signals but low public attention — typically below-average salary on DFS. Model finds edge that the market has missed today.'],
+    'regression-due':['⏰ Regression Due','var(--amber)',   'xwOBA >> wOBA — HRs coming',  'This hitter\'s quality of contact (xwOBA) is significantly higher than their actual results (wOBA). The gap means HRs should be coming — batted ball luck is expected to normalize upward.'],
+    // PLATOON
+    'platoon-king':  ['🎯 Platoon King',  '#ffd700',       'Cross-hand advantage 1.20x+',  'Batter vs opposite-hand pitcher with confirmed split data showing 1.20x+ HR rate advantage. This is one of the most reliable edges in baseball — handedness splits stabilize in ~50 PA. Model weight: 0.35x multiplier.'],
+    'platoon-edge':  ['✅ Platoon Edge',  'var(--green)',  'Cross-hand advantage 1.10x+',  'Favorable handedness matchup (LHB vs RHP or RHB vs LHP) with model showing 1.10-1.20x advantage. Population priors: LHB vs RHP +18%, RHB vs LHP +22%.'],
+    'lvl-fade':      ['⚠️ L vs L Fade',  'var(--red)',    'LHB vs LHP — worst matchup',   'Left-handed batter vs left-handed pitcher is the toughest platoon matchup in baseball. Approximately 28% HR suppression. The model discounts this player significantly unless other signals override.'],
+    'rvr-fade':      ['🔵 R vs R',        'var(--amber)',  'RHB vs RHP — slight fade',     'Right-handed batter vs right-handed pitcher. Approximately 12% HR suppression at population level. Less severe than L vs L but still a headwind.'],
+    // FORM
+    'on-fire':       ['🔥 On Fire',       '#ff6b00',       '3+ HRs in last 3 games',       'Extreme recent form — 3 or more home runs across the last 3 games. This is a genuine hot streak, not noise. HR clusters are real in baseball though not fully predictive forward.'],
+    'back-to-back':  ['🔥 Back-to-Back',  'var(--amber)',  '2 HRs in last 3 games',        'Strong recent form — 2 home runs in last 3 games. Elevated but not extreme. Used to boost model confidence rather than override base rates.'],
+    'l7-surge':      ['⚡ L7 Pace Surge', 'var(--amber)',  'L7 HR rate 1.8x+ season rate', 'Last 7 games HR rate is running 1.8x or more above season average. Must have 15+ PA in the window to qualify. Signals genuine short-term momentum.'],
+    'hot-streak':    ['🌡️ Quality Hot',   '#ffd700',       'L30 xwOBA 35+ pts above szn',  'Rolling 30-day xwOBA is 35+ points above season average AND above .380. This means the quality of contact — not just results — has genuinely improved recently. More reliable than raw HR streak.'],
+    'hr-drought':    ['🧊 HR Drought',    'var(--red)',    '0 HRs in last 15 games',       'Zero home runs in the last 30+ PA despite a solid season HR rate (4%+). Models this as positive regression pending — the power is there but results haven\'t come. Contrarian angle.'],
+    // POWER
+    'barrel-king':   ['🛢️ Barrel King',   '#ffd700',       'Barrel% 15%+ (avg 8%)',        'Season barrel rate 15% or above, which is elite (top 5% of MLB). 20%+ is top 2%. Barrels are the single best predictor of home runs — they represent the ideal launch angle and exit velocity combination. Model weight: 0.042 per barrel%.'],
+    'pull-air':      ['🎯 Pull-Air King', '#ffd700',       'Pull-air% 18%+ (avg 12.5%)',   'Pulled airball rate 18% or above. Pull-air% × barrel% interaction is the core of the HR model. A batter who pulls the ball in the air at an elite rate in a HR-friendly park is the ideal home run profile. Model weight: 0.018 per pull-air%.'],
+    'hr-machine':    ['🚀 HR Machine',    'var(--green)',  'HR/FB% 22%+ (avg 13%)',        'Home run to fly ball ratio 22% or above. Captures how efficiently a batter converts fly balls into home runs — includes both power and pull tendency. 28%+ is elite (Judge-tier).'],
+    'power-freak':   ['💣 Power Freak',   '#ffd700',       'ISO .240+ (avg .165)',          'Isolated power (SLG minus AVG) of .240 or above. ISO is purely extra-base hits and removes batting average noise. .300+ is Judge-tier elite. Used as trim factor in anchor calculation.'],
+    'luck-reg':      ['🍀 Luck Regression','var(--blue)',  'xwOBA 25+ pts > actual wOBA',  'Expected wOBA (based on quality of contact) exceeds actual wOBA by 25+ points. The gap represents batted balls that should have been hits/HRs but weren\'t due to defense, bad luck, or timing. Forward-looking positive signal.'],
+    // PITCHER
+    'dinger-machine':['🧨 Dinger Machine','#ffd700',       'SP 3.0+ HR/9 recent',          'Starting pitcher has allowed 3.0 or more home runs per 9 innings in recent outings. This is extremely elevated — league average is ~1.2 HR/9. Strong positive signal for hitters facing this pitcher.'],
+    'hr-prone-sp':   ['🚀 Serving Dingers','var(--green)',  'SP 2.2+ HR/9 recent',          'SP has allowed 2.2-3.0 HR/9 recently — well above average. Pitching mechanics or stuff may be contributing to giving up hard contact. Positive signal.'],
+    'shutdown-sp':   ['🧱 Shutdown SP',   'var(--red)',    'SP <0.8 HR/9 (elite)',         'Starting pitcher has allowed less than 0.8 HR/9 recently with sub-0.9 season rate. Elite HR suppressor. Model discounts hitters facing this pitcher regardless of their power profile.'],
+    'crushes-pitch': ['🎵 Crushes [Pitch]','var(--green)', 'ISO 1.5x+ avg vs this pitch',  'Batter has ISO 1.5x above league average vs the pitcher\'s primary pitch type (15+ PA sample). This is the most specific signal — it says not just that the pitcher is hittable but that THIS batter specifically destroys this specific pitch.'],
+    'weak-pitch':    ['🎵 Weak vs [Pitch]','var(--red)',   'ISO 0.6x avg vs this pitch',   'Batter has ISO 0.6x below league average vs the pitcher\'s primary pitch. The pitcher has a specific weapon that neutralizes this batter\'s power. Strong negative signal.'],
+    // CONTEXT
+    'hr-park':       ['🏟️ HR Park',       'var(--amber)',  'Park factor 1.08x+',           'Today\'s ballpark has a park factor above 1.08x for home runs (handedness-adjusted when available). Combines with weather for final park/wx multiplier. Model weight: 0.35x.'],
+    'coors':         ['🏔️ Coors Field',   'var(--amber)',  'Mile High altitude boost',     'Coors Field at 5,280 ft altitude — the ball travels approximately 10% farther than at sea level due to thin air. Also applies to opponents visiting Colorado. One of the largest park edges in baseball.'],
+    'wind-out':      ['💨 Wind Out',       'var(--green)',  '12+ mph toward power alleys',  'Wind of 12+ mph blowing toward the power alleys (left-center for RHB, right-center for LHB). Wind direction is the most variable game-day factor — can add 5-15 feet to a fly ball.'],
+    'wind-in':       ['🌀 Wind In',        'var(--red)',    '12+ mph headwind',             'Strong headwind of 12+ mph blowing in from the outfield. Can knock would-be HRs back into the warning track. Model applies a meaningful negative adjustment.'],
+    'career-sp':     ['⚔️ Career vs SP',  '#ffd700',       '2+ career HRs vs this pitcher', 'Batter has hit 2 or more home runs vs this specific starting pitcher in career matchups (20+ PA). Small sample but specific — some matchups are genuinely bad for pitchers. Weight: 0.30x.'],
+    'hr-ump':        ['👨‍⚖️ HR-Friendly Ump','#90c0ff',    'Ump historically HR-friendly',  'Home plate umpire has historically been associated with above-average HR rates — typically due to a wider strike zone creating more hitter counts. Model weight: 0.25x.'],
+    'home-splits':   ['🏠 Home/Road Splits','var(--green)', 'Better HR rate home or away',  'Batter\'s HR rate is meaningfully higher (10%+) at home or on the road this season. Some hitters are genuine home/road splits players. Model weight: 0.20x.'],
+    'hvh':           ['⚔️ HR vs This SP', '#ffd700',       '2+ HRs vs this specific SP',   'Batter has homered 2+ times against this specific pitcher at a rate well above their normal HR rate. BvP sample is small but when a hitter has demonstrably owned a pitcher it\'s a real signal.'],
+    'lineup-top':    ['📋 Lineup Top 4',  'var(--green)',  'Batting 1-4 — most PA',        'Batting in the top 4 of the order ensures 4+ plate appearances in a typical game. Lineup position is critical for per-game probability since HR = per-PA × expected PA.'],
+  };
+
+  // Build the guide
+  const SECTIONS = [
+    {label:'COMBO', keys:['elite-spot','sleeper','regression-due']},
+    {label:'PLATOON', keys:['platoon-king','platoon-edge','lvl-fade','rvr-fade']},
+    {label:'FORM', keys:['on-fire','back-to-back','l7-surge','hot-streak','hr-drought']},
+    {label:'POWER', keys:['barrel-king','pull-air','hr-machine','power-freak','luck-reg']},
+    {label:'PITCHER', keys:['dinger-machine','hr-prone-sp','shutdown-sp','crushes-pitch','weak-pitch']},
+    {label:'CONTEXT', keys:['hr-park','coors','wind-out','wind-in','career-sp','hr-ump','home-splits','hvh','lineup-top']},
   ];
 
-  let html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 8px">';
-  for(const t of tags){
-    if(t.length===1){
-      // Category header
-      html+=`<div style="grid-column:1/-1;font-size:.58rem;font-weight:700;
-        color:var(--t4);text-transform:uppercase;letter-spacing:.08em;
-        padding-top:10px;padding-bottom:3px;border-top:1px solid var(--bg3);
-        margin-top:2px">${t[0]}</div>`;
-    } else {
-      const [label,color,desc]=t;
-      html+=`<div title="${desc}" style="display:flex;align-items:center;padding:2px 0">
-        <span style="padding:2px 7px;border-radius:99px;font-size:.62rem;font-weight:600;
-          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
-          background:${color}18;border:1px solid ${color}44;color:${color}">${label}</span>
+  let html = '';
+  for(const sec of SECTIONS){
+    html += `<div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+      letter-spacing:.08em;padding:10px 0 4px;border-top:1px solid var(--bg3)">${sec.label}</div>
+      <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px">`;
+    for(const key of sec.keys){
+      const [label,color,shortDesc,longDesc] = TAGS[key]||[];
+      if(!label) continue;
+      html += `<div onclick="showTagDetail('${key}')" style="display:flex;align-items:center;
+        justify-content:space-between;padding:5px 8px;border-radius:8px;
+        background:var(--bg3);cursor:pointer;gap:8px;
+        border:1px solid transparent" 
+        onmouseenter="this.style.borderColor='${color}44'" 
+        onmouseleave="this.style.borderColor='transparent'">
+        <span style="font-size:.64rem;font-weight:600;padding:2px 8px;border-radius:99px;
+          background:${color}18;border:1px solid ${color}44;color:${color};
+          white-space:nowrap;flex-shrink:0">${label}</span>
+        <span style="font-size:.60rem;color:var(--t4);text-align:right;flex:1;min-width:0;
+          overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortDesc}</span>
+        <span style="font-size:.60rem;color:var(--t4);flex-shrink:0">›</span>
       </div>`;
     }
+    html += '</div>';
   }
-  html+='</div>';
-  el.innerHTML=html;
+  el.innerHTML = html;
+
+  // Store tags for detail modal
+  window._TAG_DEFS = TAGS;
+}
+
+function showTagDetail(key){
+  const def = (window._TAG_DEFS||{})[key];
+  if(!def) return;
+  const [label, color, shortDesc, longDesc] = def;
+
+  // Remove existing modal
+  document.getElementById('tag-detail-modal')?.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'tag-detail-modal';
+  modal.style.cssText = `position:fixed;inset:0;z-index:9999;display:flex;align-items:flex-end;
+    background:rgba(0,0,0,.55);backdrop-filter:blur(3px)`;
+  modal.onclick = (e) => { if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="width:100%;background:var(--bg2);border-radius:18px 18px 0 0;
+      padding:20px 18px calc(env(safe-area-inset-bottom,0px)+20px);
+      max-height:60vh;overflow-y:auto">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:.80rem;font-weight:700;padding:4px 12px;border-radius:99px;
+          background:${color}20;border:1px solid ${color}55;color:${color}">${label}</span>
+        <button onclick="document.getElementById('tag-detail-modal').remove()"
+          style="background:none;border:none;color:var(--t4);font-size:1.2rem;cursor:pointer;padding:4px 8px">✕</button>
+      </div>
+      <div style="font-size:.80rem;font-weight:700;color:var(--t1);margin-bottom:8px">${shortDesc}</div>
+      <div style="font-size:.72rem;color:var(--t3);line-height:1.7">${longDesc}</div>
+    </div>`;
+  document.body.appendChild(modal);
 }
 
 // ==================================================================
@@ -7374,7 +7498,11 @@ function renderDailySummary(){
   const top3 = [...eligible].sort((a,b)=>b.prob-a.prob).slice(0,3);
 
   // Angle breakdown
-  const hotPlayers = eligible.filter(r=>detectAngles(r).some(a=>a.tier===1&&!a.label.endsWith('(-)')));
+  // Only count RECENT FORM signals as "hot" — not season stat signals
+  const FORM_CATS = new Set(['streak','rolling','momentum']);
+  const hotPlayers = eligible.filter(r=>detectAngles(r).some(a=>
+    a.tier===1 && !a.label.endsWith('(-)') && FORM_CATS.has(a.cat)
+  ));
   const zoneElite  = eligible.filter(r=>r._zoneMatch?.hotOverlap?.length>=2);
   const softSP     = eligible.filter(r=>r.pitcher>=1.20);
   const windBoost  = rows.filter(r=>r._wx?.wind>=15&&!r._wx?.isDome);
@@ -7444,7 +7572,7 @@ function renderDailySummary(){
     <!-- Insight line -->
     ${(()=>{
       const insights = [];
-      if(hotPlayers.length>=3) insights.push(`🔥 ${hotPlayers.length} players showing elite form signals`);
+      if(hotPlayers.length>=3) insights.push(`🔥 ${hotPlayers.length} players on hot streak form`);
       if(softSP.length>=2) insights.push(`🎳 ${softSP.length} soft SP matchups today`);
       if(sTier.length>=2) insights.push(`💰 Strong value day — ${sTier.length} S-tier edges`);
       if(zoneElite.length>=2) insights.push(`🎯 ${zoneElite.length} players with elite zone-pitch overlap`);
@@ -7555,28 +7683,59 @@ function renderDiscover(){
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 2. ⏰ HE'S DUE — hard contact, HRs haven't fallen yet
+    // 2. 🌋 DUE — 5+ of 6 heat signals converging
     // ══════════════════════════════════════════════════════════════
-    const dueRaw = S.allRows
-      .map(r=>({r, d:detectDue(r)}))
-      .filter(({d})=>d!=null)
-      .sort((a,b)=>b.d.score-a.d.score);
+    const heatScores = S.allRows.map(r => ({ r, heat: calcHeatScore(r) }));
+
+    const dueRaw = heatScores
+      .filter(({heat}) => heat.score >= 5)
+      .sort((a,b) => b.heat.score - a.heat.score || b.r.prob - a.r.prob);
     const due = onePerTeam(dueRaw, 5);
 
     if(due.length){
       html += `<div style="margin-bottom:18px">
-        ${sectionHdr('⏰','He\'s Due','Hitting the ball hard — HRs haven\'t caught up yet',due.length)}`;
-      due.forEach(({r,d})=>{
-        const badge = r.xwobaDiff>=0.040?'Highly Unlucky':r.xwobaDiff>=0.025?'xwOBA Gap':'Below Pace';
-        const xwStr = r.xwobaDiff!=null
-          ? `<div style="font-size:.58rem;color:var(--amber)">+${Math.round(r.xwobaDiff*1000)}pt gap</div>`:'';
-        html += discCard(r, d.reasons, 'var(--amber)', badge, xwStr);
+        ${sectionHdr('🌋','Due','5+ of 6 heat signals converging — maximum regression case',due.length)}`;
+      due.forEach(({r, heat})=>{
+        const metStr = heat.metLabels.join(', ');
+        const reasons = [
+          `${heat.score}/6 signals: ${metStr}`,
+          r.barrel_pct!=null ? `Barrel ${r.barrel_pct.toFixed(0)}% · ISO .${Math.round((r.iso||0)*1000).toString().padStart(3,'0').slice(-3)}` : '',
+          r.spNm ? `vs ${r.spNm} (SP mult ${r.pitcher.toFixed(2)}x)` : '',
+        ].filter(Boolean);
+        const badge = heat.score===6 ? '6/6 🌋' : '5/6';
+        const scoreStr = `<div style="font-size:.72rem;font-weight:900;color:#ffd700">${heat.score}/6</div>`;
+        html += discCard(r, reasons, '#ffd700', badge, scoreStr);
       });
       html += `</div>`;
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 3. 🔥 HOT RIGHT NOW — genuine L15 momentum + favorable matchup
+    // 3. 🌡️ HEATING UP — 3-4 of 6 heat signals (exclude 5+ shown above)
+    // ══════════════════════════════════════════════════════════════
+    const heatingRaw = heatScores
+      .filter(({r, heat}) => heat.score >= 3 && heat.score <= 4)
+      .sort((a,b) => b.heat.score - a.heat.score || b.r.prob - a.r.prob);
+    const heating = onePerTeam(heatingRaw, 5);
+
+    if(heating.length){
+      html += `<div style="margin-bottom:18px">
+        ${sectionHdr('🌡️','Heating Up','3–4 of 6 heat signals firing — momentum building',heating.length)}`;
+      heating.forEach(({r, heat})=>{
+        const metStr = heat.metLabels.join(', ');
+        const reasons = [
+          `${heat.score}/6 signals: ${metStr}`,
+          r.barrel_pct!=null ? `Barrel ${r.barrel_pct.toFixed(0)}% — ${r.barrel_pct>=11?'above avg':'near avg'}` : '',
+          r.avgLA!=null ? `Avg LA ${r.avgLA.toFixed(1)}° ${r.avgLA>=18&&r.avgLA<=32?'✓ HR window':''}` : '',
+        ].filter(Boolean);
+        const badge = heat.score===4 ? '4/6' : '3/6';
+        const scoreStr = `<div style="font-size:.72rem;font-weight:900;color:var(--amber)">${heat.score}/6</div>`;
+        html += discCard(r, reasons, 'var(--amber)', badge, scoreStr);
+      });
+      html += `</div>`;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 4. 🔥 HOT RIGHT NOW — genuine L15 momentum + favorable matchup
     // ══════════════════════════════════════════════════════════════
     const hotRaw = S.allRows
       .filter(r=>{
@@ -7610,7 +7769,7 @@ function renderDiscover(){
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 4. 🎯 SHARP ANGLES — best pitcher mismatches on the slate
+    // 5. 🎯 SHARP ANGLES — best pitcher mismatches on the slate
     //    SP is hittable (pitcher mult ≥1.12) AND batter has power
     // ══════════════════════════════════════════════════════════════
     const sharpRaw = S.allRows
@@ -7638,7 +7797,7 @@ function renderDiscover(){
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 5. 💰 VALUE PLAYS — model prob significantly above FD implied
+    // 6. 💰 VALUE PLAYS — model prob significantly above FD implied
     // ══════════════════════════════════════════════════════════════
     const valueRaw = S.allRows
       .map(r=>{
@@ -9969,15 +10128,20 @@ function renderDetail(r){
       </div>
     </div>
 
-    ${detectAngles(r).length?`<div class="card" style="margin-bottom:10px">
-      <div class="slbl">⚡ Sharp Angles For</div>
-      ${detectAngles(r).map(a=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--bg3)">
-        <span style="font-size:1rem">${a.icon}</span>
-        <div><div style="font-size:.8rem;font-weight:700;color:${a.color}">${a.label}</div>
-        <div style="font-size:.68rem;color:var(--t4)">${a.tip}</div></div>
-      </div>`).join('')}
-    </div>`:''}
-    ${(()=>{const neg=detectNegativeAngles(r);return neg.length?`<div class="card" style="margin-bottom:10px;border-color:rgba(224,80,74,.3)"><div class="slbl" style="color:var(--red)">🚨 Negative Angles Against</div>${neg.map(a=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3)"><span style="font-size:1.1rem;margin-top:1px">${a.icon}</span><div><div style="font-size:.82rem;font-weight:700;color:var(--red)">${a.label}</div><div style="font-size:.7rem;color:var(--t3);margin-top:2px;line-height:1.5">${a.tip}</div></div></div>`).join('')}</div>`:`<div class="card" style="margin-bottom:10px;border-color:rgba(34,201,94,.2)"><div style="font-size:.78rem;color:var(--green);padding:4px 0">✅ No significant negative angles today</div></div>`;})()}
+    ${(()=>{
+      const posOnly = detectAngles(r).filter(a => !a.label.endsWith('(-)') && a.tier <= 2);
+      if(!posOnly.length) return '';
+      return `<div class="card" style="margin-bottom:10px">
+        <div class="slbl">⚡ Sharp Angles For</div>
+        ${posOnly.map(a=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
+          <span style="font-size:1rem;flex-shrink:0">${a.icon}</span>
+          <div>
+            <div style="font-size:.80rem;font-weight:700;color:${a.color}">${a.label.replace(' (+)','')}</div>
+            <div style="font-size:.68rem;color:var(--t4);margin-top:2px;line-height:1.5">${a.tip}</div>
+          </div>
+        </div>`).join('')}
+      </div>`;
+    })()}    ${(()=>{const neg=detectNegativeAngles(r);return neg.length?`<div class="card" style="margin-bottom:10px;border-color:rgba(224,80,74,.3)"><div class="slbl" style="color:var(--red)">🚨 Negative Angles Against</div>${neg.map(a=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3)"><span style="font-size:1.1rem;margin-top:1px">${a.icon}</span><div><div style="font-size:.82rem;font-weight:700;color:var(--red)">${a.label}</div><div style="font-size:.7rem;color:var(--t3);margin-top:2px;line-height:1.5">${a.tip}</div></div></div>`).join('')}</div>`:`<div class="card" style="margin-bottom:10px;border-color:rgba(34,201,94,.2)"><div style="font-size:.78rem;color:var(--green);padding:4px 0">✅ No significant negative angles today</div></div>`;})()}
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">Probability Breakdown</div>
       ${fbar('Anchor (Blended HR Rate)',r.anchor/MLB_AVG,0.3,2.5)}
