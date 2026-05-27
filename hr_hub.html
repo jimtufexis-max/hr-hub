@@ -4786,26 +4786,26 @@ function showTagDetail(key){
   if(!def) return;
   const [label, color, shortDesc, longDesc] = def;
 
-  // Remove existing modal
   document.getElementById('tag-detail-modal')?.remove();
 
   const modal = document.createElement('div');
   modal.id = 'tag-detail-modal';
-  modal.style.cssText = `position:fixed;inset:0;z-index:9999;display:flex;align-items:flex-end;
-    background:rgba(0,0,0,.55);backdrop-filter:blur(3px)`;
+  modal.style.cssText = `position:fixed;inset:0;z-index:9999;display:flex;align-items:center;
+    justify-content:center;padding:20px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)`;
   modal.onclick = (e) => { if(e.target===modal) modal.remove(); };
   modal.innerHTML = `
-    <div style="width:100%;background:var(--bg2);border-radius:18px 18px 0 0;
-      padding:20px 18px calc(env(safe-area-inset-bottom,0px)+20px);
-      max-height:60vh;overflow-y:auto">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <span style="font-size:.80rem;font-weight:700;padding:4px 12px;border-radius:99px;
+    <div style="width:100%;max-width:420px;background:var(--bg2);border-radius:16px;
+      border:1px solid var(--bdr);padding:20px 18px;max-height:80vh;overflow-y:auto;
+      box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <span style="font-size:.82rem;font-weight:700;padding:4px 12px;border-radius:99px;
           background:${color}20;border:1px solid ${color}55;color:${color}">${label}</span>
         <button onclick="document.getElementById('tag-detail-modal').remove()"
-          style="background:none;border:none;color:var(--t4);font-size:1.2rem;cursor:pointer;padding:4px 8px">✕</button>
+          style="background:none;border:none;color:var(--t4);font-size:1.2rem;cursor:pointer;
+          padding:4px 8px;line-height:1">✕</button>
       </div>
-      <div style="font-size:.80rem;font-weight:700;color:var(--t1);margin-bottom:8px">${shortDesc}</div>
-      <div style="font-size:.72rem;color:var(--t3);line-height:1.7">${longDesc}</div>
+      <div style="font-size:.82rem;font-weight:700;color:var(--t1);margin-bottom:10px">${shortDesc}</div>
+      <div style="font-size:.72rem;color:var(--t3);line-height:1.75">${longDesc}</div>
     </div>`;
   document.body.appendChild(modal);
 }
@@ -10141,7 +10141,7 @@ function renderDetail(r){
           </div>
         </div>`).join('')}
       </div>`;
-    })()}    ${(()=>{const neg=detectNegativeAngles(r);return neg.length?`<div class="card" style="margin-bottom:10px;border-color:rgba(224,80,74,.3)"><div class="slbl" style="color:var(--red)">🚨 Negative Angles Against</div>${neg.map(a=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3)"><span style="font-size:1.1rem;margin-top:1px">${a.icon}</span><div><div style="font-size:.82rem;font-weight:700;color:var(--red)">${a.label}</div><div style="font-size:.7rem;color:var(--t3);margin-top:2px;line-height:1.5">${a.tip}</div></div></div>`).join('')}</div>`:`<div class="card" style="margin-bottom:10px;border-color:rgba(34,201,94,.2)"><div style="font-size:.78rem;color:var(--green);padding:4px 0">✅ No significant negative angles today</div></div>`;})()}
+    })()}    ${(()=>{const neg=detectNegativeAngles(r);return neg.length?`<div class="card" style="margin-bottom:10px;border-color:rgba(224,80,74,.3)"><div class="slbl" style="color:var(--red)">🚨 Negative Angles Against</div>${neg.map(a=>`<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3)"><span style="font-size:1.1rem;margin-top:1px">${a.icon}</span><div><div style="font-size:.82rem;font-weight:700;color:var(--red)">${a.label.replace(' (-)','')}</div><div style="font-size:.7rem;color:var(--t3);margin-top:2px;line-height:1.5">${a.tip}</div></div></div>`).join('')}</div>`:`<div class="card" style="margin-bottom:10px;border-color:rgba(34,201,94,.2)"><div style="font-size:.78rem;color:var(--green);padding:4px 0">✅ No significant negative angles today</div></div>`;})()}
     <div class="card" style="margin-bottom:10px">
       <div class="slbl">Probability Breakdown</div>
       ${fbar('Anchor (Blended HR Rate)',r.anchor/MLB_AVG,0.3,2.5)}
@@ -10908,6 +10908,87 @@ function renderDetail(r){
       <div class="slbl" style="margin-bottom:10px">🏟️ Park HR Map</div>
       ${renderParkHeatmap(r.homeTeam||r._homeTeam||r.home||r.team, r.batHand)}
     </div>` : ''}
+
+    <!-- Statcast Percentile Rankings -->
+    ${(()=>{
+      // Get _percentileMap data for this player
+      const pm = (_percentileMap||{})[String(r.id)] || {};
+      const pid = String(r.id);
+
+      // Helper: compute percentile from _savB distribution for a stat
+      const computePct = (stat, val, higherIsBetter=true) => {
+        if(val==null) return null;
+        const allVals = Object.values(_savB||{}).map(p=>p[stat]).filter(v=>v!=null&&v>0);
+        if(allVals.length < 10) return null;
+        allVals.sort((a,b)=>a-b);
+        const idx = allVals.findIndex(v => v >= val);
+        const rawPct = idx<0 ? 99 : Math.round(idx/allVals.length*100);
+        return higherIsBetter ? rawPct : 100-rawPct;
+      };
+
+      // Stats to show: [label, value, pct, higherIsBetter, format]
+      const rows = [
+        ['SLG',        r.iso!=null&&r.szPA>20?(r.iso+0.250):null,
+                       null, true,  v=>'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3)],
+        ['OBP',        null,  null, true,  v=>'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3)],
+        ['BB %',       pm.bb, pm.bb!=null?Math.round((pm.bb-4)/0.14):null, true,  v=>v.toFixed(1)+'%'],
+        ['K %',        pm.k,  pm.k!=null?Math.round((1-(pm.k-10)/0.38)*100):null, false, v=>v.toFixed(1)+'%'],
+        ['Avg EV',     r.avg_ev,    pm.evPct,  true,  v=>v.toFixed(1)+' mph'],
+        ['Barrel %',   r.barrel_pct, pm.brlPct||computePct('barrel_pct',r.barrel_pct), true, v=>v.toFixed(1)+'%'],
+        ['Hard-Hit %', r.hard_hit_pct, computePct('hard_hit_pct',r.hard_hit_pct), true, v=>v.toFixed(1)+'%'],
+        ['LA Sweet Sp', r.sweet_spot_pct, computePct('sweetSpot',r.sweet_spot_pct), true, v=>v.toFixed(1)+'%'],
+      ].filter(([,val])=>val!=null);
+
+      if(!rows.length) return '';
+
+      const bar = (pct, higherBetter=true) => {
+        if(pct==null) return `<div style="flex:1;height:8px;background:var(--bg3);border-radius:4px"></div>`;
+        const p = Math.max(0,Math.min(100,pct));
+        const clr = p>=70?'var(--green)':p>=40?'var(--amber)':'var(--red)';
+        return `<div style="flex:1;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;position:relative">
+          <div style="position:absolute;left:0;top:0;height:100%;width:${p}%;background:${clr};border-radius:4px;transition:width .3s"></div>
+          <div style="position:absolute;left:33.3%;top:0;height:100%;width:1px;background:rgba(255,255,255,.12)"></div>
+          <div style="position:absolute;left:66.6%;top:0;height:100%;width:1px;background:rgba(255,255,255,.12)"></div>
+        </div>`;
+      };
+
+      return `<div class="card" style="margin-bottom:10px">
+        <div class="slbl" style="margin-bottom:4px">📊 Statcast Percentile Rankings vs MLB</div>
+        <div style="display:flex;justify-content:space-between;font-size:.52rem;color:var(--t4);
+          margin-bottom:8px;padding:0 2px">
+          <span>BAD</span><span>AVG.</span><span>GOOD</span>
+        </div>
+        ${rows.map(([lbl,val,pct,hib,fmt])=>{
+          const p = pct!=null?Math.max(0,Math.min(100,pct)):null;
+          const clr = p!=null?(p>=70?'var(--green)':p>=40?'var(--amber)':'var(--red)'):'var(--t4)';
+          const valStr = val!=null?fmt(val):'—';
+          // Position value label: if bar is wide enough (>25%), show inside bar; else show after
+          const inside = p!=null && p>=30;
+          return `<div style="display:grid;grid-template-columns:90px 1fr 38px;align-items:center;
+            gap:8px;margin-bottom:8px">
+            <div style="font-size:.65rem;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lbl}</div>
+            <div style="position:relative;height:18px">
+              <!-- Track -->
+              <div style="position:absolute;inset:0;background:var(--bg3);border-radius:4px;overflow:hidden">
+                <!-- Fill -->
+                <div style="height:100%;width:${p??0}%;background:${clr};border-radius:4px;opacity:.85"></div>
+                <!-- Zone markers -->
+                <div style="position:absolute;left:33.3%;top:0;height:100%;width:1px;background:rgba(255,255,255,.15)"></div>
+                <div style="position:absolute;left:66.6%;top:0;height:100%;width:1px;background:rgba(255,255,255,.15)"></div>
+              </div>
+              <!-- Value label -->
+              <div style="position:absolute;top:0;${inside?`left:${Math.min(p-2,88)}%;transform:translateX(-100%)`:'left:calc('+p+'% + 4px)'};
+                height:100%;display:flex;align-items:center;
+                font-size:.58rem;font-weight:700;color:${inside?'rgba(255,255,255,.9)':clr};
+                white-space:nowrap;pointer-events:none">${valStr}</div>
+            </div>
+            <div style="font-size:.62rem;font-weight:700;color:${clr};text-align:right;white-space:nowrap">
+              ${p!=null?p+'th':'—'}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    })()}
 
     <!-- Count Splits — lazy loaded, always present -->
     <div id="count-splits-${r.id}" style="margin-bottom:10px">
