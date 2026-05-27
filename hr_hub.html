@@ -3552,7 +3552,7 @@ async function getLineup(gamePk, teamId){
   if(_playerCache[key] && Object.keys(_playerCache[key]).length > 0) return _playerCache[key];
   try{
     // Single call — schedule with lineups hydration covers pre-game and in-progress
-    const sched = await fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`).catch(()=>null);
+    const sched = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`)).catch(()=>null);
     const game = sched?.dates?.[0]?.games?.[0];
     const isAway = game?.teams?.away?.team?.id === teamId;
     const players = isAway ? game?.lineups?.awayPlayers : game?.lineups?.homePlayers;
@@ -3565,7 +3565,7 @@ async function getLineup(gamePk, teamId){
     }
     // Game started — try boxscore
     if(game?.status?.abstractGameState === 'Live' || game?.status?.abstractGameState === 'Final'){
-      const box = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`).catch(()=>null);
+      const box = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/game/${gamePk}/boxscore`)).catch(()=>null);
       const side = box?.teams?.away?.team?.id===teamId ? 'away' : 'home';
       const batters = box?.teams?.[side]?.battingOrder||[];
       if(batters.length >= 8){
@@ -3586,7 +3586,7 @@ async function checkLineupConfirmed(gamePk){
     // Check if either team's lineup was already fetched successfully
     const awayKey = Object.keys(_playerCache).find(k=>k===`lineup_${gamePk}_${Object.keys(_playerCache).find(k2=>k2.startsWith(`lineup_${gamePk}_`))||''}`);
     // Just check the schedule once — getLineup already fetched this
-    const sched = await fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`).catch(()=>null);
+    const sched = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`)).catch(()=>null);
     const game = sched?.dates?.[0]?.games?.[0];
     const awayLen = (game?.lineups?.awayPlayers||[]).length;
     const homeLen = (game?.lineups?.homePlayers||[]).length;
@@ -3681,7 +3681,7 @@ async function getUmpire(gamePk){
   const key = `ump_${gamePk}`;
   if(_playerCache[key] !== undefined) return _playerCache[key];
   try{
-    const d = await fetchJSON(`${MLB}/game/${gamePk}/boxscore`);
+    const d = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/game/${gamePk}/boxscore`));
     const umps = d.officials||[];
     const hp = umps.find(u=>(u.officialType||'').toLowerCase().includes('home plate'));
     const name = (hp?.official?.fullName||'').toLowerCase();
@@ -4417,7 +4417,7 @@ async function autoTrackResults(){
       // For each completed game, fetch box score to get HR stats
       for(const game of games){
         try{
-          const box = await fetchJSON(`${MLB}/game/${game.gamePk}/boxscore`).catch(()=>null);
+          const box = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/game/${game.gamePk}/boxscore`)).catch(()=>null);
           if(!box) continue;
 
           // Build map of player -> HR count from box score
@@ -4819,7 +4819,7 @@ async function loadDayResults(){
     if(!finishedGames.length){ dayResults.push({label,dateStr,hrHitters:[],gamesCount:0}); continue; }
 
     const boxScores = await Promise.allSettled(
-      finishedGames.map(g=>fetchJSON(`${MLB}/game/${g.gamePk}/boxscore`).catch(()=>null))
+      finishedGames.map(g=>fetchJSON(PROXY+encodeURIComponent(`${MLB}/game/${g.gamePk}/boxscore`)).catch(()=>null))
     );
     const hrHitters = [];
     finishedGames.forEach((game,i)=>{
@@ -8319,7 +8319,7 @@ async function loadGame(g){
     getPitcherArsenal(g.awaySpId),
     getPitcherArsenal(g.homeSpId),
     getUmpire(g.pk),
-    fetchJSON(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups`).catch(()=>null),
+    fetchJSON(PROXY + encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups`)).catch(()=>null),
     getWeather(g.venue, g.gameTime||g.gameDate),
   ]);
   lap('after all fetches');
@@ -8350,7 +8350,7 @@ async function loadGame(g){
 
   // If schedule/lineups empty, try live feed (available pre-game once lineup posted)
   if(Object.keys(awLineup).length < 8 || Object.keys(hmLineup).length < 8){
-    const live = await fetchJSON(`${MLB}/game/${g.pk}/feed/live?fields=liveData,boxscore,teams,battingOrder`).catch(()=>null);
+    const live = await fetchJSON(PROXY + encodeURIComponent(`${MLB}/game/${g.pk}/feed/live?fields=liveData,boxscore,teams,battingOrder`)).catch(()=>null);
     const liveTeams = live?.liveData?.boxscore?.teams;
     if(liveTeams){
       const aw2 = extractLineup(liveTeams.away?.battingOrder?.map(id=>({id})));
@@ -8362,7 +8362,7 @@ async function loadGame(g){
 
   // If game started/final and still empty, try boxscore
   if((gameState==='Live'||gameState==='Final') && Object.keys(awLineup).length < 8){
-    const box = await fetchJSON(`${MLB}/game/${g.pk}/boxscore`).catch(()=>null);
+    const box = await fetchJSON(PROXY + encodeURIComponent(`${MLB}/game/${g.pk}/boxscore`)).catch(()=>null);
     if(box?.teams){
       awLineup = extractLineup(box.teams.away?.battingOrder?.map(id=>({id})));
       hmLineup = extractLineup(box.teams.home?.battingOrder?.map(id=>({id})));
