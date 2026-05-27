@@ -3857,45 +3857,77 @@ async function ensurePercentileMap(){
   _percentileMap = {};
   try{
     const url = `https://baseballsavant.mlb.com/leaderboard/percentile-rankings?type=batter&year=${SEASON}&team=&csv=true`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
-    if(!r.ok) throw new Error(`percentile ${r.status}`);
-    const rows = parseCSVText(await r.text());
+    const resp = await fetch(PROXY + encodeURIComponent(url));
+    if(!resp.ok) throw new Error(`percentile ${resp.status}`);
+    const rows = parseCSVText(await resp.text());
+    if(!rows.length) throw new Error('no rows');
     const s = rows[0]||{};
     const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
-    console.log('[Percentile] cols:', Object.keys(s).slice(0,20));
+    console.log('[Percentile] cols:', Object.keys(s).join(', '));
+
+    const pf = (row,c) => { const v=parseFloat(row[c]); return isNaN(v)||v===0?null:v; };
+    const pi = (row,...cs) => { for(const c of cs){ const v=parseInt(row[c]); if(!isNaN(v)&&v>0)return v; } return null; };
+
+    // First pass: collect raw values
     for(const row of rows){
       const pid = String(row[idC]||'').replace(/\.0$/,'');
       if(!pid) continue;
-      const pf = (c,fb=0) => parseFloat(row[c]??fb)||null;
-      const pi = (c) => { const v=parseInt(row[c]); return isNaN(v)||v===0?null:v; };
       _percentileMap[pid] = {
-        // Raw stat values
-        ev:          pf('exit_velocity') ?? pf('avg_exit_velocity'),
-        barrelPct:   pf('brl_percent')   ?? pf('barrel_batted_rate'),
-        hardHit:     pf('ev95percent')   ?? pf('hard_hit_percent'),
-        xwoba:       pf('xwoba')         ?? pf('est_woba'),
-        xba:         pf('xba')           ?? pf('est_ba'),
-        xslg:        pf('xslg')          ?? pf('est_slg'),
-        sweetSpot:   pf('sweet_spot_percent') ?? pf('sweet_spot'),
-        k:           pf('k_percent'),
-        bb:          pf('bb_percent'),
-        sprint:      pf('sprint_speed'),
-        whiff:       pf('whiff_percent'),
-        outs:        pf('outs_above_average'),
-        // Pre-computed Savant percentile ranks (0-100, higher = better)
-        evPct:       pi('percent_rank_exit_velocity'),
-        brlPct:      pi('percent_rank_barrel'),
-        xwobaPct:    pi('percent_rank_xwoba'),
-        xbaPct:      pi('percent_rank_xba'),
-        xslgPct:     pi('percent_rank_xslg'),
-        sweetSpotPct:pi('percent_rank_sweet_spot') ?? pi('percent_rank_sweetspot'),
-        kPct:        pi('percent_rank_k_percent')  ?? pi('percent_rank_k'),
-        bbPct:       pi('percent_rank_bb_percent') ?? pi('percent_rank_bb'),
-        hardHitPct:  pi('percent_rank_hard_hit')   ?? pi('percent_rank_ev95'),
-        sprintPct:   pi('percent_rank_sprint_speed'),
+        ev:          pf(row,'exit_velocity')        ?? pf(row,'avg_exit_velocity'),
+        barrelPct:   pf(row,'brl_percent')          ?? pf(row,'barrel_batted_rate'),
+        hardHit:     pf(row,'ev95percent')          ?? pf(row,'hard_hit_percent'),
+        xwoba:       pf(row,'xwoba')                ?? pf(row,'est_woba'),
+        xba:         pf(row,'xba')                  ?? pf(row,'est_ba'),
+        xslg:        pf(row,'xslg')                 ?? pf(row,'est_slg'),
+        sweetSpot:   pf(row,'sweet_spot_percent')   ?? pf(row,'sweet_spot'),
+        k:           pf(row,'k_percent'),
+        bb:          pf(row,'bb_percent'),
+        sprint:      pf(row,'sprint_speed'),
+        whiff:       pf(row,'whiff_percent'),
+        pa:          pf(row,'pa')||pf(row,'pa_total'),
+        // Pre-computed Savant ranks (only EV/barrel/xwOBA reliably present)
+        evPct:       pi(row,'percent_rank_exit_velocity','p_exit_velocity'),
+        brlPct:      pi(row,'percent_rank_barrel','p_brl_percent'),
+        xwobaPct:    pi(row,'percent_rank_xwoba','p_xwoba'),
+        xbaPct:      pi(row,'percent_rank_xba','p_xba'),
+        xslgPct:     pi(row,'percent_rank_xslg','p_xslg'),
+        sweetSpotPct:pi(row,'percent_rank_sweet_spot','percent_rank_sweetspot','p_sweet_spot'),
+        kPct:        pi(row,'percent_rank_k_percent','percent_rank_k','p_k_percent'),
+        bbPct:       pi(row,'percent_rank_bb_percent','percent_rank_bb','p_bb_percent'),
+        hardHitPct:  pi(row,'percent_rank_hard_hit','percent_rank_ev95','p_ev95percent'),
+        sprintPct:   pi(row,'percent_rank_sprint_speed','p_sprint_speed'),
       };
     }
-    console.log('[Percentile] loaded', Object.keys(_percentileMap).length, 'players');
+
+    // Second pass: for any missing percentile ranks, compute from distribution
+    const statKeys = ['ev','barrelPct','hardHit','xwoba','xba','xslg','sweetSpot','k','bb','sprint'];
+    const pctKeys  = ['evPct','brlPct','hardHitPct','xwobaPct','xbaPct','xslgPct','sweetSpotPct','kPct','bbPct','sprintPct'];
+    const invertedKeys = new Set(['kPct']); // lower raw = higher percentile
+
+    // Build sorted arrays for each stat
+    const sortedVals = {};
+    for(let i=0;i<statKeys.length;i++){
+      const sk=statKeys[i];
+      const vals = Object.values(_percentileMap).map(p=>p[sk]).filter(v=>v!=null&&v>0);
+      vals.sort((a,b)=>a-b);
+      sortedVals[sk] = vals;
+    }
+
+    // Fill missing percentile ranks
+    for(const pm of Object.values(_percentileMap)){
+      for(let i=0;i<statKeys.length;i++){
+        const sk=statKeys[i], pk=pctKeys[i];
+        if(pm[pk]!=null) continue; // already have it
+        const val=pm[sk]; if(val==null) continue;
+        const arr=sortedVals[sk]; if(!arr.length) continue;
+        const idx=arr.findIndex(v=>v>=val);
+        const rawPct = idx<0 ? 99 : Math.round(idx/arr.length*100);
+        pm[pk] = invertedKeys.has(pk) ? 100-rawPct : rawPct;
+      }
+    }
+
+    console.log('[Percentile] loaded', Object.keys(_percentileMap).length, 'players, sample:',
+      Object.entries(Object.values(_percentileMap)[0]||{}).slice(0,8).map(([k,v])=>`${k}=${v}`).join(' '));
   }catch(e){ console.warn('[Percentile]:', e.message); _percentileMap={}; }
 }
 
@@ -4511,6 +4543,8 @@ function renderTagGuide(){
   // Master tag definitions — [label, color, shortDesc, longDesc]
   const TAGS = {
     // COMBO
+    'due':           ['🌋 Due',            '#ffd700',       '5 of 6 heat signals firing',   '5 of the same 6 conditions: (1) Barrel event L3G, (2) Barrel% ≥ 8%, (3) HR drought Z-score > 0 — gone longer than Poisson-expected between HRs based on season HR rate, (4) Avg launch angle within HR window 18-32° or trending toward it, (5) HR-friendly SP (pitcher mult ≥1.10x), (6) HR-friendly park (pf ≥1.08x). 5 of 6 is maximum convergence — statistical overdue + mechanical profile + favorable context all aligned.'],
+    'heating-up':    ['🌡️ Heating Up',   'var(--amber)',  '3 of 6 heat signals firing',   '3 or more of: (1) Barrel or hard XBH in last 3 games, (2) Barrel% ≥ 8% (MLB ~50th pct), (3) HR drought Z-score > 0 — gone longer than Poisson-expected between HRs, (4) Avg launch angle in HR window 18-32° or trending toward it via L14 SLG trend, (5) HR-friendly SP today (pitcher mult ≥1.10x), (6) HR-friendly park (pf ≥1.08x). 3 of 6 = genuine emerging momentum building.'],
     'elite-spot':    ['⭐ Elite Spot',    'var(--green)',  '5 signals + power + hittable SP','Requires ALL of: (1) 5+ distinct positive signal categories firing, (2) anchor rate 20%+ above MLB average, (3) strong power base — barrel% ≥11% or pull-air% ≥16% or ISO ≥.210, (4) pitcher multiplier ≥1.10x meaning the SP is genuinely hittable, (5) zero red-flag negatives. When all 5 gates clear, the play is as stacked as it gets. These are the highest-conviction plays on the slate.'],
     'prime-spot':    ['🌟 Prime Spot',    '#ffd700',       '4 signals + platoon + SP',      'Requires: 4+ distinct categories, confirmed platoon edge ≥1.15x, hittable pitcher ≥1.10x, real power base, and no red flags. Slightly softer than Elite but still a high-priority play when platoon and pitcher both align.'],
     'sleeper':       ['💤 Sleeper',       '#a78bfa',       'Under-the-radar edge',         'Strong matchup signals but low public attention — typically below-average salary on DFS. Model finds edge that the market has missed today.'],
