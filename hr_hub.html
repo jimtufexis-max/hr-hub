@@ -2358,57 +2358,27 @@ function calcEdge(ourProb, bookOdds){
 //  SHARP ANGLES DETECTOR — 25 signal checks
 // ==================================================================
 function detectAngles(r){
-  const a=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||{};
+  const a=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||r._wx||{};
 
-  // ── Platoon / handedness angles ─────────────────────────────────
-  // oppHand = pitcher's throwing hand. batHand = batter's batting side.
-  const bH = r.batHand || '?';
-  const pH = r.oppHand || 'R'; // default RHP when unknown
-  const isCrossHand   = (bH==='L'&&pH==='R') || (bH==='R'&&pH==='L');
-  const isSameHand    = (bH==='L'&&pH==='L') || (bH==='R'&&pH==='R');
-  const isLvL         = bH==='L' && pH==='L';
-  const isRvR         = bH==='R' && pH==='R';
-  const priorPlatoon  = getPlatoonPrior(bH, pH);
-  const platKingOk    = (r.szPA||0)>=60 || (r.barrel_pct!=null&&r.barrel_pct>=8) || (r.iso!=null&&r.iso>=0.170);
-  const matchupLabel  = `${bH}HB vs ${pH}HP`;
-  // Use actual blended platoon value to confirm the advantage is real
-  const platoonIsActuallyPositive = r.platoon >= 1.05;
-  const platoonIsActuallyNegative = r.platoon < 0.90;
+  // ── PLATOON ──────────────────────────────────────────────────────
+  const bH=r.batHand||'?', pH=r.oppHand||'R';
+  const isCross=(bH==='L'&&pH==='R')||(bH==='R'&&pH==='L');
+  const isLvL=bH==='L'&&pH==='L', isRvR=bH==='R'&&pH==='R';
+  const matchupLabel=`${bH}HB vs ${pH}HP`;
+  if(isCross&&r.platoon>=1.20&&((r.szPA||0)>=60||(r.barrel_pct||0)>=8||(r.iso||0)>=0.170))
+    a.push({icon:'🎯',cat:'platoon',tier:1,label:'Platoon King',color:'#ffd700',
+      tip:`${matchupLabel} — cross-hand confirmed. Model: +${Math.round((r.platoon-1)*100)}%`});
+  else if(isCross&&r.platoon>=1.10)
+    a.push({icon:'✅',cat:'platoon',tier:2,label:'Platoon Edge',color:'var(--green)',
+      tip:`${matchupLabel} — favorable handedness. Model: +${Math.round((r.platoon-1)*100)}%`});
+  else if(isLvL)
+    a.push({icon:'⚠️',cat:'platoon',tier:3,label:'L vs L Fade',color:'var(--red)',
+      tip:`LHB vs LHP — ~28% HR suppression`});
+  else if(isRvR&&r.platoon<=0.90)
+    a.push({icon:'🔵',cat:'platoon',tier:3,label:'R vs R',color:'var(--amber)',
+      tip:`RHB vs RHP — ${Math.round((1-r.platoon)*100)}% suppression`});
 
-  // Positive platoon angles — only show if the blended model value confirms it
-  if(isCrossHand){
-    if(platoonIsActuallyPositive){
-      if(r.platoon>=1.20 && platKingOk){
-        a.push({icon:'🎯',cat:'platoon',tier:1,label:'Platoon King (+)',color:'#ffd700',
-          tip:`${matchupLabel} — cross-hand advantage confirmed. Model: +${Math.round((r.platoon-1)*100)}%`});
-      } else if(r.platoon>=1.10 || priorPlatoon>=1.10){
-        a.push({icon:'✅',cat:'platoon',tier:2,label:'Platoon Edge (+)',color:'var(--green)',
-          tip:`${matchupLabel} — cross-hand advantage. Model: +${Math.round((r.platoon-1)*100)}%`});
-      }
-    } else if(platoonIsActuallyNegative){
-      // Cross-hand matchup but batter's actual splits are bad vs this pitcher hand
-      a.push({icon:'📊',cat:'platoon',tier:3,label:'Split Fade Despite Matchup (-)',color:'var(--amber)',
-        tip:`${matchupLabel} — theory says favorable but actual split data shows ${Math.round((1-r.platoon)*100)}% suppression`});
-    }
-    // r.platoon between 0.90-1.05: neutral, show nothing
-  }
-
-  // Negative platoon angles
-  if(isSameHand){
-    if(isLvL){
-      a.push({icon:'⚠️',cat:'platoon',tier:3,label:'L vs L Fade (-)',color:'var(--red)',
-        tip:`LHB vs LHP — toughest matchup for lefties. ~28% HR suppression`});
-    } else if(isRvR){
-      if(r.platoon<=0.80){
-        a.push({icon:'🔵',cat:'platoon',tier:3,label:'R vs R (-)',color:'var(--amber)',
-          tip:`RHB vs RHP — same-hand disadvantage, model shows ${Math.round((1-r.platoon)*100)}% suppression`});
-      } else {
-        a.push({icon:'🔵',cat:'platoon',tier:3,label:'R vs R (-)',color:'var(--t4)',
-          tip:`RHB vs RHP — slight same-hand disadvantage (~12%). Manageable`});
-      }
-    }
-  }
-
+  // ── FORM ────────────────────────────────────────────────────────
   const l3hr=g.slice(0,3).reduce((s,x)=>s+(x.hr||0),0);
   const l7hr=g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
   const l7pa=g.slice(0,7).reduce((s,x)=>s+(x.pa||x.ab||0),0);
@@ -2417,330 +2387,153 @@ function detectAngles(r){
   const sznRate=r.szPA>20?r.szHR/r.szPA:null;
   const l7rate=l7pa>0?l7hr/l7pa:null;
 
-  if(l3hr>=3) a.push({icon:'🔥',cat:'streak',tier:1,label:'On Fire (+)',color:'#ff6b00',tip:`${l3hr} HRs in last 3 games`});
-  else if(l3hr===2) a.push({icon:'🔥',cat:'streak',tier:2,label:'Back-to-Back (+)',color:'var(--amber)',tip:'2 HRs in last 3 games'});
-  else if(l7hr>=3) a.push({icon:'📈',cat:'streak',tier:2,label:`${l7hr} HR Week (+)`,color:'var(--amber)',tip:`${l7hr} HRs in last 7 days`});
-  else if(l15hr===0&&l15pa>=30&&sznRate!=null&&sznRate>=0.04) a.push({icon:'🧊',cat:'streak',tier:3,label:'HR Drought (-)',color:'var(--red)',tip:`0 HRs in last ${l15pa} PA despite ${(sznRate*100).toFixed(1)}% season rate`});
-
-  if(l7rate!=null&&sznRate!=null&&l7pa>=15&&l7rate>=sznRate*1.8) a.push({icon:'⚡',cat:'form',tier:2,label:'L7 Pace Surge (+)',color:'var(--amber)',tip:`L7 HR rate ${(l7rate*100).toFixed(1)}% vs season ${(sznRate*100).toFixed(1)}%`});
-
-  // xHR — single clear signal
-  const _szPA=r.szPA>40?r.szPA:(r.l100pa>40?r.l100pa:(r.l30pa>15?r.l30pa*4.5:0));
-  const _szHR=r.szHR>0?r.szHR:r.l30hr;
-  if(r.barrel_pct!=null&&_szPA>40){
-    const bp=r.barrel_pct||0;
-    const pap=r.pull_air_pct||((r.pull_pct||0)*(r.fb_pct||0)/100);
-    const hfb=r.hr_fb_pct||15;
-    const xHR=((bp/100)*clamp(pap?pap/15:1,0.7,1.55)*clamp(hfb/18,0.75,1.65)*(bp>=15?1.18:bp>=12?1.10:bp>=10?1.04:1.0))*_szPA*0.52;
-    const actual=_szHR||0,gap=xHR-actual;
-    const src=[bp>=8?`barrel ${bp}%`:null,pap>=10?`pull-air ${pap.toFixed(1)}%`:null].filter(Boolean).join('+');
-    if(gap>=4&&bp>=8) a.push({icon:'💥',cat:'xhr',tier:1,label:`${Math.round(gap)} HR Due (+)`,color:'var(--blue)',tip:`Power profile (${src}) implies ~${xHR.toFixed(0)} HRs, has ${actual}. ${Math.round(gap)} HR positive regression expected.`});
-    else if(gap>=2&&bp>=6) a.push({icon:'📊',cat:'xhr',tier:2,label:'HR Count Low (+)',color:'var(--blue)',tip:`Power metrics project ~${xHR.toFixed(1)} HRs vs ${actual} actual`});
-    else if(actual>=xHR+4&&xHR>1) a.push({icon:'📉',cat:'xhr',tier:3,label:'HR Count Hot (-)',color:'var(--red)',tip:`${actual} HRs vs ~${xHR.toFixed(0)} expected — overperforming, regression risk`});
-  }
-
-  // Rolling L30 hot streak — real heat backed by quality metrics
+  if(l3hr>=3)
+    a.push({icon:'🔥',cat:'streak',tier:1,label:'On Fire',color:'#ff6b00',tip:`${l3hr} HRs in last 3 games`});
+  else if(l3hr===2)
+    a.push({icon:'🔥',cat:'streak',tier:2,label:'Back-to-Back',color:'var(--amber)',tip:'2 HRs in last 3 games'});
+  if(l7rate!=null&&sznRate!=null&&l7pa>=15&&l7rate>=sznRate*1.8)
+    a.push({icon:'⚡',cat:'form',tier:2,label:'L7 Pace Surge',color:'var(--amber)',
+      tip:`L7 HR rate ${(l7rate*100).toFixed(1)}% vs season ${(sznRate*100).toFixed(1)}%`});
   if(r.rollingXwoba!=null&&r.xwoba!=null&&r.rollingXwoba>=r.xwoba+0.035&&r.rollingXwoba>=0.380)
-    a.push({icon:'🌡️',cat:'rolling',tier:1,label:'Quality Hot Streak (+)',color:'#ffd700',
-      tip:`L30 xwOBA ${r.rollingXwoba.toFixed(3)} vs season ${r.xwoba.toFixed(3)} — genuine quality heat, not just luck. Real form improvement backed by contact metrics.`});
-  else if(r.rollingXwoba!=null&&r.xwoba!=null&&r.rollingXwoba<=r.xwoba-0.040)
-    a.push({icon:'🌡️',cat:'rolling',tier:3,label:'Quality Cold Streak (-)',color:'var(--red)',
-      tip:`L30 xwOBA ${r.rollingXwoba.toFixed(3)} vs season ${r.xwoba.toFixed(3)} — genuine cold stretch in contact quality. Not just bad luck.`});
+    a.push({icon:'🌡️',cat:'rolling',tier:1,label:'Quality Hot Streak',color:'#ffd700',
+      tip:`L30 xwOBA ${r.rollingXwoba.toFixed(3)} vs season ${r.xwoba.toFixed(3)} — genuine heat`});
 
-  // Elite percentile ranks
-  if(r.evPct!=null&&r.evPct>=90)
-    a.push({icon:'📊',cat:'pctRank',tier:1,label:`Top ${100-r.evPct}% EV (+)`,color:'#ffd700',
-      tip:`Exit velocity in ${r.evPct}th percentile of MLB — elite raw power`});
-  else if(r.xwobaPct!=null&&r.xwobaPct>=90)
-    a.push({icon:'📊',cat:'pctRank',tier:1,label:`Top ${100-r.xwobaPct}% xwOBA (+)`,color:'var(--green)',
-      tip:`xwOBA in ${r.xwobaPct}th percentile of MLB — elite quality of contact`});
+  // ── HEATING UP / DUE (heat score) ────────────────────────────────
+  const heat=calcHeatScore(r);
+  const droughtZVal=heat._droughtZ!=null?heat._droughtZ.toFixed(2):null;
+  if(heat.score>=5)
+    a.push({icon:'🌋',cat:'due',tier:1,label:'Due',color:'#ffd700',
+      tip:`${heat.score}/6 heat signals: ${heat.metLabels.join(', ')}${droughtZVal?` · Drought Z=${droughtZVal}`:''}`});
+  else if(heat.score>=3)
+    a.push({icon:'🌡️',cat:'heating',tier:2,label:'Heating Up',color:'var(--amber)',
+      tip:`${heat.score}/6 heat signals: ${heat.metLabels.join(', ')}${droughtZVal?` · Drought Z=${droughtZVal}`:''}`});
 
-  // xwOBA luck regression — batter deserves more than he's gotten
-  if(r.xwobaDiff!=null&&r.xwobaDiff>=0.025)
-    a.push({icon:'🍀',cat:'xwoba',tier:1,label:'Luck Regression Due (+)',color:'var(--blue)',
-      tip:`xwOBA ${r.xwoba?.toFixed(3)} vs actual wOBA ${r.woba?.toFixed(3)} — ${Math.round(r.xwobaDiff*1000)} pts above expected. Positive regression incoming.`});
-  else if(r.xwobaDiff!=null&&r.xwobaDiff<=-0.030)
-    a.push({icon:'🍀',cat:'xwoba',tier:3,label:'Lucky — Regression Risk (-)',color:'var(--red)',
-      tip:`xwOBA ${r.xwoba?.toFixed(3)} vs actual wOBA ${r.woba?.toFixed(3)} — ${Math.round(Math.abs(r.xwobaDiff)*1000)} pts below expected. Outperforming contact quality.`});
-
-  // Swing speed — elite bat speed correlates strongly with HR power
-  if(r.swingSpeed!=null){
-    if(r.swingSpeed>=75) a.push({icon:'🏏',cat:'swingSpd',tier:1,label:'Elite Swing Speed (+)',color:'#ffd700',tip:`${r.swingSpeed} mph swing speed — top 5% (lg avg 70 mph). Raw bat speed = raw HR power.`});
-    else if(r.swingSpeed>=72) a.push({icon:'🏏',cat:'swingSpd',tier:2,label:'Fast Bat Speed (+)',color:'var(--green)',tip:`${r.swingSpeed} mph swing speed — above average`});
-  }
-
+  // ── POWER ────────────────────────────────────────────────────────
   if(r.barrel_pct!=null){
-    if(r.barrel_pct>=20) a.push({icon:'🛢️',cat:'barrel',tier:1,label:'Barrel King (+)',color:'#ffd700',tip:`${r.barrel_pct}% barrel — elite top 2% (lg avg 8%)`});
-    else if(r.barrel_pct>=15) a.push({icon:'🛢️',cat:'barrel',tier:1,label:'Barrel Monster (+)',color:'var(--green)',tip:`${r.barrel_pct}% barrel — top 5%`});
-    else if(r.barrel_pct>=11) a.push({icon:'💪',cat:'barrel',tier:2,label:'Barrel Threat (+)',color:'var(--green)',tip:`${r.barrel_pct}% barrel — above average`});
+    if(r.barrel_pct>=15) a.push({icon:'🛢️',cat:'barrel',tier:1,label:'Barrel King',color:'#ffd700',tip:`${r.barrel_pct}% barrel rate — elite (avg 8%)`});
+    else if(r.barrel_pct>=11) a.push({icon:'🛢️',cat:'barrel',tier:2,label:'Barrel Threat',color:'var(--green)',tip:`${r.barrel_pct}% barrel — above average`});
   }
   if(r.pull_air_pct!=null){
-    if(r.pull_air_pct>=22) a.push({icon:'🎯',cat:'pullAir',tier:1,label:'Pull-Air King (+)',color:'#ffd700',tip:`${r.pull_air_pct.toFixed(1)}% pulled airballs — elite top 2%`});
-    else if(r.pull_air_pct>=18) a.push({icon:'🎯',cat:'pullAir',tier:1,label:'Pull-Air Elite (+)',color:'var(--green)',tip:`${r.pull_air_pct.toFixed(1)}% pulled airballs — top 10%`});
-    else if(r.pull_air_pct>=15) a.push({icon:'↗️',cat:'pullAir',tier:2,label:'Pull-Air Edge (+)',color:'#90c0ff',tip:`${r.pull_air_pct.toFixed(1)}% pulled airballs — above average`});
+    if(r.pull_air_pct>=18) a.push({icon:'🎯',cat:'pullAir',tier:1,label:'Pull-Air King',color:'#ffd700',tip:`${r.pull_air_pct.toFixed(1)}% pulled airballs — top 10%`});
+    else if(r.pull_air_pct>=15) a.push({icon:'↗️',cat:'pullAir',tier:2,label:'Pull-Air Edge',color:'#90c0ff',tip:`${r.pull_air_pct.toFixed(1)}% pulled airballs — above average`});
   }
-  if(r.hr_fb_pct!=null){
-    if(r.hr_fb_pct>=28) a.push({icon:'🚀',cat:'hrfb',tier:1,label:'HR Machine (+)',color:'#ffd700',tip:`${r.hr_fb_pct.toFixed(1)}% HR/FB — elite`});
-    else if(r.hr_fb_pct>=22) a.push({icon:'🚀',cat:'hrfb',tier:1,label:'Fly Ball Power (+)',color:'var(--green)',tip:`${r.hr_fb_pct.toFixed(1)}% HR/FB — top 15%`});
-    else if(r.hr_fb_pct>=17) a.push({icon:'📈',cat:'hrfb',tier:2,label:'Good HR/FB (+)',color:'#90c0ff',tip:`${r.hr_fb_pct.toFixed(1)}% HR/FB — above average`});
-  }
-  if(r.hard_hit_pct!=null){
-    if(r.hard_hit_pct>=56) a.push({icon:'🔨',cat:'hardhit',tier:1,label:'Iron Fists (+)',color:'#ffd700',tip:`${r.hard_hit_pct}% hard hit — top 3%`});
-    else if(r.hard_hit_pct>=50) a.push({icon:'🔨',cat:'hardhit',tier:2,label:'Hard Contact (+)',color:'var(--green)',tip:`${r.hard_hit_pct}% hard hit — top 10%`});
-  }
-  if(r.avg_ev!=null){
-    if(r.avg_ev>=95) a.push({icon:'⚡',cat:'ev',tier:1,label:'Nuclear EV (+)',color:'#ffd700',tip:`${r.avg_ev} mph EV — elite`});
-    else if(r.avg_ev>=92) a.push({icon:'⚡',cat:'ev',tier:2,label:'Elite EV (+)',color:'var(--green)',tip:`${r.avg_ev} mph EV — top 15%`});
-  }
-
-  // Plate discipline — patient hitters get better counts to hit
-  if(r.chaseRate!=null&&r.chaseRate<=22)
-    a.push({icon:'👁️',cat:'chase',tier:2,label:'Elite Eye (+)',color:'var(--green)',
-      tip:`${r.chaseRate}% chase rate — top 5% plate discipline (lg avg 29%). Patient hitters see more hittable counts.`});
-
-  // Launch angle sweet spot — elite HR shape
-  if(r.sweetSpot!=null&&r.sweetSpot>=40)
-    a.push({icon:'📐',cat:'sweetSpot',tier:1,label:'Optimal Launch Angle (+)',color:'var(--green)',
-      tip:`${r.sweetSpot}% sweet spot rate — elite (lg avg 35%). Consistently hits balls at optimal 8-32° for HRs.`});
-
-  // HR distance — proof of power
-  if(r.avgHRDist!=null&&r.avgHRDist>=420)
-    a.push({icon:'💨',cat:'hrDist',tier:1,label:'Moonshots (+)',color:'#ffd700',
-      tip:`Avg HR distance ${Math.round(r.avgHRDist)} ft — elite raw power (lg avg ~390 ft). HR balls clear all fences.`});
-  else if(r.avgHRDist!=null&&r.avgHRDist>=405)
-    a.push({icon:'💨',cat:'hrDist',tier:2,label:'Tape Measure Power (+)',color:'var(--green)',
-      tip:`Avg HR distance ${Math.round(r.avgHRDist)} ft — well above average`});
+  if(r.hr_fb_pct!=null&&r.hr_fb_pct>=22)
+    a.push({icon:'🚀',cat:'hrfb',tier:1,label:'HR Machine',color:'var(--green)',tip:`${r.hr_fb_pct.toFixed(1)}% HR/FB — top 15% (avg 13%)`});
   if(r.iso!=null){
-    if(r.iso>=0.300) a.push({icon:'💣',cat:'iso',tier:1,label:'Power Freak (+)',color:'#ffd700',tip:`ISO .${Math.round(r.iso*1000)} — Judge-tier`});
-    else if(r.iso>=0.240) a.push({icon:'💣',cat:'iso',tier:1,label:'Elite Power (+)',color:'var(--green)',tip:`ISO .${Math.round(r.iso*1000)} — top 10%`});
-    else if(r.iso>=0.200) a.push({icon:'💪',cat:'iso',tier:2,label:'Solid Power (+)',color:'#90c0ff',tip:`ISO .${Math.round(r.iso*1000)} — above average`});
+    if(r.iso>=0.240) a.push({icon:'💣',cat:'iso',tier:1,label:'Power Freak',color:'#ffd700',tip:`ISO .${Math.round(r.iso*1000)} — elite power`});
+    else if(r.iso>=0.200) a.push({icon:'💪',cat:'iso',tier:2,label:'Solid Power',color:'#90c0ff',tip:`ISO .${Math.round(r.iso*1000)} — above average`});
+  }
+  if(r.xwobaDiff!=null&&r.xwobaDiff>=0.025)
+    a.push({icon:'🍀',cat:'xwoba',tier:1,label:'Luck Regression',color:'var(--blue)',
+      tip:`xwOBA ${r.xwoba?.toFixed(3)} vs wOBA ${r.woba?.toFixed(3)} — +${Math.round(r.xwobaDiff*1000)}pt gap`});
+
+  // ── PITCHER ──────────────────────────────────────────────────────
+  const recentHR9=pit.recentHR9||0, sznHR9=pit.sznHR9||0;
+  if(recentHR9>=3.0)
+    a.push({icon:'🧨',cat:'pitcher',tier:1,label:'Dinger Machine',color:'#ffd700',tip:`SP allowing ${recentHR9.toFixed(1)} HR/9 recently — extreme`});
+  else if(recentHR9>=2.2)
+    a.push({icon:'🚀',cat:'pitcher',tier:2,label:'Serving Dingers',color:'var(--green)',tip:`SP allowing ${recentHR9.toFixed(1)} HR/9 — elevated`});
+  else if(sznHR9<=0.8&&pit.sznXFIP<=3.5)
+    a.push({icon:'🧱',cat:'pitcher',tier:3,label:'Shutdown SP',color:'var(--red)',tip:`Elite HR suppressor: ${sznHR9.toFixed(1)} HR/9, xFIP ${pit.sznXFIP?.toFixed(2)}`});
+
+  // BvP arsenal angle
+  const bvpP=r._bvp; if(bvpP){
+    const nm=bvpP.pitchName||'pitch'; const ratio=bvpP.isoRatio||1;
+    if(ratio>=1.5&&(bvpP.pa||0)>=15)
+      a.push({icon:'🎵',cat:'arsenal',tier:2,label:`Crushes ${nm}`,color:'var(--green)',
+        tip:`ISO ${bvpP.iso?.toFixed(3)||'--'} vs ${nm} (${bvpP.pa}PA) — ${Math.round((ratio-1)*100)}% above avg`});
+    else if(ratio<=0.6&&(bvpP.pa||0)>=15)
+      a.push({icon:'🎵',cat:'arsenal',tier:3,label:`Weak vs ${nm}`,color:'var(--red)',
+        tip:`ISO ${bvpP.iso?.toFixed(3)||'--'} vs ${nm} (${bvpP.pa}PA) — ${Math.round((1-ratio)*100)}% below avg`});
   }
 
-  // Career vs this SP — direct evidence
-  const hvhData = r.careerVsSP;
-  if(hvhData && hvhData.pa >= 15){
-    const hvhRate = hvhData.hr / hvhData.pa;
-    const expRate = r.anchor || MLB_AVG;
-    const ratio = hvhRate / expRate;
-    if(hvhData.hr >= 2 && ratio >= 1.5)
-      a.push({icon:'⚔️',cat:'hvh',tier:1,label:`${hvhData.hr} HR vs This SP (+)`,color:'#ffd700',
-        tip:`${hvhData.hr} HR in ${hvhData.pa} career PA vs this pitcher — ${Math.round((ratio-1)*100)}% above expected rate`});
-    else if(hvhData.hr === 0 && hvhData.pa >= 20 && ratio <= 0.3)
-      a.push({icon:'⚔️',cat:'hvh',tier:3,label:'0 HR vs This SP (-)',color:'var(--red)',
-        tip:`0 HR in ${hvhData.pa} career PA vs this pitcher — historically struggles in this matchup`});
+  // ── CONTEXT ──────────────────────────────────────────────────────
+  const homeTeamAbbr=r.homeTeam||r.home||r.game?.split('@')?.[1]?.trim()||'';
+  const isDomeGame=wx?.isDome||DOME_TEAMS.has(homeTeamAbbr);
+
+  // Park
+  if(r.game?.includes('@COL')||(r.team==='COL'&&r.isHome))
+    a.push({icon:'🏔️',cat:'park',tier:1,label:'Coors Field',color:'var(--amber)',tip:'Mile High — ball travels ~10% farther'});
+  else if((r.pf||1)>=1.08)
+    a.push({icon:'🏟️',cat:'park',tier:2,label:'HR Park',color:'var(--amber)',tip:`Park factor ${(r.pf||1).toFixed(2)}x`});
+
+  // Weather
+  if(!isDomeGame&&wx&&wx.wind>=12){
+    const toDir=(wx.wdir+180)%360;
+    const outDirs=[200,225,250,270,290]; // roughly toward RF/CF/LF
+    const isOut=outDirs.some(d=>Math.abs(toDir-d)<30);
+    if(isOut&&wx.wind>=15)
+      a.push({icon:'💨',cat:'wind',tier:1,label:'Wind Out',color:'var(--green)',tip:`${Math.round(wx.wind)} mph toward power alleys`});
+    else if(isOut)
+      a.push({icon:'💨',cat:'wind',tier:2,label:'Wind Assist',color:'var(--green)',tip:`${Math.round(wx.wind)} mph wind assist`});
+    else if(!isOut)
+      a.push({icon:'🌀',cat:'wind',tier:3,label:'Wind In',color:'var(--red)',tip:`${Math.round(wx.wind)} mph headwind`});
   }
 
-  // Team HR context — hot lineup boosts individual HR odds
-  if(r.teamMult>=1.15)
-    a.push({icon:'🔥',cat:'teamCtx',tier:2,label:'Lineup Running Hot (+)',color:'var(--amber)',
-      tip:`${r.team} averaging ${r.teamHRContext||'high'} HR/game over last 14 days — hot lineup context boosts individual HR probability`});
-  else if(r.teamMult<=0.82)
-    a.push({icon:'❄️',cat:'teamCtx',tier:3,label:'Lineup Cold (-)',color:'var(--t4)',
-      tip:`${r.team} batting through a cold stretch — fewer HR opportunities in low-scoring lineup context`});
-
-  // Sleeper flag — undervalued player with strong matchup today
-  const sleeperData = detectSleeper(r);
-  if(sleeperData&&sleeperData.score>=7)
-    a.push({icon:'💤',cat:'sleeper',tier:1,label:'Sleeper Pick (+)',color:'#a78bfa',
-      tip:`Under-the-radar play: ${sleeperData.reasons[0]}`});
-
-  // ── HEATING UP / DUE — heat score from 6 conditions ────────────
-  const heat = calcHeatScore(r);
-  if(heat.score >= 5){
-    a.push({icon:'🌋',cat:'due',tier:1,label:'Due (+)',color:'#ffd700',
-      tip:`${heat.score}/6 heat signals: ${heat.metLabels.join(', ')} — strong regression case`});
-  } else if(heat.score >= 3){
-    a.push({icon:'🌡️',cat:'heating',tier:2,label:'Heating Up (+)',color:'var(--amber)',
-      tip:`${heat.score}/6 heat signals: ${heat.metLabels.join(', ')}`});
+  // Career vs SP
+  const hvh=r.careerVsSP;
+  if(hvh&&hvh.pa>=15){
+    const hvhRate=hvh.hr/hvh.pa;
+    if(hvh.hr>=2&&sznRate&&hvhRate>=sznRate*1.4)
+      a.push({icon:'⚔️',cat:'hvh',tier:1,label:'HR vs This SP',color:'#ffd700',
+        tip:`${hvh.hr} career HRs vs this pitcher (${hvh.pa}PA)`});
+    else if(hvh.hr===0&&hvh.pa>=20&&sznRate&&hvhRate<sznRate*0.5)
+      a.push({icon:'🚫',cat:'hvh',tier:3,label:'0 HR vs This SP',color:'var(--red)',
+        tip:`0 HRs in ${hvh.pa}PA vs this pitcher`});
   }
 
-  // Regression Due
+  // Umpire
+  const ump=r._umpData||r.umpData;
+  if(ump&&ump.hrFactor&&ump.hrFactor>=1.15)
+    a.push({icon:'👨‍⚖️',cat:'ump',tier:2,label:'HR-Friendly Ump',color:'#90c0ff',tip:`Umpire ${ump.name||''} historically +${Math.round((ump.hrFactor-1)*100)}% HR rate`});
 
-  // Bullpen quality
-  if(r.bullpenMult!=null&&r.bullpenMult>=1.12)
-    a.push({icon:'🔧',cat:'bullpen',tier:2,label:'Weak Bullpen (+)',color:'var(--green)',
-      tip:`Opposing bullpen ${r.bullpenMult>=1?'above':'below'} avg HR rate — ${Math.round((r.bullpenMult-1)*100)}% more HR risk from relievers`});
-  else if(r.bullpenMult!=null&&r.bullpenMult<=0.88)
-    a.push({icon:'🔧',cat:'bullpen',tier:3,label:'Elite Bullpen (-)',color:'var(--red)',
-      tip:`Opposing bullpen strong — fewer HR opportunities in late innings`});
+  // Home/away splits
+  if(r.homeAwaySplits){
+    const ha=r.homeAwaySplits;
+    const homeRate=ha.homeRate,awayRate=ha.awayRate;
+    if(r.isHome&&homeRate&&awayRate&&homeRate>=awayRate*1.15)
+      a.push({icon:'🏠',cat:'homeSplit',tier:2,label:'Home Splits',color:'var(--green)',tip:`HR rate ${(homeRate*100).toFixed(1)}% at home vs ${(awayRate*100).toFixed(1)}% away`});
+    else if(!r.isHome&&awayRate&&homeRate&&awayRate>=homeRate*1.15)
+      a.push({icon:'✈️',cat:'homeSplit',tier:2,label:'Road Warrior',color:'var(--green)',tip:`HR rate ${(awayRate*100).toFixed(1)}% away vs ${(homeRate*100).toFixed(1)}% home`});
+  }
 
   // Lineup position
-  if(r.lineupPos){
-    if(r.lineupPos <= 4)
-      a.push({icon:'📋',cat:'lineup',tier:2,label:`Lineup #${r.lineupPos} (+)`,color:'var(--green)',
-        tip:`Batting ${r.lineupPos} — top of order gets most PA and best run-scoring chances`});
-    else if(r.lineupPos >= 7)
-      a.push({icon:'📋',cat:'lineup',tier:3,label:`Lineup #${r.lineupPos} (-)`,color:'var(--t4)',
-        tip:`Batting ${r.lineupPos} — bottom of order averages fewer PA per game`});
-  }
+  if((r.lineupPos||9)<=4)
+    a.push({icon:'📋',cat:'lineup',tier:2,label:'Lineup Top 4',color:'var(--green)',tip:`Batting ${r.lineupPos} — guaranteed 4+ PA`});
 
-  // Home/away split
-  if(r.homeAwayMult && Math.abs(r.homeAwayMult - 1.0) >= 0.08){
-    if(r.homeAwayMult >= 1.10)
-      a.push({icon:'🏠',cat:'homeaway',tier:2,label:`${r.isHome?'Home':'Road'} Splits (+)`,color:'var(--green)',
-        tip:`${Math.round((r.homeAwayMult-1)*100)}% better HR rate ${r.isHome?'at home':'on the road'} this season`});
-    else if(r.homeAwayMult <= 0.90)
-      a.push({icon:'🏠',cat:'homeaway',tier:3,label:`${r.isHome?'Home':'Road'} Splits (-)`,color:'var(--red)',
-        tip:`${Math.round((1-r.homeAwayMult)*100)}% worse HR rate ${r.isHome?'at home':'on the road'} this season`});
-  }
-
-  // Umpire tendency
-  if(r.umpMult && r.umpMult >= 1.08)
-    a.push({icon:'👨‍⚖️',cat:'umpire',tier:2,label:'HR-Friendly Ump (+)',color:'#90c0ff',
-      tip:`${r.umpire} has historically larger strike zone — more swinging, more contact, more HRs`});
-  else if(r.umpMult && r.umpMult <= 0.92)
-    a.push({icon:'👨‍⚖️',cat:'umpire',tier:3,label:'Pitcher-Friendly Ump (-)',color:'var(--red)',
-      tip:`${r.umpire} has historically tighter zone — fewer HR opportunities`});
-
-  // Arsenal — single unified signal based on primary pitch + overall mix
-  // Rule: if we have specific bvp data for primary pitch, use that.
-  // If overall mix (_arsenalMult) contradicts primary pitch signal, primary pitch wins.
-  const bvpData=r._bvp||{};const spArsenal=(r._pitcherStats||{}).arsenal;
-  if(spArsenal&&Object.keys(spArsenal.mix||{}).length){
-    const primaryPT=spArsenal.primary;const bvpP=bvpData[primaryPT];
-    const LG={FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130};
-    const PF={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Changeup',FS:'Splitter'};
-    if(bvpP&&bvpP.pa>=15&&bvpP.iso!=null){
-      const ratio=bvpP.iso/(LG[primaryPT]||0.155);
-      const nm=PF[primaryPT]||primaryPT;
-      const pct=(spArsenal.mix[primaryPT]||0).toFixed(0);
-      if(ratio>=1.5)
-        a.push({icon:'🎵',cat:'arsenal',tier:1,label:`Crushes ${nm} (+)`,color:'var(--green)',
-          tip:`ISO .${String(bvpP.iso).replace('0.','')} vs ${nm} (${bvpP.pa}PA) — ${Math.round((ratio-1)*100)}% above lg avg. SP throws ${pct}%.`});
-      else if(ratio<=0.60)
-        a.push({icon:'🎵',cat:'arsenal',tier:3,label:`Weak vs ${nm} (-)`,color:'var(--red)',
-          tip:`ISO .${String(bvpP.iso).replace('0.','')} vs ${nm} (${bvpP.pa}PA) — struggles vs SP's primary weapon.`});
-      // else: neutral on primary pitch — don't show a tag
-    } else if(pit._arsenalMult!=null&&pit._arsenalMult!==1.0){
-      // No specific primary pitch data — fall back to overall mix signal
-      if(pit._arsenalMult>=1.10)
-        a.push({icon:'🎵',cat:'arsenal',tier:1,label:'Pitch Mix Advantage (+)',color:'var(--green)',tip:pit._arsenalDesc||'Batter profile favors this SP pitch mix'});
-      else if(pit._arsenalMult>=1.05)
-        a.push({icon:'🎵',cat:'arsenal',tier:2,label:'Favorable Mix (+)',color:'#90c0ff',tip:pit._arsenalDesc||'Slight pitch mix advantage'});
-      else if(pit._arsenalMult<=0.90)
-        a.push({icon:'🎵',cat:'arsenal',tier:3,label:'Unfavorable Mix (-)',color:'var(--red)',tip:pit._arsenalDesc||'Struggles vs this SP mix overall'});
-    }
-  }
-
-  // Pitcher
-  if(pit.hr9_recent!=null){
-    if(pit.hr9_recent>=3.0) a.push({icon:'🧨',cat:'pitcher',tier:1,label:'Dinger Machine (+)',color:'#ffd700',tip:`SP ${pit.hr9_recent.toFixed(1)} HR/9 recent`});
-    else if(pit.hr9_recent>=2.2) a.push({icon:'🚀',cat:'pitcher',tier:1,label:'Serving Dingers (+)',color:'var(--green)',tip:`SP ${pit.hr9_recent.toFixed(1)} HR/9`});
-    else if(pit.hr9_recent>=1.7) a.push({icon:'📤',cat:'pitcher',tier:2,label:'HR-Prone SP (+)',color:'#90c0ff',tip:`SP ${pit.hr9_recent.toFixed(1)} HR/9 — above avg`});
-    else if(pit.hr9_recent<0.8&&pit.hr9_season!=null&&pit.hr9_season<0.9) a.push({icon:'🧱',cat:'pitcher',tier:3,label:'Shutdown SP (-)',color:'var(--red)',tip:`SP ${pit.hr9_recent.toFixed(1)} HR/9 — elite suppressor`});
-  }
-  if(pit.totalStarts!=null&&pit.totalStarts<=3) a.push({icon:'🆕',cat:'spStarts',tier:2,label:'Fresh SP (+/-)',color:'var(--amber)',tip:`Only ${pit.totalStarts} starts this season`});
-  // SP CSW% (called strike + whiff) — best single pitcher quality metric
-  if(pit.csw!=null){
-    if(pit.csw>=32)
-      a.push({icon:'🌀',cat:'whiff',tier:3,label:'Elite CSW SP (-)',color:'var(--red)',
-        tip:`SP ${pit.csw}% CSW — elite (lg avg 28%). Called+swinging strikes suppress HR opps.`});
-    else if(pit.csw<=23)
-      a.push({icon:'📤',cat:'whiff',tier:2,label:'Low CSW SP (+)',color:'var(--green)',
-        tip:`SP ${pit.csw}% CSW — below average command. More balls in play = more HR chances.`});
-  } else if(pit.whiffPct!=null){
-    if(pit.whiffPct>=32)
-      a.push({icon:'🌀',cat:'whiff',tier:3,label:'High-K SP (-)',color:'var(--red)',
-        tip:`SP ${pit.whiffPct}% whiff — elite swing-and-miss stuff.`});
-    else if(pit.whiffPct<=18)
-      a.push({icon:'📤',cat:'whiff',tier:2,label:'Low-K SP (+)',color:'var(--green)',
-        tip:`SP ${pit.whiffPct}% whiff — fewer strikeouts, more balls in play.`});
-  }
-
-  // SP velocity trend — losing velo is a leading indicator of HR regression
-  if(pit.veloTrend){
-    if(pit.veloTrend.isLosingVelo)
-      a.push({icon:'📉',cat:'velo',tier:1,label:`SP Losing Velo (+)`,color:'var(--green)',
-        tip:`SP fastball down ${Math.abs(pit.veloTrend.delta)} mph vs last season — velocity decline = reduced stuff = more HRs`});
-    else if(pit.veloTrend.isGainingVelo)
-      a.push({icon:'📈',cat:'velo',tier:3,label:'SP Gaining Velo (-)',color:'var(--red)',
-        tip:`SP fastball up ${pit.veloTrend.delta} mph — improved velocity = harder to hit`});
-  }
-
-  // SP batted ball profile
-  if(pit.battedBall){
-    if(pit.battedBall.gbRate>52)
-      a.push({icon:'⬇️',cat:'spBB',tier:3,label:'Ground Ball SP (-)',color:'var(--red)',
-        tip:`SP ${pit.battedBall.gbRate}% GB rate — suppresses fly balls. Fewer HR chances even with good batters.`});
-    else if(pit.battedBall.fbRate>44)
-      a.push({icon:'⬆️',cat:'spBB',tier:2,label:'Fly Ball SP (+)',color:'var(--green)',
-        tip:`SP ${pit.battedBall.fbRate}% FB rate — generates fly balls. More HR opportunities vs power hitters.`});
-  }
-
-  // SP days rest
-  const spRest = pit.daysRest;
-  if(spRest){
-    if(spRest.isShortRest)
-      a.push({icon:'😓',cat:'rest',tier:1,label:'SP Short Rest (+)',color:'var(--green)',
-        tip:`SP on only ${spRest.days} days rest — fatigue affects command, typically allows more HRs`});
-    else if(spRest.isExtraRest)
-      a.push({icon:'😴',cat:'rest',tier:3,label:'SP Extra Rest (-)',color:'var(--t4)',
-        tip:`SP on ${spRest.days} days rest — extra rest improves command, slightly suppresses HRs`});
-  }
-
-  // SP workload — short outings mean bullpen sooner = more HR chances
-  if(pit.workload){
-    if(pit.workload.ipTrend<=-0.8)
-      a.push({icon:'⏰',cat:'workload',tier:2,label:'SP Getting Shorter (+)',color:'var(--green)',
-        tip:`SP averaging ${pit.workload.avgIP} IP but only ${pit.workload.recentIP} recent — likely out after 4-5 innings. Bullpen exposure increases HR probability.`});
-    else if(pit.workload.ipTrend>=0.8)
-      a.push({icon:'💪',cat:'workload',tier:3,label:'SP Going Deep (-)',color:'var(--t4)',
-        tip:`SP averaging ${pit.workload.recentIP} IP recently vs ${pit.workload.avgIP} season avg — going deeper into games, less bullpen exposure.`});
-  }
-
-  if(pit.recentK9!=null&&pit.seasonK9!=null){
-    if(pit.recentK9<pit.seasonK9*0.80&&pit.seasonK9>=7)
-      a.push({icon:'📉',cat:'spStuff',tier:2,label:'SP Losing Stuff (+)',color:'var(--green)',tip:`K/9 dropped ${pit.seasonK9.toFixed(1)} to ${pit.recentK9.toFixed(1)} — often precedes HR spike`});
-    // SP Gaining Ks is negative-only — handled in detectNegativeAngles
-  }
-
-  // Park/weather
-  if(r.game?.includes('@COL') || (r.team==='COL' && r.isHome)) a.push({icon:'🏔️',cat:'park',tier:1,label:'Coors Field (+)',color:'var(--amber)',tip:'Mile High — ball travels ~10% farther'});
-  else if(r.pf>=1.08) a.push({icon:'🏟️',cat:'park',tier:2,label:'HR Park (+)',color:'var(--amber)',tip:`Park factor ${r.pf.toFixed(2)}x`});
-  if(wx.temp!=null&&wx.temp>=85) a.push({icon:'☀️',cat:'temp',tier:2,label:'Heat Game (+)',color:'var(--amber)',tip:`${Math.round(wx.temp)}F`});
-  if(wx.wind>=12&&r.parkwx>=1.08) a.push({icon:'💨',cat:'wind',tier:1,label:'Wind Out (+)',color:'var(--green)',tip:`${windLabel(wx.wind,wx.wdir)} toward power alley`});
-  else if(wx.wind>=8&&r.parkwx>=1.04) a.push({icon:'🌬️',cat:'wind',tier:2,label:'Wind Assist (+)',color:'#90c0ff',tip:`${windLabel(wx.wind,wx.wdir)}`});
-  else if(wx.wind>=12&&r.parkwx<=0.92) a.push({icon:'🌀',cat:'wind',tier:3,label:'Wind In (-)',color:'var(--red)',tip:`${windLabel(wx.wind,wx.wdir)} — headwind`});
-  const ppRisk = calcPostponementRisk(wx);
-  // ── DOME CHECK — skip all weather tags if playing in a dome/retractable ──
-  const homeTeamAbbr = r.homeTeam || r.home || r.game?.split('@')?.[1]?.trim() || '';
-  const isDomeGame = wx?.isDome || DOME_TEAMS.has(homeTeamAbbr);
-  if(!isDomeGame){
-    if(ppRisk>=0.45) a.push({icon:'🚫',cat:'rain',tier:3,label:`Postponement Risk (${Math.round(ppRisk*100)}%) (-)`,color:'var(--red)',tip:`${Math.round(ppRisk*100)}% chance of postponement based on rain/wind forecast. Prop bets void if postponed.`});
-    else if(wx.rain>=60) a.push({icon:'🌧️',cat:'rain',tier:3,label:'Rain Risk (-)',color:'var(--red)',tip:`${Math.round(wx.rain)}% rain`});
-  }
-
-  // Value
+  // FD value
   const fdOdds=getFDOdds(r.name);
   if(fdOdds!=null){const ed=calcEdge(r.prob,fdOdds);if(ed){
-    if(ed.edge>=5) a.push({icon:'💰',cat:'value',tier:1,label:`+${ed.edge}% FD Value (+)`,color:'var(--green)',tip:`FD ${fdOdds>0?'+':''}${fdOdds} vs model ${(r.prob*100).toFixed(1)}%`});
-    else if(ed.edge>=2) a.push({icon:'📈',cat:'value',tier:2,label:`+${ed.edge}% Edge (+)`,color:'var(--green)',tip:'Slight value vs FD'});
-    else if(ed.edge<=-5) a.push({icon:'🚫',cat:'value',tier:3,label:'Overpriced (-)',color:'var(--red)',tip:`Book ${ed.bookImp}% implied vs our ${(r.prob*100).toFixed(1)}%`});
+    if(ed.edge>=5) a.push({icon:'💰',cat:'value',tier:1,label:`+${ed.edge}% FD Value`,color:'var(--green)',tip:`FD ${fdOdds>0?'+':''}${fdOdds} vs model ${(r.prob*100).toFixed(1)}%`});
+    else if(ed.edge<=-5) a.push({icon:'🚫',cat:'value',tier:3,label:'Overpriced',color:'var(--red)',tip:`Book ${ed.bookImp}% implied vs our ${(r.prob*100).toFixed(1)}%`});
   }}
 
-  // Combo — Elite/Prime Spot requires genuinely stacked conditions
-  // Count distinct positive categories (not combo, not value/edge)
-  const posCats=[...new Set(a.filter(x=>x.tier<=2&&!x.label.endsWith('(-)')&&x.cat!=='combo'&&x.cat!=='value').map(x=>x.cat))];
-  const anchorAboveAvg  = (r.anchor||0) > MLB_AVG*1.20; // 20% above avg (was 10%)
-  const strongPowerBase = (r.barrel_pct!=null&&r.barrel_pct>=11)  // was 9
-                       || (r.pull_air_pct!=null&&r.pull_air_pct>=16) // was 13
-                       || (r.iso!=null&&r.iso>=0.210);               // was 0.185
-  const strongPlatoon   = r.platoon>=1.15;   // meaningful platoon advantage
-  const softPitcher     = r.pitcher>=1.10;   // pitcher is actually hittable
-  const noFade          = !a.some(x=>x.tier<=2&&x.label.endsWith('(-)'));
+  // Combo
+  const posCats=[...new Set(a.filter(x=>x.tier<=2&&!x.label.endsWith('(-)') &&x.cat!=='combo'&&x.cat!=='value').map(x=>x.cat))];
+  const anchorAboveAvg=(r.anchor||0)>MLB_AVG*1.20;
+  const strongPowerBase=(r.barrel_pct||0)>=11||(r.pull_air_pct||0)>=16||(r.iso||0)>=0.210;
+  const softPitcher=r.pitcher>=1.10;
+  const noFade=!a.some(x=>x.tier<=2&&x.label.endsWith('(-)'));
+  if(posCats.length>=5&&anchorAboveAvg&&strongPowerBase&&softPitcher&&noFade)
+    a.unshift({icon:'⭐',cat:'combo',tier:1,label:'Elite Spot',color:'#ffd700',
+      tip:`${posCats.length} signals + real power vs hittable SP`});
+  else if(posCats.length>=4&&r.platoon>=1.15&&softPitcher&&anchorAboveAvg&&strongPowerBase&&noFade)
+    a.unshift({icon:'🌟',cat:'combo',tier:1,label:'Prime Spot',color:'#ffd700',
+      tip:`Platoon + power + soft pitcher — ${posCats.length} signals`});
 
-  // Elite Spot: 5+ positive categories, strong power base, pitcher is hittable, no red flags
-  if(posCats.length>=5 && anchorAboveAvg && strongPowerBase && softPitcher && noFade)
-    a.unshift({icon:'⭐',cat:'combo',tier:1,label:'Elite Spot (+)',color:'#ffd700',
-      tip:`${posCats.length} signals aligned + real power (barrel ${r.barrel_pct?.toFixed(0)||'--'}%) vs hittable SP: ${posCats.join(', ')}`});
-  // Prime Spot: 4 categories, must include platoon AND soft pitcher, real power
-  else if(posCats.length>=4 && strongPlatoon && softPitcher && anchorAboveAvg && strongPowerBase && noFade)
-    a.unshift({icon:'🌟',cat:'combo',tier:1,label:'Prime Spot (+)',color:'#ffd700',
-      tip:`Platoon + power + soft pitcher — ${posCats.length} signals aligned`});
+  // Sleeper
+  const sleeperData=detectSleeper(r);
+  if(sleeperData&&sleeperData.score>=7)
+    a.unshift({icon:'💤',cat:'sleeper',tier:1,label:'Sleeper',color:'#a78bfa',
+      tip:`Under-the-radar: ${sleeperData.reasons[0]}`});
 
   const best={};
   for(const x of a){if(!best[x.cat]||x.tier<best[x.cat].tier)best[x.cat]=x;}
-  return Object.values(best).sort((x,y)=>{if(x.cat==='combo')return -1;if(y.cat==='combo')return 1;return x.tier-y.tier;});
+  return Object.values(best).sort((x,y)=>{
+    if(x.cat==='combo'||x.cat==='sleeper')return -1;
+    if(y.cat==='combo'||y.cat==='sleeper')return 1;
+    return x.tier-y.tier;
+  });
 }
 
 function calcHeatScore(r){
@@ -2815,7 +2608,7 @@ function calcHeatScore(r){
 
   const score = conds.filter(c=>c.met).length;
   const metLabels = conds.filter(c=>c.met).map(c=>c.label);
-  return { score, conds, metLabels };
+  return { score, conds, metLabels, _droughtZ: droughtZ };
 }
 
 function detectNegativeAngles(r){
@@ -2929,6 +2722,7 @@ function fireSecondaryMaps(){
       ensurePitcherWhiffMap(),
       ensurePlateDiscMap(),
       ensureRollingMap(),
+      ensurePercentileMap(),
     ]).then(()=>{
       console.log('[secondary] FG/whiff/disc/rolling maps ready — re-enriching stats');
 
@@ -4068,23 +3862,37 @@ async function ensurePercentileMap(){
     const rows = parseCSVText(await r.text());
     const s = rows[0]||{};
     const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
-    console.log('[Percentile] cols:', Object.keys(s).slice(0,12));
+    console.log('[Percentile] cols:', Object.keys(s).slice(0,20));
     for(const row of rows){
       const pid = String(row[idC]||'').replace(/\.0$/,'');
       if(!pid) continue;
+      const pf = (c,fb=0) => parseFloat(row[c]??fb)||null;
+      const pi = (c) => { const v=parseInt(row[c]); return isNaN(v)||v===0?null:v; };
       _percentileMap[pid] = {
-        ev:          parseFloat(row.exit_velocity||row.avg_exit_velocity||0)||null,
-        barrelPct:   parseFloat(row.brl_percent||row.barrel_batted_rate||0)||null,
-        hardHit:     parseFloat(row.ev95percent||0)||null,
-        xwoba:       parseFloat(row.xwoba||row.est_woba||0)||null,
-        sprint:      parseFloat(row.sprint_speed||0)||null,
-        whiff:       parseFloat(row.whiff_percent||0)||null,
-        k:           parseFloat(row.k_percent||0)||null,
-        bb:          parseFloat(row.bb_percent||0)||null,
-        // Percentile rank (0-100, higher = better for hitters)
-        evPct:       parseInt(row.percent_rank_exit_velocity||0)||null,
-        brlPct:      parseInt(row.percent_rank_barrel||0)||null,
-        xwobaPct:    parseInt(row.percent_rank_xwoba||0)||null,
+        // Raw stat values
+        ev:          pf('exit_velocity') ?? pf('avg_exit_velocity'),
+        barrelPct:   pf('brl_percent')   ?? pf('barrel_batted_rate'),
+        hardHit:     pf('ev95percent')   ?? pf('hard_hit_percent'),
+        xwoba:       pf('xwoba')         ?? pf('est_woba'),
+        xba:         pf('xba')           ?? pf('est_ba'),
+        xslg:        pf('xslg')          ?? pf('est_slg'),
+        sweetSpot:   pf('sweet_spot_percent') ?? pf('sweet_spot'),
+        k:           pf('k_percent'),
+        bb:          pf('bb_percent'),
+        sprint:      pf('sprint_speed'),
+        whiff:       pf('whiff_percent'),
+        outs:        pf('outs_above_average'),
+        // Pre-computed Savant percentile ranks (0-100, higher = better)
+        evPct:       pi('percent_rank_exit_velocity'),
+        brlPct:      pi('percent_rank_barrel'),
+        xwobaPct:    pi('percent_rank_xwoba'),
+        xbaPct:      pi('percent_rank_xba'),
+        xslgPct:     pi('percent_rank_xslg'),
+        sweetSpotPct:pi('percent_rank_sweet_spot') ?? pi('percent_rank_sweetspot'),
+        kPct:        pi('percent_rank_k_percent')  ?? pi('percent_rank_k'),
+        bbPct:       pi('percent_rank_bb_percent') ?? pi('percent_rank_bb'),
+        hardHitPct:  pi('percent_rank_hard_hit')   ?? pi('percent_rank_ev95'),
+        sprintPct:   pi('percent_rank_sprint_speed'),
       };
     }
     console.log('[Percentile] loaded', Object.keys(_percentileMap).length, 'players');
@@ -4704,6 +4512,7 @@ function renderTagGuide(){
   const TAGS = {
     // COMBO
     'elite-spot':    ['⭐ Elite Spot',    'var(--green)',  '5 signals + power + hittable SP','Requires ALL of: (1) 5+ distinct positive signal categories firing, (2) anchor rate 20%+ above MLB average, (3) strong power base — barrel% ≥11% or pull-air% ≥16% or ISO ≥.210, (4) pitcher multiplier ≥1.10x meaning the SP is genuinely hittable, (5) zero red-flag negatives. When all 5 gates clear, the play is as stacked as it gets. These are the highest-conviction plays on the slate.'],
+    'prime-spot':    ['🌟 Prime Spot',    '#ffd700',       '4 signals + platoon + SP',      'Requires: 4+ distinct categories, confirmed platoon edge ≥1.15x, hittable pitcher ≥1.10x, real power base, and no red flags. Slightly softer than Elite but still a high-priority play when platoon and pitcher both align.'],
     'sleeper':       ['💤 Sleeper',       '#a78bfa',       'Under-the-radar edge',         'Strong matchup signals but low public attention — typically below-average salary on DFS. Model finds edge that the market has missed today.'],
     'regression-due':['⏰ Regression Due','var(--amber)',   'xwOBA >> wOBA — HRs coming',  'This hitter\'s quality of contact (xwOBA) is significantly higher than their actual results (wOBA). The gap means HRs should be coming — batted ball luck is expected to normalize upward.'],
     // PLATOON
@@ -4743,10 +4552,11 @@ function renderTagGuide(){
 
   // Build the guide
   const SECTIONS = [
-    {label:'COMBO', keys:['elite-spot','sleeper','regression-due']},
+    {label:'COMBO',   keys:['elite-spot','prime-spot','sleeper','regression-due']},
+    {label:'HEATING', keys:['due','heating-up']},
     {label:'PLATOON', keys:['platoon-king','platoon-edge','lvl-fade','rvr-fade']},
-    {label:'FORM', keys:['on-fire','back-to-back','l7-surge','hot-streak','hr-drought']},
-    {label:'POWER', keys:['barrel-king','pull-air','hr-machine','power-freak','luck-reg']},
+    {label:'FORM',    keys:['on-fire','back-to-back','l7-surge','hot-streak','hr-drought']},
+    {label:'POWER',   keys:['barrel-king','pull-air','hr-machine','power-freak','luck-reg']},
     {label:'PITCHER', keys:['dinger-machine','hr-prone-sp','shutdown-sp','crushes-pitch','weak-pitch']},
     {label:'CONTEXT', keys:['hr-park','coors','wind-out','wind-in','career-sp','hr-ump','home-splits','hvh','lineup-top']},
   ];
@@ -10911,82 +10721,81 @@ function renderDetail(r){
 
     <!-- Statcast Percentile Rankings -->
     ${(()=>{
-      // Get _percentileMap data for this player
       const pm = (_percentileMap||{})[String(r.id)] || {};
-      const pid = String(r.id);
+      const hasAny = Object.values(pm).some(v=>v!=null&&v>0);
+      if(!hasAny) return '';
 
-      // Helper: compute percentile from _savB distribution for a stat
-      const computePct = (stat, val, higherIsBetter=true) => {
+      // Helper: compute percentile from _savB distribution when Savant rank not available
+      const computePct = (statKey, val, higherBetter=true) => {
         if(val==null) return null;
-        const allVals = Object.values(_savB||{}).map(p=>p[stat]).filter(v=>v!=null&&v>0);
+        const allVals = Object.values(_savB||{}).map(p=>p[statKey]).filter(v=>v!=null&&v>0);
         if(allVals.length < 10) return null;
         allVals.sort((a,b)=>a-b);
-        const idx = allVals.findIndex(v => v >= val);
+        const idx = allVals.findIndex(v=>v>=val);
         const rawPct = idx<0 ? 99 : Math.round(idx/allVals.length*100);
-        return higherIsBetter ? rawPct : 100-rawPct;
+        return higherBetter ? rawPct : 100-rawPct;
       };
 
-      // Stats to show: [label, value, pct, higherIsBetter, format]
-      const rows = [
-        ['SLG',        r.iso!=null&&r.szPA>20?(r.iso+0.250):null,
-                       null, true,  v=>'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3)],
-        ['OBP',        null,  null, true,  v=>'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3)],
-        ['BB %',       pm.bb, pm.bb!=null?Math.round((pm.bb-4)/0.14):null, true,  v=>v.toFixed(1)+'%'],
-        ['K %',        pm.k,  pm.k!=null?Math.round((1-(pm.k-10)/0.38)*100):null, false, v=>v.toFixed(1)+'%'],
-        ['Avg EV',     r.avg_ev,    pm.evPct,  true,  v=>v.toFixed(1)+' mph'],
-        ['Barrel %',   r.barrel_pct, pm.brlPct||computePct('barrel_pct',r.barrel_pct), true, v=>v.toFixed(1)+'%'],
-        ['Hard-Hit %', r.hard_hit_pct, computePct('hard_hit_pct',r.hard_hit_pct), true, v=>v.toFixed(1)+'%'],
-        ['LA Sweet Sp', r.sweet_spot_pct, computePct('sweetSpot',r.sweet_spot_pct), true, v=>v.toFixed(1)+'%'],
-      ].filter(([,val])=>val!=null);
+      // Format helpers
+      const f1  = v => v!=null ? v.toFixed(1) : '—';
+      const f3  = v => v!=null ? '.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3) : '—';
+      const fp  = (v,s='%') => v!=null ? v.toFixed(1)+s : '—';
+      const fmph= v => v!=null ? v.toFixed(1)+' mph' : '—';
 
-      if(!rows.length) return '';
+      // All 10 Savant batting percentile stats
+      // [label, pct (0-100), raw value string, note for inverted stats]
+      const stats = [
+        ['xwOBA',       pm.xwobaPct,                                  pm.xwoba!=null?f3(pm.xwoba):null,  false],
+        ['xBA',         pm.xbaPct,                                     pm.xba!=null?f3(pm.xba):null,     false],
+        ['xSLG',        pm.xslgPct,                                    pm.xslg!=null?f3(pm.xslg):null,   false],
+        ['Exit Velocity', pm.evPct ?? computePct('avg_ev',r.avg_ev),   fmph(pm.ev ?? r.avg_ev),          false],
+        ['Hard Hit%',   pm.hardHitPct ?? computePct('hard_hit_pct',r.hard_hit_pct), fp(pm.hardHit??r.hard_hit_pct), false],
+        ['K%',          pm.kPct,                                        fp(pm.k),                         true],  // lower is better
+        ['BB%',         pm.bbPct,                                       fp(pm.bb),                        false],
+        ['Barrel%',     pm.brlPct ?? computePct('barrel_pct',r.barrel_pct), fp(pm.barrelPct??r.barrel_pct), false],
+        ['LA Sweet Spot%', pm.sweetSpotPct ?? computePct('sweetSpot',r.sweet_spot_pct), fp(pm.sweetSpot??r.sweet_spot_pct), false],
+        ['Sprint Speed', pm.sprintPct,                                  pm.sprint!=null?pm.sprint.toFixed(1)+' ft/s':null, false],
+      ].filter(([,pct])=>pct!=null);
 
-      const bar = (pct, higherBetter=true) => {
-        if(pct==null) return `<div style="flex:1;height:8px;background:var(--bg3);border-radius:4px"></div>`;
-        const p = Math.max(0,Math.min(100,pct));
-        const clr = p>=70?'var(--green)':p>=40?'var(--amber)':'var(--red)';
-        return `<div style="flex:1;height:8px;background:var(--bg3);border-radius:4px;overflow:hidden;position:relative">
-          <div style="position:absolute;left:0;top:0;height:100%;width:${p}%;background:${clr};border-radius:4px;transition:width .3s"></div>
+      if(!stats.length) return '';
+
+      const pctBar = (pct, invertedLabel=false) => {
+        const p = Math.max(0, Math.min(100, pct));
+        const clr = p>=70 ? 'var(--green)' : p>=40 ? 'var(--amber)' : 'var(--red)';
+        const inside = p >= 28;
+        const pctLabel = `${Math.round(p)}th`;
+        return `<div style="position:relative;height:20px;border-radius:5px;overflow:hidden;background:var(--bg3);flex:1">
+          <div style="height:100%;width:${p}%;background:${clr};opacity:.8;border-radius:5px"></div>
           <div style="position:absolute;left:33.3%;top:0;height:100%;width:1px;background:rgba(255,255,255,.12)"></div>
           <div style="position:absolute;left:66.6%;top:0;height:100%;width:1px;background:rgba(255,255,255,.12)"></div>
+          <div style="position:absolute;top:0;height:100%;display:flex;align-items:center;
+            ${inside ? `right:${100-p+2}%;transform:translateX(0);padding-right:5px;justify-content:flex-end` : `left:${p+1}%;padding-left:4px`};
+            font-size:.60rem;font-weight:800;
+            color:${inside ? 'rgba(255,255,255,.95)' : clr};
+            white-space:nowrap;pointer-events:none">${pctLabel}</div>
         </div>`;
       };
 
       return `<div class="card" style="margin-bottom:10px">
-        <div class="slbl" style="margin-bottom:4px">📊 Statcast Percentile Rankings vs MLB</div>
-        <div style="display:flex;justify-content:space-between;font-size:.52rem;color:var(--t4);
-          margin-bottom:8px;padding:0 2px">
-          <span>BAD</span><span>AVG.</span><span>GOOD</span>
+        <div class="slbl" style="margin-bottom:6px">📊 Statcast Percentile Rankings</div>
+        <div style="display:flex;justify-content:space-between;font-size:.52rem;
+          color:var(--t4);margin-bottom:8px;padding:0 2px;letter-spacing:.02em">
+          <span>◀ BAD</span><span>AVG</span><span>GOOD ▶</span>
         </div>
-        ${rows.map(([lbl,val,pct,hib,fmt])=>{
-          const p = pct!=null?Math.max(0,Math.min(100,pct)):null;
-          const clr = p!=null?(p>=70?'var(--green)':p>=40?'var(--amber)':'var(--red)'):'var(--t4)';
-          const valStr = val!=null?fmt(val):'—';
-          // Position value label: if bar is wide enough (>25%), show inside bar; else show after
-          const inside = p!=null && p>=30;
-          return `<div style="display:grid;grid-template-columns:90px 1fr 38px;align-items:center;
-            gap:8px;margin-bottom:8px">
-            <div style="font-size:.65rem;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lbl}</div>
-            <div style="position:relative;height:18px">
-              <!-- Track -->
-              <div style="position:absolute;inset:0;background:var(--bg3);border-radius:4px;overflow:hidden">
-                <!-- Fill -->
-                <div style="height:100%;width:${p??0}%;background:${clr};border-radius:4px;opacity:.85"></div>
-                <!-- Zone markers -->
-                <div style="position:absolute;left:33.3%;top:0;height:100%;width:1px;background:rgba(255,255,255,.15)"></div>
-                <div style="position:absolute;left:66.6%;top:0;height:100%;width:1px;background:rgba(255,255,255,.15)"></div>
-              </div>
-              <!-- Value label -->
-              <div style="position:absolute;top:0;${inside?`left:${Math.min(p-2,88)}%;transform:translateX(-100%)`:'left:calc('+p+'% + 4px)'};
-                height:100%;display:flex;align-items:center;
-                font-size:.58rem;font-weight:700;color:${inside?'rgba(255,255,255,.9)':clr};
-                white-space:nowrap;pointer-events:none">${valStr}</div>
-            </div>
-            <div style="font-size:.62rem;font-weight:700;color:${clr};text-align:right;white-space:nowrap">
-              ${p!=null?p+'th':'—'}
-            </div>
+        ${stats.map(([lbl, pct, val, inverted])=>{
+          const p = Math.max(0,Math.min(100,pct));
+          const clr = p>=70?'var(--green)':p>=40?'var(--amber)':'var(--red)';
+          return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <div style="width:88px;font-size:.64rem;color:var(--t3);flex-shrink:0;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lbl}${inverted?' ↓':''}</div>
+            ${pctBar(p, inverted)}
+            <div style="width:54px;font-size:.62rem;font-weight:600;color:${clr};
+              flex-shrink:0;text-align:right;white-space:nowrap">${val??'—'}</div>
           </div>`;
         }).join('')}
+        <div style="font-size:.56rem;color:var(--t4);margin-top:4px;opacity:.6">
+          Source: Baseball Savant · ${SEASON} season · ↓ = lower is better
+        </div>
       </div>`;
     })()}
 
