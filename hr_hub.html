@@ -8307,6 +8307,135 @@ const HR_ZONES_RHB = [9,6,3,8,5]; // inner + heart
 
 let _batterZoneMap = null;
 // After zone maps populate, recompute matchup + re-render detail card if open
+async function selectZonePitch(playerId, pitchType){
+  const r = S.allRows.find(x=>String(x.id)===String(playerId));
+  if(!r) return;
+  const batPid = String(r._batPid||r.id);
+  const spId   = r._spId ? String(r._spId) : null;
+  const PT_NAMES = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Change',FS:'Split',KC:'K-Curve'};
+
+  // Update pill styles
+  const selector = document.getElementById(`zone-pitch-selector-${playerId}`);
+  if(selector){
+    selector.querySelectorAll('button').forEach(btn=>{
+      const isActive = btn.id === `zpill-${playerId}-${pitchType}`;
+      btn.style.border = isActive ? '1px solid var(--green)' : '1px solid var(--bdr)';
+      btn.style.background = isActive ? 'rgba(34,201,94,.15)' : 'var(--bg3)';
+      btn.style.color = isActive ? 'var(--green)' : 'var(--t4)';
+      btn.style.fontWeight = isActive ? '700' : '600';
+    });
+  }
+
+  const wrap = document.getElementById(`zone-grid-wrap-${playerId}`);
+  if(!wrap) return;
+
+  if(pitchType === 'ALL'){
+    // Restore aggregate zone grids
+    const zm = r._zoneMatch;
+    if(!zm) return;
+    const grids = buildZoneGrids(zm, r.batHand, 24, batPid, spId);
+    if(grids) _renderZoneWrap(wrap, grids, zm);
+    return;
+  }
+
+  // Show loading state
+  wrap.innerHTML = `<div style="font-size:.65rem;color:var(--t4);padding:8px">Loading ${PT_NAMES[pitchType]||pitchType} zones…</div>`;
+
+  // Fetch pitcher throw location for this pitch type (auto-refetches if not cached)
+  const throwLoc = spId ? await fetchPitcherThrowLocation(spId, pitchType).catch(()=>null) : null;
+
+  // Get batter's zone data for this pitch type from BvP cache
+  let batZoneData = null;
+  const bvp = _playerCache[`bvp_${batPid}`];
+  if(bvp?.[pitchType]?.zone3xwoba){
+    // Convert 3x3 array to zone-number keyed object
+    const zoneNums = [[7,8,9],[4,5,6],[1,2,3]];
+    batZoneData = {};
+    const xw = bvp[pitchType].zone3xwoba;
+    for(let row=0;row<3;row++) for(let col=0;col<3;col++){
+      const v = xw[row]?.[col]||0;
+      if(v>0) batZoneData[zoneNums[row][col]] = v;
+    }
+  } else {
+    // Fetch BvP data if not cached
+    const fetched = await getBatterVsPitches(batPid).catch(()=>null);
+    if(fetched?.[pitchType]?.zone3xwoba){
+      const zoneNums = [[7,8,9],[4,5,6],[1,2,3]];
+      batZoneData = {};
+      const xw = fetched[pitchType].zone3xwoba;
+      for(let row=0;row<3;row++) for(let col=0;col<3;col++){
+        const v = xw[row]?.[col]||0;
+        if(v>0) batZoneData[zoneNums[row][col]] = v;
+      }
+    }
+  }
+
+  if(!batZoneData && !throwLoc){
+    wrap.innerHTML = `<div style="font-size:.65rem;color:var(--red);padding:8px">No ${PT_NAMES[pitchType]||pitchType} data available</div>`;
+    return;
+  }
+
+  // Build zone matchup for this specific pitch type
+  const hrZones = new Set(r.batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
+
+  // Batter top zones for this pitch
+  let pitchZm = r._zoneMatch ? {...r._zoneMatch} : {};
+  if(batZoneData){
+    const sorted = Object.entries(batZoneData).sort((a,b)=>b[1]-a[1]);
+    const batTop3 = new Set(sorted.slice(0,3).map(([z])=>parseInt(z)));
+    // Build pitcher weak zones from throw-loc dmg5 if available
+    let spVuln3 = new Set(pitchZm.spVuln3||[]);
+    if(throwLoc?.dmg5avg){
+      populatePitcherZoneFromThrowLoc(spId, pitchType, throwLoc);
+      const spZones = (_pitcherZoneMap||{})[String(spId)]||{};
+      const spSorted = Object.entries(spZones).sort((a,b)=>b[1]-a[1]);
+      spVuln3 = new Set(spSorted.slice(0,3).map(([z])=>parseInt(z)));
+    }
+    const overlap = [...batTop3].filter(z=>spVuln3.has(z));
+    const hotOverlap = overlap.filter(z=>hrZones.has(z));
+    const overlapXwOBA = overlap.length ? overlap.reduce((s,z)=>s+(batZoneData[z]||0),0)/overlap.length : 0;
+    pitchZm = {
+      ...pitchZm,
+      batTop3: [...batTop3],
+      spVuln3: [...spVuln3],
+      overlap, hotOverlap,
+      overlapXwOBA: Math.round(overlapXwOBA*1000)/1000,
+      zoneNames: hotOverlap.map(z=>ZONE_LABELS[z]||`Z${z}`),
+      score: hotOverlap.length*3+overlap.length,
+      label: hotOverlap.length>=2?'Zone Domination':hotOverlap.length>=1?'Zone Overlap':'—',
+      fromRealData: !!(batZoneData && throwLoc),
+      pitchType,
+    };
+    // Temporarily override zone maps for this render
+    if(_batterZoneMap!==null) _batterZoneMap[`${batPid}_pt_${pitchType}`] = batZoneData;
+  }
+
+  const grids = buildZoneGrids(pitchZm, r.batHand, 24, batPid, spId);
+  if(!grids){ wrap.innerHTML='<div style="font-size:.65rem;color:var(--t4);padding:4px">No zone data</div>'; return; }
+  _renderZoneWrap(wrap, grids, pitchZm);
+}
+
+function _renderZoneWrap(wrap, grids, zm){
+  const clr = zm.hotOverlap?.length>=2?'#ffd700':zm.hotOverlap?.length>=1?'var(--green)':zm.antiOverlap?.length>=2?'var(--red)':'var(--t4)';
+  const label = zm.hotOverlap?.length>=2?'🎯 Zone Domination':zm.hotOverlap?.length>=1?'📍 Zone Overlap':zm.antiOverlap?.length>=2?'🚫 Zone Mismatch':'—';
+  wrap.innerHTML = `
+    <div style="flex:0 0 auto">
+      <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px;text-align:center">Batter Power${zm.pitchType?' — '+(zm.pitchType):''}</div>
+      ${grids.bat}
+    </div>
+    <div style="flex:0 0 auto">
+      <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px;text-align:center">Pitcher Weak${zm.pitchType?' — '+(zm.pitchType):''}</div>
+      ${grids.pit}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:.70rem;font-weight:700;color:${clr};margin-bottom:4px">${label}</div>
+      ${zm.desc?`<div style="font-size:.62rem;color:var(--t4);line-height:1.5">${zm.desc}</div>`:''}
+      ${zm.zoneNames?.length?`<div style="font-size:.60rem;color:var(--t4);margin-top:3px">Hot zones: ${zm.zoneNames.join(', ')}</div>`:''}
+      <div style="font-size:.55rem;color:var(--t4);margin-top:4px;opacity:.6">${zm.fromRealData?'✦ real Statcast data':'estimated'}</div>
+    </div>`;
+}
+
+
 function _recomputeZoneIfOpen(playerId, side){
   const lastId = window._lastDetailId;
   if(!lastId) return;
@@ -10626,6 +10755,17 @@ function renderDetail(r){
       const zoneMatch   = r._zoneMatch;
       const zoneHeatmap = zoneMatch ? buildZoneGrids(zoneMatch, r.batHand, 24, r._batPid||r.id, r._spId) : null;
 
+      // Pitch selector for zone grids — get available pitches from arsenal
+      const availPitches = arsenal ? Object.entries(arsenal.mix||{}).filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1]).map(([pt])=>pt) : [];
+      const PT_NAMES = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Change',FS:'Split',KC:'K-Curve'};
+      const pitchSelectorHTML = availPitches.length ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px" id="zone-pitch-selector-${r.id}">
+        <button onclick="selectZonePitch('${r.id}','ALL')" id="zpill-${r.id}-ALL"
+          style="padding:3px 8px;border-radius:99px;font-size:.60rem;font-weight:700;cursor:pointer;
+          border:1px solid var(--green);background:rgba(34,201,94,.15);color:var(--green)">All</button>
+        ${availPitches.map(pt=>`<button onclick="selectZonePitch('${r.id}','${pt}')" id="zpill-${r.id}-${pt}"
+          style="padding:3px 8px;border-radius:99px;font-size:.60rem;font-weight:600;cursor:pointer;
+          border:1px solid var(--bdr);background:var(--bg3);color:var(--t4)">${PT_NAMES[pt]||pt}</button>`).join('')}
+      </div>` : '';
       let arsenalHTML = '';
       if(arsenal && Object.keys(arsenal.mix||{}).length){
         const pitches = Object.entries(arsenal.mix).filter(([,p])=>p>=5).sort((a,b)=>b[1]-a[1]);
@@ -10748,8 +10888,9 @@ function renderDetail(r){
         ${statsRow}
 
         <!-- Zone heatmap row -->
-        ${(zoneHeatmap || zoneMatch) ? `<div style="display:flex;gap:10px;align-items:flex-start;
-          padding:8px 0 10px;border-bottom:1px solid var(--bg3);margin-bottom:10px">
+        ${(zoneHeatmap || zoneMatch) ? `<div style="padding:8px 0 10px;border-bottom:1px solid var(--bg3);margin-bottom:10px">
+          ${pitchSelectorHTML}
+          <div id="zone-grid-wrap-${r.id}" style="display:flex;gap:10px;align-items:flex-start">
           ${zoneHeatmap ? `<div style="flex:0 0 auto">
             <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px;text-align:center">Batter Power</div>
             ${zoneHeatmap.bat}
@@ -10781,6 +10922,7 @@ function renderDetail(r){
             </div>` : ''}
             ${zoneMatch.fromRealData?`<div style="font-size:.55rem;color:var(--t4);margin-top:2px;opacity:.6">✦ real Statcast data</div>`:'<div style="font-size:.55rem;color:var(--t4);margin-top:2px;opacity:.6">estimated — tap ↻ for real data</div>'}
             ` : ''}
+          </div>
           </div>
         </div>` : `<div style="display:flex;align-items:center;justify-content:space-between;
           padding:6px 0 10px;border-bottom:1px solid var(--bg3);margin-bottom:10px">
