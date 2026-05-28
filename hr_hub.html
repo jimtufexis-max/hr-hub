@@ -8556,14 +8556,16 @@ function refreshZoneMatchup(id){
 // Pitcher grid: shows pitcher's most vulnerable zones (red)
 function buildZoneGrids(zm, batHand, size=24, batPid, spPid){
   if(!zm) return null;
-  const grid = [[7,8,9],[4,5,6],[1,2,3]];
-  const hrZones   = new Set(batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
-  const batHighlight = new Set(zm.batTop3 || [...(zm.hotOverlap||[]), ...(zm.overlap||[])]);
-  const spHighlight  = new Set(zm.spVuln3 || (zm.overlap||[]));
-  const spStrong     = new Set(zm.antiOverlap||[]);
-  const overlapZones = new Set(zm.hotOverlap||[]);
-  const batZoneData  = (_batterZoneMap||{})[String(batPid||'')] || {};
-  const spZoneData   = (_pitcherZoneMap||{})[String(spPid||'')] || {};
+  const grid = [[7,8,9],[4,5,6],[1,2,3]]; // catcher's view: top row = 7,8,9
+  const hrZones      = new Set(batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
+  // Batter: show top 3 power zones (by xwOBA produced)
+  const batHighlight  = new Set(zm.batTop3?.length ? zm.batTop3 : [...(zm.hotOverlap||[]), ...(zm.overlap||[])]);
+  // Pitcher: show top 3 VULNERABLE zones (high xwOBA allowed) and bottom 3 STRONG zones
+  const spHighlight   = new Set(zm.spVuln3?.length ? zm.spVuln3 : (zm.overlap||[]));
+  const spStrong      = new Set(zm.spStrong3?.length ? zm.spStrong3 : (zm.antiOverlap||[]));
+  const overlapZones  = new Set(zm.hotOverlap||[]);
+  const batZoneData   = (_batterZoneMap||{})[String(batPid||'')] || {};
+  const spZoneData    = (_pitcherZoneMap||{})[String(spPid||'')] || {};
 
   function cell(z, side){
     const label   = ZONE_LABELS[z]||`Z${z}`;
