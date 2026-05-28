@@ -8335,9 +8335,15 @@ async function selectZonePitch(playerId, pitchType){
   if(!wrap) return;
 
   if(pitchType === 'ALL'){
-    // Restore aggregate zone grids
-    const zm = r._zoneMatch;
-    if(!zm) return;
+    // Restore aggregate zone grids — recompute matchup fresh to get latest data
+    const zm = (() => {
+      if(batPid && spId){
+        const fresh = calcZoneMatchup(batPid, spId, r.batHand);
+        if(fresh){ r._zoneMatch = fresh; return fresh; }
+      }
+      return r._zoneMatch;
+    })();
+    if(!zm){ wrap.innerHTML = '<div style="font-size:.65rem;color:var(--t4);padding:8px">Zone data loading — tap ↻</div>'; return; }
     const grids = buildZoneGrids(zm, r.batHand, 24, batPid, spId);
     if(grids) _renderZoneWrap(wrap, grids, zm);
     return;
@@ -8452,17 +8458,16 @@ function _recomputeZoneIfOpen(playerId, side){
                                    : String(playerId)===spId;
   if(!relevant) return;
 
-  // Don't do a full re-render if user has a specific pitch selected —
-  // selectZonePitch handles its own DOM update for that pitch
+  // Always recompute zone matchup with newly available real data
+  if(batPid && spId){
+    const zm = calcZoneMatchup(batPid, spId, r.batHand);
+    if(zm) r._zoneMatch = zm;
+  }
+
+  // Only do full re-render if user is on "All" — pitch-specific view handles its own DOM
   const selectedPitch = window._selectedZonePitch?.[lastId];
   if(selectedPitch && selectedPitch !== 'ALL') return;
 
-  // Recompute with newly available real data
-  if(batPid && spId){
-    const zm = calcZoneMatchup(batPid, spId, r.batHand);
-    if(zm){ r._zoneMatch = zm; }
-  }
-  // Re-render if detail page is active
   const detailPage = document.getElementById('page-detail');
   if(detailPage?.classList.contains('active')){
     requestAnimationFrame(()=>renderDetail(r));
