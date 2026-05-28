@@ -2757,46 +2757,67 @@ async function ensureLeaderboards(){
 // without needing to open each player detail card.
 async function prefetchEliteSpotData(rows){
   if(!rows?.length) return;
-  const BATCH = 6;
-  let enriched = 0;
 
-  for(let i = 0; i < rows.length; i += BATCH){
-    const chunk = rows.slice(i, i + BATCH);
+  // Sort by prob desc so top players get elite-spot tags first
+  const sorted = [...rows].sort((a,b) => b.prob - a.prob);
+
+  // Adaptive batch: fewer games = larger batches = faster completion
+  const BATCH = sorted.length <= 30 ? 10 : sorted.length <= 60 ? 8 : 6;
+  const DELAY = sorted.length <= 30 ? 60 : 100;
+
+  let enriched = 0;
+  const umpireFetched = new Set(); // dedupe — one ump per game, not per player
+
+  for(let i = 0; i < sorted.length; i += BATCH){
+    const chunk = sorted.slice(i, i + BATCH);
     await Promise.allSettled(chunk.map(async r => {
       try{
         const batPid = String(r._batPid || r.id);
         const spId   = r._spId ? String(r._spId) : null;
 
-        // BvP arsenal (pitch-type matchup)
-        if(!r._bvp && spId){
-          const bvp = await getBatterVsPitches(batPid, spId, r.batHand).catch(()=>null);
-          if(bvp) { r._bvp = bvp; enriched++; }
+        // BvP arsenal — skip if already cached
+        if(!_playerCache[`bvp_${batPid}`] && spId){
+          const bvp = await getBatterVsPitches(batPid).catch(()=>null);
+          if(bvp){ r._bvp = bvp; enriched++; }
+        } else if(_playerCache[`bvp_${batPid}`] && !r._bvp){
+          r._bvp = _playerCache[`bvp_${batPid}`];
         }
 
-        // Career HR vs this specific SP
+        // Career vs SP
         if(!r.careerVsSP && spId){
           const cvs = await getCareerVsSP(batPid, spId).catch(()=>null);
-          if(cvs) { r.careerVsSP = cvs; enriched++; }
+          if(cvs){ r.careerVsSP = cvs; enriched++; }
         }
 
-        // Umpire data
-        if(!r._umpData && r._gamePk){
-          const ump = await getUmpireData(r._gamePk).catch(()=>null);
-          if(ump) { r._umpData = ump; enriched++; }
+        // Umpire — one fetch per game, shared across all players in that game
+        const gameKey = r._gamePk || r.gamePk;
+        if(!r._umpData && gameKey && !umpireFetched.has(String(gameKey))){
+          umpireFetched.add(String(gameKey));
+          const ump = await getUmpireData(gameKey).catch(()=>null);
+          if(ump){
+            // Apply to all players in this game
+            (S.allRows||[]).filter(x=>(x._gamePk||x.gamePk)==gameKey)
+              .forEach(x=>{ x._umpData = ump; });
+            enriched++;
+          }
+        } else if(!r._umpData && gameKey){
+          // Already fetched for this game — find and copy from another player
+          const sibling = (S.allRows||[]).find(x=>(x._gamePk||x.gamePk)==gameKey && x._umpData);
+          if(sibling) r._umpData = sibling._umpData;
         }
       }catch{}
     }));
 
-    // Small yield between batches
-    if(i + BATCH < rows.length){
-      await new Promise(res => setTimeout(res, 120));
+    // Re-render every 3 batches so top players show Elite Spot progressively
+    if(enriched > 0 && (i % (BATCH * 3) === 0 || i + BATCH >= sorted.length)){
+      renderSlate();
+      renderDailySummary();
+      enriched = 0; // reset counter for next window
     }
-  }
 
-  if(enriched > 0){
-    console.log(`[prefetch] enriched ${enriched} elite-spot signals — re-rendering`);
-    renderSlate();
-    renderDailySummary();
+    if(i + BATCH < sorted.length){
+      await new Promise(res => setTimeout(res, DELAY));
+    }
   }
 }
 
@@ -5385,8 +5406,8 @@ async function renderResultsTab(){
     // ── ROI by edge tier ─────────────────────────────────────────
     const tierBuckets = {S:[],A:[],B:[],C:[]};
     resolved.forEach(r=>{
-      if(!r.fdOdds||!r.prob) return;
-      const tier = getEdgeTier(r.prob, r.fdOdds);
+      if(!(r.fdOdds||r.odds)||!r.prob) return;
+      const tier = getEdgeTier(r.prob, r.fdOdds||r.odds);
       if(tier?.tier && tierBuckets[tier.tier]) tierBuckets[tier.tier].push(r);
     });
 
@@ -6185,7 +6206,7 @@ function getHitRateTracker(){
 
   const tiers = { S:[], A:[], B:[], C:[] };
   for(const r of resolved){
-    const fdO = r.fdOdds;
+    const fdO = r.fdOdds || r.odds || null; // r.odds = manually entered odds from bet modal
     const t = fdO ? getEdgeTier(r.prob,fdO)?.tier : null;
     const grade = t || (r.prob>=0.32?'S':r.prob>=0.25?'A':r.prob>=0.19?'B':'C');
     if(tiers[grade]) tiers[grade].push(r);
@@ -6203,9 +6224,9 @@ function getHitRateTracker(){
     { label:'S-tier (>10%)', min:10, max:999 },
   ].map(b=>({ ...b, bets:[], hits:[] }));
 
-  const withOdds = resolved.filter(r=>r.fdOdds);
+  const withOdds = resolved.filter(r=>r.fdOdds||r.odds);
   for(const r of withOdds){
-    const edge = getEdgeTier(r.prob,r.fdOdds)?.edge||0;
+    const edge = getEdgeTier(r.prob, r.fdOdds||r.odds)?.edge||0;
     const eb = edgeBuckets.find(b=>edge>=b.min && edge<b.max);
     if(eb){ eb.bets.push(r); if(r.actual>0) eb.hits.push(r); }
   }
