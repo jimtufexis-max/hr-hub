@@ -8310,6 +8310,11 @@ let _batterZoneMap = null;
 async function selectZonePitch(playerId, pitchType){
   const r = S.allRows.find(x=>String(x.id)===String(playerId));
   if(!r) return;
+
+  // Track which pitch is selected — blocks _recomputeZoneIfOpen from doing a full re-render
+  if(!window._selectedZonePitch) window._selectedZonePitch = {};
+  window._selectedZonePitch[playerId] = pitchType;
+
   const batPid = String(r._batPid||r.id);
   const spId   = r._spId ? String(r._spId) : null;
   const PT_NAMES = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Change',FS:'Split',KC:'K-Curve'};
@@ -8446,6 +8451,12 @@ function _recomputeZoneIfOpen(playerId, side){
   const relevant = side==='batter' ? String(playerId)===batPid
                                    : String(playerId)===spId;
   if(!relevant) return;
+
+  // Don't do a full re-render if user has a specific pitch selected —
+  // selectZonePitch handles its own DOM update for that pitch
+  const selectedPitch = window._selectedZonePitch?.[lastId];
+  if(selectedPitch && selectedPitch !== 'ALL') return;
+
   // Recompute with newly available real data
   if(batPid && spId){
     const zm = calcZoneMatchup(batPid, spId, r.batHand);
@@ -10490,6 +10501,9 @@ function showDetail(id){
   // Store for parlay builder and save scroll position
   window._betEntryPlayer = r;
   window._lastDetailId = id;
+  // Reset pitch selector to All on each new card open
+  if(!window._selectedZonePitch) window._selectedZonePitch = {};
+  window._selectedZonePitch[id] = 'ALL';
   S._slateScrollPos = document.getElementById('content')?.scrollTop || 0;
 
   // Pre-populate zone maps from cached BvP/throw-loc data so returning players
