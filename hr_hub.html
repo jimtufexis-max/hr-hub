@@ -3398,7 +3398,10 @@ async function fetchPitcherThrowLocation(spId, pitchType){
       dmg5n[ri][ci]>2?Math.round(s/dmg5n[ri][ci]*1000)/1000:0));
 
     const result={loc5pct,dmg5avg,totalPitches:rows.length};
-    _playerCache[key]=result; return result;
+    _playerCache[key]=result;
+    // Populate _pitcherZoneMap from this data — same source as Zone Analysis tab
+    if(_pitcherZoneMap !== null) populatePitcherZoneFromThrowLoc(spId, pt, result);
+    return result;
   }catch(e){ _playerCache[key]=null; return null; }
 }
 
@@ -3424,8 +3427,7 @@ async function getBatterVsPitches(pid){
         if(!groups[pt])groups[pt]=[];groups[pt].push(row);
       }
       const result={};
-      for(const[pt,pitches]of Object.entries(groups)){
-        const pa=pitches.length;
+      for(const[pt,pitches]of Object.entries(groups)){        const pa=pitches.length;
         const hrs=pitches.filter(p=>(p.events||'').toLowerCase()==='home_run').length;
         const hits=pitches.filter(p=>['single','double','triple','home_run'].includes((p.events||'').toLowerCase())).length;
         const abs=pitches.filter(p=>(p.events||'')!==''&&!['walk','hit_by_pitch','intent_walk'].includes((p.events||'').toLowerCase())).length;
@@ -3537,7 +3539,12 @@ async function getBatterVsPitches(pid){
           spray: sprayPts,
         };
       }
-      if(Object.keys(result).length>0){_playerCache[key]=result;return result;}
+      if(Object.keys(result).length>0){
+        _playerCache[key]=result;
+        // Populate _batterZoneMap from this data — same source as Zone Analysis tab
+        if(_batterZoneMap !== null) populateBatterZoneFromBvP(pid, result);
+        return result;
+      }
     }catch(e){}
   }
   _playerCache[key]=null; return null;
@@ -8291,67 +8298,76 @@ const HR_ZONES_LHB = [7,4,1,8,5]; // inner + heart
 const HR_ZONES_RHB = [9,6,3,8,5]; // inner + heart
 
 let _batterZoneMap = null;
+// Populate _batterZoneMap from already-cached BvP data (no extra fetch needed)
+// Called after getBatterVsPitches succeeds — reuses the same statcast_search data
+function populateBatterZoneFromBvP(pid, bvpResult){
+  if(!bvpResult || _batterZoneMap === null) return;
+  // Sum xwOBA across all pitch types to get batter's overall zone profile
+  const zoneSum   = Array.from({length:3},()=>Array(3).fill(0));
+  const zoneCount = Array.from({length:3},()=>Array(3).fill(0));
+  for(const ptData of Object.values(bvpResult)){
+    if(!ptData?.zone3xwoba) continue;
+    for(let r=0;r<3;r++) for(let c=0;c<3;c++){
+      const v=ptData.zone3xwoba[r]?.[c]||0;
+      if(v>0){ zoneSum[r][c]+=v; zoneCount[r][c]++; }
+    }
+  }
+  // Convert 3x3 row/col back to Savant zone numbers (row0=top, col0=left)
+  // Zone layout: [[7,8,9],[4,5,6],[1,2,3]]
+  const zoneNums = [[7,8,9],[4,5,6],[1,2,3]];
+  const zones = {};
+  for(let r=0;r<3;r++) for(let c=0;c<3;c++){
+    const z = zoneNums[r][c];
+    const n = zoneCount[r][c];
+    if(n>0) zones[z] = Math.round(zoneSum[r][c]/n*1000)/1000;
+  }
+  if(Object.keys(zones).length>0){
+    _batterZoneMap[String(pid)] = zones;
+  }
+}
+
+// Populate _pitcherZoneMap from cached throw-location data
+function populatePitcherZoneFromThrowLoc(spId, pitchType, throwLoc){
+  if(!throwLoc?.dmg5avg || _pitcherZoneMap === null) return;
+  const existing = _pitcherZoneMap[String(spId)] || {};
+  // Collapse 5x5 damage grid to 3x3 zones, averaging surrounding cells
+  const zoneNums = [[7,8,9],[4,5,6],[1,2,3]];
+  for(let r=0;r<3;r++) for(let c=0;c<3;c++){
+    const z = zoneNums[r][c];
+    // Map 3x3 zone to 5x5 center (zones start at row/col 1 in 5x5)
+    let sum=0, n=0;
+    for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+      const r5=r+1+dr, c5=c+1+dc;
+      if(r5>=0&&r5<5&&c5>=0&&c5<5&&throwLoc.dmg5avg[r5]?.[c5]>0){
+        sum+=throwLoc.dmg5avg[r5][c5]; n++;
+      }
+    }
+    if(n>0){
+      const val = sum/n;
+      // Accumulate across pitch types (weight by pitch count)
+      existing[z] = existing[z] ? (existing[z]+val)/2 : val;
+    }
+  }
+  if(Object.keys(existing).length>0){
+    _pitcherZoneMap[String(spId)] = existing;
+  }
+}
+
 async function ensureBatterZoneMap(){
   if(_batterZoneMap !== null) return;
   _batterZoneMap = {};
-  try{
-    // Savant batter zone data — xwOBA and HR by zone
-    const url = `https://baseballsavant.mlb.com/leaderboard/attack-zone?year=${SEASON}&min=100&type=batter&csv=true`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
-    if(!r.ok) throw new Error(`zone-stat ${r.status}`);
-    const rows = parseCSVText(await r.text());
-    if(!rows.length) throw new Error('empty zone data');
-    const s = rows[0];
-    const idC = ['player_id','batter','id'].find(c=>s[c]!=null);
-    console.log('[BatterZone] cols:', Object.keys(s).slice(0,15));
-    for(const row of rows){
-      const pid = String(row[idC]||'').replace(/\.0$/,'');
-      if(!pid) continue;
-      // Extract xwOBA per zone (z1-z9 for in-zone, z11-z14 for edge)
-      const zones = {};
-      for(let z=1;z<=9;z++){
-        const v = parseFloat(row[`z${z}`]||row[`zone_${z}`]||0)||null;
-        if(v!=null) zones[z] = v;
-      }
-      for(const z of [11,12,13,14]){
-        const v = parseFloat(row[`z${z}`]||row[`zone_${z}`]||0)||null;
-        if(v!=null) zones[z] = v;
-      }
-      if(Object.keys(zones).length) _batterZoneMap[pid] = zones;
-    }
-    console.log('[BatterZone] loaded', Object.keys(_batterZoneMap).length, 'batters');
-  }catch(e){ console.warn('[BatterZone]:', e.message); _batterZoneMap = {}; }
+  // Zone maps will be populated per-player from BvP cache as detail cards are opened
+  // No external endpoint needed — reuses data already fetched for Zone Analysis tab
 }
 
 let _pitcherZoneMap = null;
 async function ensurePitcherZoneMap(){
   if(_pitcherZoneMap !== null) return;
   _pitcherZoneMap = {};
-  try{
-    const url = `https://baseballsavant.mlb.com/leaderboard/attack-zone?year=${SEASON}&min=50&type=pitcher&csv=true`;
-    const r = await fetch(PROXY + encodeURIComponent(url));
-    if(!r.ok) throw new Error(`pitcher-zone ${r.status}`);
-    const rows = parseCSVText(await r.text());
-    if(!rows.length) throw new Error('empty pitcher zone data');
-    const s = rows[0];
-    const idC = ['player_id','pitcher','id'].find(c=>s[c]!=null);
-    for(const row of rows){
-      const pid = String(row[idC]||'').replace(/\.0$/,'');
-      if(!pid) continue;
-      const zones = {};
-      for(let z=1;z<=9;z++){
-        const v = parseFloat(row[`z${z}`]||row[`zone_${z}`]||0)||null;
-        if(v!=null) zones[z] = v;
-      }
-      for(const z of [11,12,13,14]){
-        const v = parseFloat(row[`z${z}`]||row[`zone_${z}`]||0)||null;
-        if(v!=null) zones[z] = v;
-      }
-      if(Object.keys(zones).length) _pitcherZoneMap[pid] = zones;
-    }
-    console.log('[PitcherZone] loaded', Object.keys(_pitcherZoneMap).length, 'pitchers');
-  }catch(e){ console.warn('[PitcherZone]:', e.message); _pitcherZoneMap = {}; }
+  // Populated from fetchPitcherThrowLocation data as detail cards are opened
 }
+
+
 
 // ==================================================================
 //  ZONE MATCHUP SCORER
@@ -10315,6 +10331,7 @@ function showDetail(id){
 
   // Store for parlay builder and save scroll position
   window._betEntryPlayer = r;
+  window._lastDetailId = id;
   S._slateScrollPos = document.getElementById('content')?.scrollTop || 0;
 
   const batPid = r._batPid||r.id;
@@ -12273,6 +12290,8 @@ function renderABLog(rows){
 function refreshData(){
   S.cache={};S.allRows=[];S.selPks.clear();
   _fetchCache.clear();
+  _batterZoneMap = null;
+  _pitcherZoneMap = null;
   loadSlate();
 }
 
