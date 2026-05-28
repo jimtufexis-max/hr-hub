@@ -1,4 +1,4 @@
-l<!DOCTYPE html>
+<!DOCTYPE html>
 <!-- DingerIQ v2.9 — cache bust -->
 <html lang="en">
 <head>
@@ -5523,11 +5523,16 @@ async function renderResultsTab(){
         const tHitPct=Math.round(tHits.length/bets.length*100);
         const tModelAvg=bets.reduce((s,r)=>s+(r.prob||0),0)/bets.length;
         let tRoi=null;
-        const tWithOdds=bets.filter(r=>r.fdOdds&&r.betAmount);
+        const tWithOdds=bets.filter(r=>(r.fdOdds||r.odds)&&(r.wagered||r.betAmount));
         if(tWithOdds.length){
           let w=0,ret=0;
-          tWithOdds.forEach(r=>{ const s=parseFloat(r.betAmount)||1; w+=s;
-            if(r.actual>0){const d=r.fdOdds>0?r.fdOdds/100:100/Math.abs(r.fdOdds);ret+=s+s*d;} });
+          tWithOdds.forEach(r=>{
+            const s=parseFloat(r.wagered||r.betAmount)||0;
+            const o=r.fdOdds||r.odds;
+            if(!s||!o) return;
+            w+=s;
+            if(r.actual>0){const d=o>0?o/100+1:100/Math.abs(o)+1;ret+=s*d;}
+          });
           tRoi=w>0?(ret-w)/w*100:null;
         }
         const tierClr=t==='S'?'#ffd700':t==='A'?'var(--green)':t==='B'?'var(--amber)':'var(--t4)';
@@ -5568,10 +5573,18 @@ async function renderResultsTab(){
         const wag = parseFloat(r.wagered||r.betAmount)||null;
         const payout = wag&&(r.odds||r.fdOdds)?calcPayout(wag,(r.odds||r.fdOdds)):null;
         const isPar = r.betType==='parlay';
+        const tier = (r.odds||r.fdOdds)&&r.prob ? getEdgeTier(r.prob,r.odds||r.fdOdds) : null;
+        const tierClr = tier?.tier==='S'?'#ffd700':tier?.tier==='A'?'var(--green)':tier?.tier==='B'?'var(--amber)':'var(--t4)';
+        const tierBadge = tier&&tier.tier!=='C'&&tier.tier!=='F'
+          ? `<span style="font-size:.58rem;font-weight:800;padding:1px 6px;border-radius:99px;background:${tierClr}20;color:${tierClr};border:1px solid ${tierClr}40">${tier.tier}</span>`
+          : (tier ? `<span style="font-size:.56rem;color:var(--t4)">C</span>` : '');
         html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px;
           background:var(--bg3);border-radius:10px;border-left:3px solid ${isPar?'#a78bfa':'var(--amber)'}">
           <div style="flex:1;min-width:0">
-            <div style="font-size:.74rem;font-weight:700;color:var(--t1)">${isPar?'🎰 ':''} ${r.name}</div>
+            <div style="display:flex;align-items:center;gap:5px">
+              <span style="font-size:.74rem;font-weight:700;color:var(--t1)">${isPar?'🎰 ':''} ${r.name}</span>
+              ${tierBadge}
+            </div>
             <div style="font-size:.60rem;color:var(--t4);margin-top:1px">${r.date} · ${oddsStr}${wag?` · <b style="color:var(--t2)">$${wag}</b>`:''}${payout?` · win: <b style="color:var(--green)">+$${payout.profit.toFixed(2)}</b>`:''}</div>
             ${isPar&&r.parlayLegs?`<div style="font-size:.58rem;color:var(--t4);margin-top:2px">${r.parlayLegs.map(l=>l.name.split(' ')[1]||l.name).join(' + ')}</div>`:''}
           </div>
@@ -5736,14 +5749,20 @@ async function renderResultsTab(){
             const payout=won&&stake&&oddsVal?calcPayout(stake,oddsVal):null;
             const isPar=r.betType==='parlay';
             const rowId=`bh-${r.id}-${r.date}`;
+            const histTier = oddsVal&&r.prob ? getEdgeTier(r.prob,oddsVal) : null;
+            const htClr = histTier?.tier==='S'?'#ffd700':histTier?.tier==='A'?'var(--green)':histTier?.tier==='B'?'var(--amber)':'var(--t4)';
+            const tierPill = histTier ? `<span style="font-size:.55rem;font-weight:800;padding:1px 5px;border-radius:99px;background:${htClr}20;color:${htClr};border:1px solid ${htClr}40;flex-shrink:0">${histTier.tier}</span>` : '';
             return `<div id="${rowId}" style="border-bottom:1px solid rgba(255,255,255,.03)">
               <div style="display:flex;align-items:center;gap:8px;padding:6px 0;
                 cursor:pointer;${isVoid?'opacity:.5':''}"
                 onclick="toggleBetEdit('${rowId}','${r.id}','${r.date}')">
                 <span style="font-size:.95rem;flex-shrink:0">${isVoid?'🚫':won?'✅':'❌'}${isPar?' 🎰':''}</span>
                 <div style="flex:1;min-width:0">
-                  <div style="font-size:.72rem;font-weight:700;color:${isVoid?'var(--t4)':'var(--t1)'};
-                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+                  <div style="display:flex;align-items:center;gap:5px">
+                    <span style="font-size:.72rem;font-weight:700;color:${isVoid?'var(--t4)':'var(--t1)'};
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</span>
+                    ${tierPill}
+                  </div>
                   <div style="font-size:.58rem;color:var(--t4)">${oddsStr}${stake?` · <b style="color:var(--t3)">$${stake}</b>`:''} · ${r.prob?(r.prob*100).toFixed(1)+'%':'--'}${isVoid?' · voided':''}</div>
                   ${isPar&&r.parlayLegs?`<div style="font-size:.56rem;color:var(--t4);margin-top:1px">${r.parlayLegs.map(l=>l.name.split(' ')[1]||l.name).join(' + ')}</div>`:''}
                 </div>
@@ -6246,10 +6265,12 @@ function getHitRateTracker(){
 
   let totalWagered=0, totalReturn=0;
   for(const r of withOdds){
-    totalWagered++;
-    if(r.actual>0){
-      const d=r.fdOdds>0?r.fdOdds/100+1:100/Math.abs(r.fdOdds)+1;
-      totalReturn+=d;
+    const stake = parseFloat(r.wagered||r.betAmount)||1; // use actual stake, fallback to 1 unit
+    const odds  = r.fdOdds||r.odds;
+    totalWagered += stake;
+    if(r.actual>0 && odds){
+      const d = odds>0 ? odds/100+1 : 100/Math.abs(odds)+1;
+      totalReturn += stake*d;
     }
   }
   const roi = totalWagered>0 ? Math.round((totalReturn-totalWagered)/totalWagered*1000)/10 : null;
