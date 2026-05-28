@@ -3400,7 +3400,11 @@ async function fetchPitcherThrowLocation(spId, pitchType){
     const result={loc5pct,dmg5avg,totalPitches:rows.length};
     _playerCache[key]=result;
     // Populate _pitcherZoneMap from this data — same source as Zone Analysis tab
-    if(_pitcherZoneMap !== null) populatePitcherZoneFromThrowLoc(spId, pt, result);
+    if(_pitcherZoneMap !== null){
+      populatePitcherZoneFromThrowLoc(spId, pt, result);
+      // Recompute zone matchup for any open detail card facing this SP
+      _recomputeZoneIfOpen(spId, 'pitcher');
+    }
     return result;
   }catch(e){ _playerCache[key]=null; return null; }
 }
@@ -3542,7 +3546,11 @@ async function getBatterVsPitches(pid){
       if(Object.keys(result).length>0){
         _playerCache[key]=result;
         // Populate _batterZoneMap from this data — same source as Zone Analysis tab
-        if(_batterZoneMap !== null) populateBatterZoneFromBvP(pid, result);
+        if(_batterZoneMap !== null){
+          populateBatterZoneFromBvP(pid, result);
+          // Recompute zone matchup for any open detail card for this batter
+          _recomputeZoneIfOpen(pid, 'batter');
+        }
         return result;
       }
     }catch(e){}
@@ -8298,8 +8306,29 @@ const HR_ZONES_LHB = [7,4,1,8,5]; // inner + heart
 const HR_ZONES_RHB = [9,6,3,8,5]; // inner + heart
 
 let _batterZoneMap = null;
-// Populate _batterZoneMap from already-cached BvP data (no extra fetch needed)
-// Called after getBatterVsPitches succeeds — reuses the same statcast_search data
+// After zone maps populate, recompute matchup + re-render detail card if open
+function _recomputeZoneIfOpen(playerId, side){
+  const lastId = window._lastDetailId;
+  if(!lastId) return;
+  const r = S.allRows.find(x=>String(x.id)===String(lastId));
+  if(!r) return;
+  const batPid = String(r._batPid||r.id);
+  const spId   = r._spId ? String(r._spId) : null;
+  const relevant = side==='batter' ? String(playerId)===batPid
+                                   : String(playerId)===spId;
+  if(!relevant) return;
+  // Recompute with newly available real data
+  if(batPid && spId){
+    const zm = calcZoneMatchup(batPid, spId, r.batHand);
+    if(zm){ r._zoneMatch = zm; }
+  }
+  // Re-render if detail page is active
+  const detailPage = document.getElementById('page-detail');
+  if(detailPage?.classList.contains('active')){
+    requestAnimationFrame(()=>renderDetail(r));
+  }
+}
+
 function populateBatterZoneFromBvP(pid, bvpResult){
   if(!bvpResult || _batterZoneMap === null) return;
   // Sum xwOBA across all pitch types to get batter's overall zone profile
@@ -10333,6 +10362,23 @@ function showDetail(id){
   window._betEntryPlayer = r;
   window._lastDetailId = id;
   S._slateScrollPos = document.getElementById('content')?.scrollTop || 0;
+
+  // Pre-populate zone maps from cached BvP/throw-loc data so returning players
+  // get real zone data immediately without waiting for Zone Analysis tab
+  const _batPidZ = String(r._batPid||r.id);
+  const _spIdZ   = r._spId ? String(r._spId) : null;
+  const cachedBvP = _playerCache[`bvp_${_batPidZ}`];
+  if(cachedBvP && _batterZoneMap !== null && !_batterZoneMap[_batPidZ]){
+    populateBatterZoneFromBvP(_batPidZ, cachedBvP);
+  }
+  // Pre-populate pitcher zone from any cached throw-loc data for this SP
+  if(_spIdZ && _pitcherZoneMap !== null && !_pitcherZoneMap[_spIdZ]){
+    const cachedPitchKeys = Object.keys(_playerCache).filter(k=>k.startsWith(`ptloc_${_spIdZ}_`));
+    for(const k of cachedPitchKeys){
+      const loc = _playerCache[k];
+      if(loc?.dmg5avg) populatePitcherZoneFromThrowLoc(_spIdZ, k.split('_')[2], loc);
+    }
+  }
 
   const batPid = r._batPid||r.id;
   const spId   = r._spId;
