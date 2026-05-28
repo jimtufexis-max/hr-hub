@@ -1239,6 +1239,13 @@ function showPage(name){
   if(name==='parlay') renderParlay();
   if(name==='picks') renderBestBets();
   if(name==='discover') renderDiscover();
+  // Restore slate scroll position when returning from detail card
+  if(name==='slate' && S._slateScrollPos){
+    requestAnimationFrame(()=>{
+      const content = document.getElementById('content');
+      if(content) content.scrollTop = S._slateScrollPos;
+    });
+  }
   if(name==='info'){
     renderTagGuide();
     const el=document.getElementById('model-perf-card');
@@ -4469,7 +4476,32 @@ function queueForAutoTrack(rows){
   }catch(e){}
 }
 
-// addManualBet — called when user taps Track Bet on detail page
+// ── PAYOUT CALC ──────────────────────────────────────────────────
+function calcPayout(wagered, odds){
+  if(!wagered || !odds) return null;
+  const w = parseFloat(wagered), o = parseInt(odds);
+  if(isNaN(w)||isNaN(o)||w<=0) return null;
+  const profit = o>0 ? w*(o/100) : w*(100/Math.abs(o));
+  return { profit: Math.round(profit*100)/100, total: Math.round((w+profit)*100)/100 };
+}
+
+function calcParlayOdds(legs){
+  // Convert each leg to decimal, multiply, convert back to American
+  if(!legs.length) return null;
+  let decimal = 1;
+  for(const odds of legs){
+    const o = parseInt(odds);
+    if(isNaN(o)) return null;
+    decimal *= o>0 ? (o/100)+1 : (100/Math.abs(o))+1;
+  }
+  // Convert decimal back to American
+  const american = decimal >= 2
+    ? Math.round((decimal-1)*100)
+    : Math.round(-100/(decimal-1));
+  return american;
+}
+
+// ── BET ENTRY MODAL ──────────────────────────────────────────────
 function addManualBet(playerId){
   try{
     const r = S.allRows.find(x=>String(x.id)===String(playerId));
@@ -4477,77 +4509,352 @@ function addManualBet(playerId){
     const key = 'hr_hub_results';
     const today = ds();
     const stored = JSON.parse(localStorage.getItem(key)||'[]');
-    const existing = stored.find(x=>String(x.id)===String(r.id)&&x.date===today);
+    const existing = stored.find(x=>String(x.id)===String(r.id)&&x.date===today&&x.manualBet&&x.betType!=='parlay');
+
     if(existing){
-      if(existing.manualBet){
-        if(!confirm(`${r.name} is already tracked today. Remove tracking?`)) return;
-        const idx = stored.indexOf(existing);
-        stored.splice(idx,1);
-        localStorage.setItem(key, JSON.stringify(stored));
-        renderDetail(r); // refresh button state
-        return;
-      }
-      existing.manualBet = true;
-    } else {
-      const fdO = typeof getFDOdds==='function' ? getFDOdds(r.name) : null;
+      if(!confirm(`${r.name} already tracked today. Remove?`)) return;
+      stored.splice(stored.indexOf(existing),1);
+      localStorage.setItem(key, JSON.stringify(stored));
+      renderDetail(r); return;
+    }
+
+    // Show bet entry modal
+    const fdO = typeof getFDOdds==='function' ? getFDOdds(r.name) : null;
+    showBetEntryModal({
+      name: r.name, id: String(r.id), prob: r.prob,
+      defaultOdds: fdO, betType: 'single',
+    }, (wagered, odds, betType) => {
       stored.push({
         id: String(r.id), name: r.name, prob: r.prob,
         fdOdds: fdO, actual: undefined, date: today, grade: r.grade,
         team: r.team, spNm: r.spNm, batHand: r.batHand, oppHand: r.oppHand,
-        pitcher: r.pitcher, platoon: r.platoon,
-        parkwx: r.parkwx, momentum: r.momentum,
+        pitcher: r.pitcher, platoon: r.platoon, parkwx: r.parkwx,
         gamePk: r.gamePk||null, gameNumber: r.gameNumber||1,
-        manualBet: true,
+        manualBet: true, betType: betType||'single',
+        wagered: wagered||null, odds: odds||fdO||null,
       });
-    }
-    if(stored.length>2000) stored.splice(0, stored.length-2000);
-    localStorage.setItem(key, JSON.stringify(stored));
-    renderDetail(r); // refresh button state
+      if(stored.length>2000) stored.splice(0,stored.length-2000);
+      localStorage.setItem(key, JSON.stringify(stored));
+      renderDetail(r);
+    });
   }catch(e){ console.error('addManualBet',e); }
 }
 
-// clearAllTracking — wipe localStorage for fresh start
-function clearAllTracking(){
-  if(!confirm('Clear ALL tracked bets and results? This cannot be undone.')) return;
-  localStorage.removeItem('hr_hub_results');
-  const el = document.getElementById('results-content');
-  if(el) el.innerHTML = '<div class="empty" style="padding:40px 0">Tracking cleared. Tap Track Bet on any player to start tracking.</div>';
-  renderModelPerf(document.getElementById('model-perf-card'));
+function showBetEntryModal(config, onConfirm){
+  document.getElementById('bet-entry-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'bet-entry-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
+  modal.innerHTML = `
+    <div style="width:100%;max-width:360px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:20px 18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="font-size:.90rem;font-weight:800;color:var(--t1);margin-bottom:4px">📌 Track Bet</div>
+      <div style="font-size:.68rem;color:var(--t4);margin-bottom:16px">${config.name} · Model ${(config.prob*100).toFixed(1)}%</div>
+      
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <button id="btype-single" onclick="setBetType('single')"
+          style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--amber);background:rgba(240,165,0,.15);color:var(--amber);font-weight:700;font-size:.72rem;cursor:pointer">Single</button>
+        <button id="btype-parlay" onclick="setBetType('parlay')"
+          style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);font-weight:600;font-size:.72rem;cursor:pointer">Add to Parlay</button>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Wagered ($)</div>
+        <input id="bet-wagered" type="number" min="1" placeholder="e.g. 25"
+          style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--bdr);
+          background:var(--bg3);color:var(--t1);font-size:.88rem;box-sizing:border-box">
+      </div>
+      <div style="margin-bottom:18px">
+        <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Odds (American, e.g. +130 or -110)</div>
+        <input id="bet-odds" type="text" placeholder="${config.defaultOdds!=null?(config.defaultOdds>0?'+':'')+config.defaultOdds:'e.g. +130'}"
+          value="${config.defaultOdds!=null?(config.defaultOdds>0?'+':'')+config.defaultOdds:''}"
+          style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--bdr);
+          background:var(--bg3);color:var(--t1);font-size:.88rem;box-sizing:border-box">
+      </div>
+      <div id="bet-payout-preview" style="font-size:.68rem;color:var(--green);margin-bottom:16px;min-height:18px"></div>
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('bet-entry-modal').remove()"
+          style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);cursor:pointer;font-size:.75rem">Cancel</button>
+        <button id="bet-confirm-btn" onclick="confirmBetEntry()"
+          style="flex:2;padding:10px;border-radius:8px;border:none;background:var(--amber);color:#000;font-weight:800;cursor:pointer;font-size:.75rem">Track Bet</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.onclick = e => { if(e.target===modal) modal.remove(); };
+
+  // Store callback
+  window._betEntryCallback = onConfirm;
+  window._betEntryType = 'single';
+
+  // Live payout preview
+  const updatePreview = () => {
+    const w = parseFloat(document.getElementById('bet-wagered')?.value);
+    const o = parseInt(document.getElementById('bet-odds')?.value);
+    const prev = document.getElementById('bet-payout-preview');
+    if(!prev) return;
+    if(!isNaN(w) && !isNaN(o) && w>0){
+      const p = calcPayout(w,o);
+      if(p) prev.textContent = `Win: +$${p.profit.toFixed(2)} · Total return: $${p.total.toFixed(2)}`;
+    } else { prev.textContent = ''; }
+  };
+  setTimeout(()=>{
+    document.getElementById('bet-wagered')?.addEventListener('input', updatePreview);
+    document.getElementById('bet-odds')?.addEventListener('input', updatePreview);
+    updatePreview();
+    document.getElementById('bet-wagered')?.focus();
+  }, 100);
 }
 
-function exportBetHistory(){
-  const data = localStorage.getItem('hr_hub_results')||'[]';
-  const bets = JSON.parse(data).filter(r=>r.manualBet);
-  if(!bets.length){ alert('No bets to export.'); return; }
-  // Copy as JSON string to clipboard (works on mobile)
-  const json = JSON.stringify(bets);
-  if(navigator.clipboard?.writeText){
-    navigator.clipboard.writeText(json).then(()=>
-      alert(`✅ ${bets.length} bets copied to clipboard!\n\nPaste into Notes or email to save.`)
-    ).catch(()=>{ _fallbackCopyExport(json, bets.length); });
-  } else {
-    _fallbackCopyExport(json, bets.length);
+function setBetType(type){
+  window._betEntryType = type;
+  const s = document.getElementById('btype-single');
+  const p = document.getElementById('btype-parlay');
+  if(!s||!p) return;
+  const activeStyle = 'flex:1;padding:8px;border-radius:8px;border:2px solid var(--amber);background:rgba(240,165,0,.15);color:var(--amber);font-weight:700;font-size:.72rem;cursor:pointer';
+  const inactiveStyle = 'flex:1;padding:8px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);font-weight:600;font-size:.72rem;cursor:pointer';
+  s.style.cssText = type==='single' ? activeStyle : inactiveStyle;
+  p.style.cssText = type==='parlay' ? activeStyle : inactiveStyle;
+  const btn = document.getElementById('bet-confirm-btn');
+  if(btn) btn.textContent = type==='parlay' ? 'Add Leg to Parlay' : 'Track Bet';
+}
+
+function confirmBetEntry(){
+  const wagered = parseFloat(document.getElementById('bet-wagered')?.value)||null;
+  const oddsStr = document.getElementById('bet-odds')?.value?.trim()||'';
+  const odds = parseInt(oddsStr)||null;
+  const betType = window._betEntryType||'single';
+  document.getElementById('bet-entry-modal')?.remove();
+
+  if(betType==='parlay'){
+    addParlayLeg(wagered, odds);
+  } else if(window._betEntryCallback){
+    window._betEntryCallback(wagered, odds, 'single');
   }
 }
 
-function _fallbackCopyExport(json, count){
-  const ta = document.createElement('textarea');
-  ta.value = json;
-  ta.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:200px;z-index:9999;font-size:12px';
-  document.body.appendChild(ta);
-  ta.select();
-  ta.setSelectionRange(0,99999);
-  try{ document.execCommand('copy'); alert(`✅ ${count} bets copied to clipboard!`); }
-  catch{ alert('Select all text below and copy manually:'); }
-  setTimeout(()=>ta.remove(), 5000);
+// ── PARLAY BUILDER ────────────────────────────────────────────────
+function getParlayLegs(){
+  return JSON.parse(sessionStorage.getItem('dingeriq_parlay')||'[]');
+}
+function saveParlayLegs(legs){
+  sessionStorage.setItem('dingeriq_parlay', JSON.stringify(legs));
 }
 
+function addParlayLeg(wagered, odds){
+  // The parlay leg comes from the currently open detail card
+  const modal = document.getElementById('bet-entry-modal');
+  // Find current player
+  const r = window._betEntryPlayer;
+  if(!r){ alert('No player selected'); return; }
+
+  const legs = getParlayLegs();
+  if(legs.some(l=>l.id===String(r.id))){
+    alert(`${r.name} is already in your parlay.`); return;
+  }
+  legs.push({
+    id: String(r.id), name: r.name, prob: r.prob,
+    odds: odds || getFDOdds(r.name) || null,
+    date: ds(),
+  });
+  saveParlayLegs(legs);
+
+  // Update wagered on parlay (stored on first leg)
+  if(wagered && legs.length===1) legs[0]._parlayWagered = wagered;
+  saveParlayLegs(legs);
+
+  // Update results tab if open
+  if(window._betEntryCallback) window._betEntryCallback(null, null, 'parlay-leg-added');
+  alert(`✅ ${r.name} added to parlay (${legs.length} leg${legs.length>1?'s':''} so far)\n\nGo to Results → Pending to manage the parlay.`);
+}
+
+function commitParlay(wagered){
+  const legs = getParlayLegs();
+  if(legs.length < 2){ alert('Add at least 2 legs to make a parlay.'); return; }
+  const combinedOdds = calcParlayOdds(legs.map(l=>l.odds).filter(Boolean));
+  const key = 'hr_hub_results';
+  const stored = JSON.parse(localStorage.getItem(key)||'[]');
+  stored.push({
+    id: 'parlay_'+Date.now(), name: legs.map(l=>l.name.split(' ')[1]||l.name).join(' + '),
+    date: ds(), manualBet: true, betType: 'parlay',
+    parlayLegs: legs.map(l=>({id:l.id,name:l.name,odds:l.odds,prob:l.prob})),
+    odds: combinedOdds, wagered: wagered||legs[0]?._parlayWagered||null,
+    actual: undefined, prob: legs.reduce((p,l)=>p*(l.prob||0.1),1),
+  });
+  if(stored.length>2000) stored.splice(0,stored.length-2000);
+  localStorage.setItem(key, JSON.stringify(stored));
+  saveParlayLegs([]);
+  renderResultsTab();
+  alert(`✅ Parlay locked in (${legs.length} legs, combined odds: ${combinedOdds>0?'+':''}${combinedOdds})`);
+}
+
+// ── EXPORT — clean formatted text for Notes/iMessage ─────────────
+function exportBetHistory(){
+  const bets = JSON.parse(localStorage.getItem('hr_hub_results')||'[]').filter(r=>r.manualBet);
+  if(!bets.length){ alert('No bets to export.'); return; }
+
+  const resolved = bets.filter(b=>b.actual!==undefined&&b.actual!==null);
+  const won = resolved.filter(b=>b.actual>0);
+  const lost = resolved.filter(b=>b.actual===0);
+  const pending = bets.filter(b=>b.actual===undefined||b.actual===null);
+
+  // Calculate P&L
+  let totalWagered=0, totalWon=0, totalLost=0;
+  for(const b of resolved){
+    const w = parseFloat(b.wagered)||0;
+    totalWagered += w;
+    if(b.actual>0){
+      const p = calcPayout(w, b.odds);
+      totalWon += p ? p.profit : 0;
+    } else {
+      totalLost += w;
+    }
+  }
+  for(const b of pending){
+    totalWagered += parseFloat(b.wagered)||0;
+  }
+  const net = totalWon - totalLost;
+
+  const fmt = b => {
+    const icon = b.actual>0?'✅':b.actual===0?'❌':'⏳';
+    const type = b.betType==='parlay'?'🎰 PARLAY':'⚾';
+    const odds = b.odds!=null?(b.odds>0?'+':'')+b.odds:'---';
+    const w = b.wagered ? `$${b.wagered}` : '';
+    const payout = b.actual>0&&b.wagered&&b.odds ? (()=>{const p=calcPayout(b.wagered,b.odds);return p?` → +$${p.profit.toFixed(2)}`:''})() :
+                   b.actual===0&&b.wagered ? ` → -$${b.wagered}` : '';
+    return `${icon} ${b.name} | ${odds} | ${w}${payout}`;
+  };
+
+  const lines = [
+    '━━━━━━━━━━━━━━━━━━━━━━━━',
+    '🎯 DINGERIQ BET HISTORY',
+    `📅 ${new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'})}`,
+    '━━━━━━━━━━━━━━━━━━━━━━━━',
+    '',
+  ];
+
+  if(pending.length){
+    lines.push('⏳ PENDING');
+    pending.forEach(b=>lines.push('  '+fmt(b)));
+    lines.push('');
+  }
+  if(won.length){
+    lines.push('✅ WINS');
+    won.forEach(b=>lines.push('  '+fmt(b)));
+    lines.push('');
+  }
+  if(lost.length){
+    lines.push('❌ LOSSES');
+    lost.forEach(b=>lines.push('  '+fmt(b)));
+    lines.push('');
+  }
+
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push(`📊 SUMMARY`);
+  lines.push(`Bets: ${bets.length}  W: ${won.length}  L: ${lost.length}  Pending: ${pending.length}`);
+  if(totalWagered>0){
+    lines.push(`Wagered: $${totalWagered.toFixed(2)}`);
+    lines.push(`Won: +$${totalWon.toFixed(2)}  Lost: -$${totalLost.toFixed(2)}`);
+    lines.push(`Net: ${net>=0?'+':''}$${net.toFixed(2)}`);
+  }
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push('');
+  lines.push('--- RAW BACKUP (keep for import) ---');
+  lines.push(JSON.stringify(bets));
+
+  const text = lines.join('\n');
+
+  // Show modal with text pre-selected — much more reliable on iOS than clipboard API
+  document.getElementById('export-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'export-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)';
+  modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="width:100%;max-width:420px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:18px;max-height:88vh;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:.80rem;font-weight:800;color:var(--t1)">📋 Export Bet History</div>
+          <div style="font-size:.60rem;color:var(--t4);margin-top:2px">${bets.length} bets · ${won.length}W ${lost.length}L ${pending.length} pending</div>
+        </div>
+        <button onclick="document.getElementById('export-modal').remove()"
+          style="background:none;border:none;color:var(--t4);font-size:1.3rem;cursor:pointer;padding:4px">✕</button>
+      </div>
+      <div style="font-size:.62rem;color:var(--amber);background:rgba(240,165,0,.08);border-radius:8px;padding:8px 10px;border:1px solid rgba(240,165,0,.2)">
+        👆 Tap inside the box below → tap <b>Select All</b> → tap <b>Copy</b> → paste into Notes
+      </div>
+      <textarea id="export-ta" readonly
+        style="flex:1;min-height:260px;padding:10px;border-radius:8px;border:1px solid var(--bdr);
+        background:var(--bg3);color:var(--t2);font-size:.62rem;font-family:'JetBrains Mono',monospace;
+        line-height:1.65;resize:none;-webkit-user-select:text;user-select:text">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+      <button onclick="(()=>{
+        const ta=document.getElementById('export-ta');
+        if(!ta) return;
+        ta.select(); ta.setSelectionRange(0,99999);
+        try{
+          if(navigator.clipboard?.writeText){
+            navigator.clipboard.writeText(ta.value).then(()=>{this.textContent='✅ Copied!';this.style.background='var(--green)';}).catch(()=>{document.execCommand('copy');this.textContent='✅ Copied!';});
+          } else {
+            document.execCommand('copy'); this.textContent='✅ Copied!'; this.style.background='var(--green)';
+          }
+        }catch(e){ this.textContent='Select All → Copy manually'; }
+      })()" style="padding:12px;border-radius:8px;border:none;background:var(--blue);
+        color:#fff;font-weight:800;font-size:.75rem;cursor:pointer;width:100%">
+        📋 Copy All to Clipboard
+      </button>
+    </div>`;
+  document.body.appendChild(modal);
+  setTimeout(()=>{
+    const ta = document.getElementById('export-ta');
+    if(ta){ ta.focus(); ta.select(); ta.setSelectionRange(0,99999); }
+  }, 150);
+}
+
+function _fallbackCopy(text){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:180px;z-index:9999;font-size:11px;font-family:monospace;padding:8px';
+  document.body.appendChild(ta);
+  ta.select(); ta.setSelectionRange(0,99999);
+  try{ document.execCommand('copy'); alert('✅ Copied! Paste into Notes to save.'); }
+  catch{ alert('Select all text and copy manually:'); }
+  setTimeout(()=>ta.remove(), 8000);
+}
+
+// ── IMPORT — handles both formatted text and raw JSON ─────────────
 function importBetHistory(){
-  const json = prompt('Paste your exported bet history JSON here:');
-  if(!json) return;
+  // Show a proper textarea modal instead of prompt()
+  document.getElementById('import-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'import-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
+  modal.innerHTML = `
+    <div style="width:100%;max-width:400px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="font-size:.88rem;font-weight:800;color:var(--t1);margin-bottom:4px">⬇️ Import Bets</div>
+      <div style="font-size:.65rem;color:var(--t4);margin-bottom:12px">Paste your exported backup below (the formatted text or just the raw JSON line at the bottom)</div>
+      <textarea id="import-text" placeholder="Paste exported backup here..." rows="8"
+        style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.72rem;font-family:monospace;resize:vertical;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button onclick="document.getElementById('import-modal').remove()"
+          style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);cursor:pointer;font-size:.75rem">Cancel</button>
+        <button onclick="processImport()"
+          style="flex:2;padding:10px;border-radius:8px;border:none;background:var(--amber);color:#000;font-weight:800;cursor:pointer;font-size:.75rem">Import</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  setTimeout(()=>document.getElementById('import-text')?.focus(), 100);
+}
+
+function processImport(){
+  const raw = document.getElementById('import-text')?.value?.trim();
+  if(!raw){ alert('Nothing pasted.'); return; }
+  document.getElementById('import-modal')?.remove();
   try{
-    const imported = JSON.parse(json);
-    if(!Array.isArray(imported)) throw new Error('Invalid format — must be a JSON array');
+    // Try to extract JSON from formatted text (look for [...] array)
+    let jsonStr = raw;
+    const jsonMatch = raw.match(/(\[[\s\S]*\])\s*$/);
+    if(jsonMatch) jsonStr = jsonMatch[1];
+    const imported = JSON.parse(jsonStr);
+    if(!Array.isArray(imported)) throw new Error('Invalid format');
     const existing = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
     const merged = [...existing];
     let added = 0;
@@ -4559,9 +4866,19 @@ function importBetHistory(){
     localStorage.setItem('hr_hub_results', JSON.stringify(merged));
     renderResultsTab();
     alert(`✅ Imported ${added} bets (${imported.length-added} duplicates skipped).`);
-  }catch(err){ alert('Import failed: '+err.message); }
+  }catch(err){ alert('Import failed: '+err.message+'\n\nMake sure you pasted the full export text.'); }
 }
 
+// clearAllTracking — wipe localStorage for fresh start
+function clearAllTracking(){
+  if(!confirm('Clear ALL tracked bets and results? This cannot be undone.')) return;
+  localStorage.removeItem('hr_hub_results');
+  const el = document.getElementById('results-content');
+  if(el) el.innerHTML = '<div class="empty" style="padding:40px 0">Tracking cleared. Tap Track Bet on any player to start tracking.</div>';
+  renderModelPerf(document.getElementById('model-perf-card'));
+}
+
+// importBetHistory — textarea modal implementation above
 
 // Render model performance card
 function renderTagGuide(){
@@ -4964,18 +5281,24 @@ async function renderResultsTab(){
     const losses   = resolved.filter(r=>r.actual===0);
 
     // ── P&L calculation ──────────────────────────────────────────
-    let totalWagered=0, totalReturn=0, pnlBets=0;
+    let totalWagered=0, totalWon=0, totalLost=0, pnlBets=0;
     resolved.forEach(r=>{
-      if(!r.fdOdds||!r.betAmount) return;
-      const stake = parseFloat(r.betAmount)||1;
+      const stake = parseFloat(r.wagered||r.betAmount)||0;
+      const odds  = r.odds||r.fdOdds||null;
+      if(!stake) return;
       totalWagered += stake;
-      if(r.actual>0){
-        const dec = r.fdOdds>0?r.fdOdds/100:100/Math.abs(r.fdOdds);
-        totalReturn += stake + stake*dec;
-      }
       pnlBets++;
+      if(r.actual>0 && odds){
+        const p = calcPayout(stake, odds);
+        totalWon += p ? p.profit : 0;
+      } else if(r.actual===0){
+        totalLost += stake;
+      }
     });
-    const netPnl = totalReturn - totalWagered;
+    // Count pending wagered separately
+    let pendingWagered = 0;
+    pending.forEach(r=>{ pendingWagered += parseFloat(r.wagered||r.betAmount)||0; });
+    const netPnl = totalWon - totalLost;
     const roi = totalWagered>0 ? (netPnl/totalWagered*100) : null;
 
     // ── L7 / L30 hit rate trend ──────────────────────────────────
@@ -5038,7 +5361,7 @@ async function renderResultsTab(){
       </div>
 
       <!-- Secondary stats -->
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">
         <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
           <div style="font-size:.95rem;font-weight:800;color:${overallHitPct!=null?(overallHitPct>=16?'var(--green)':'var(--amber)'):'var(--t4)'}">
             ${overallHitPct!=null?overallHitPct+'%':'--'}</div>
@@ -5055,6 +5378,27 @@ async function renderResultsTab(){
           <div style="font-size:.52rem;color:var(--t4)">ROI${pnlBets?` (${pnlBets}b)`:''}</div>
         </div>
       </div>
+
+      <!-- Money row -->
+      ${totalWagered>0||pendingWagered>0?`<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:10px;background:var(--bg3);border-radius:10px">
+        <div style="text-align:center">
+          <div style="font-size:.82rem;font-weight:800;color:var(--t2)">$${(totalWagered+pendingWagered).toFixed(0)}</div>
+          <div style="font-size:.50rem;color:var(--t4)">SPENT</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:.82rem;font-weight:800;color:var(--green)">+$${totalWon.toFixed(0)}</div>
+          <div style="font-size:.50rem;color:var(--t4)">WON</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:.82rem;font-weight:800;color:var(--red)">-$${totalLost.toFixed(0)}</div>
+          <div style="font-size:.50rem;color:var(--t4)">LOST</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:.82rem;font-weight:800;color:${netPnl>=0?'var(--green)':'var(--red)'}">
+            ${netPnl>=0?'+':'-'}$${Math.abs(netPnl).toFixed(0)}</div>
+          <div style="font-size:.50rem;color:var(--t4)">NET</div>
+        </div>
+      </div>`:''}
     </div>`;
 
     // 2. ROI by edge tier
@@ -5101,31 +5445,63 @@ async function renderResultsTab(){
     }
 
     // 3. Pending bets — quick resolve
-    if(pending.length){
+    if(pending.length || getParlayLegs().length){
+      const parlayLegs = getParlayLegs();
       html+=`<div class="card" style="margin-bottom:10px">
-        <div class="slbl" style="margin-bottom:8px">⏳ Pending Results (${pending.length})</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div class="slbl" style="margin:0">⏳ Pending Results (${pending.length})</div>
+          ${pendingWagered>0?`<div style="font-size:.62rem;color:var(--amber);font-weight:700">$${pendingWagered.toFixed(0)} at risk</div>`:''}
+        </div>
         <div style="display:flex;flex-direction:column;gap:6px">`;
+
       pending.forEach(r=>{
-        const fdStr=r.fdOdds?(r.fdOdds>0?'+':'')+r.fdOdds:'--';
+        const oddsStr = (r.odds||r.fdOdds)!=null?((r.odds||r.fdOdds)>0?'+':'')+( r.odds||r.fdOdds):'--';
+        const wag = parseFloat(r.wagered||r.betAmount)||null;
+        const payout = wag&&(r.odds||r.fdOdds)?calcPayout(wag,(r.odds||r.fdOdds)):null;
+        const isPar = r.betType==='parlay';
         html+=`<div style="display:flex;align-items:center;gap:8px;padding:8px;
-          background:var(--bg3);border-radius:10px">
+          background:var(--bg3);border-radius:10px;border-left:3px solid ${isPar?'#a78bfa':'var(--amber)'}">
           <div style="flex:1;min-width:0">
-            <div style="font-size:.74rem;font-weight:700;color:var(--t1)">${r.name}</div>
-            <div style="font-size:.60rem;color:var(--t4)">${r.date} · ${fdStr} · ${r.prob?(r.prob*100).toFixed(1)+'%':'--'}</div>
+            <div style="font-size:.74rem;font-weight:700;color:var(--t1)">${isPar?'🎰 ':''} ${r.name}</div>
+            <div style="font-size:.60rem;color:var(--t4);margin-top:1px">${r.date} · ${oddsStr}${wag?` · <b style="color:var(--t2)">$${wag}</b>`:''}${payout?` · win: <b style="color:var(--green)">+$${payout.profit.toFixed(2)}</b>`:''}</div>
+            ${isPar&&r.parlayLegs?`<div style="font-size:.58rem;color:var(--t4);margin-top:2px">${r.parlayLegs.map(l=>l.name.split(' ')[1]||l.name).join(' + ')}</div>`:''}
           </div>
-          <div style="display:flex;gap:5px;flex-shrink:0">
-            <button onclick="resolveResult('${r.id}','${r.date}',1)" style="padding:5px 10px;
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button onclick="resolveResult('${r.id}','${r.date}',1)" style="padding:5px 8px;
               border-radius:8px;border:1px solid rgba(34,201,94,.4);
-              background:rgba(34,201,94,.1);color:var(--green);font-size:.70rem;cursor:pointer;font-weight:700">✅ HR</button>
-            <button onclick="resolveResult('${r.id}','${r.date}',0)" style="padding:5px 10px;
+              background:rgba(34,201,94,.1);color:var(--green);font-size:.68rem;cursor:pointer;font-weight:700">✅</button>
+            <button onclick="resolveResult('${r.id}','${r.date}',0)" style="padding:5px 8px;
               border-radius:8px;border:1px solid rgba(224,80,74,.4);
-              background:rgba(224,80,74,.08);color:var(--red);font-size:.70rem;cursor:pointer;font-weight:700">❌ No</button>
-            <button onclick="voidBet('${r.id}','${r.date}')" style="padding:5px 10px;
+              background:rgba(224,80,74,.08);color:var(--red);font-size:.68rem;cursor:pointer;font-weight:700">❌</button>
+            <button onclick="voidBet('${r.id}','${r.date}')" style="padding:5px 8px;
               border-radius:8px;border:1px solid rgba(148,163,184,.3);
-              background:rgba(148,163,184,.06);color:var(--t4);font-size:.70rem;cursor:pointer;font-weight:700">🚫 Void</button>
+              background:rgba(148,163,184,.06);color:var(--t4);font-size:.68rem;cursor:pointer">🚫</button>
           </div>
         </div>`;
       });
+
+      // Parlay builder section
+      if(parlayLegs.length){
+        const combinedOdds = calcParlayOdds(parlayLegs.map(l=>l.odds).filter(Boolean));
+        html+=`<div style="margin-top:8px;padding:10px;border-radius:10px;border:1px solid rgba(167,139,250,.3);background:rgba(167,139,250,.06)">
+          <div style="font-size:.70rem;font-weight:700;color:#a78bfa;margin-bottom:6px">🎰 Parlay Builder (${parlayLegs.length} legs)</div>
+          ${parlayLegs.map((l,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-top:${i>0?'1px solid var(--bg3)':'none'}">
+            <span style="font-size:.68rem;color:var(--t2)">${l.name} <span style="color:var(--t4)">${l.odds!=null?(l.odds>0?'+':'')+l.odds:'no odds'}</span></span>
+            <button onclick="(()=>{const legs=getParlayLegs();legs.splice(${i},1);saveParlayLegs(legs);renderResultsTab();})()"
+              style="font-size:.60rem;padding:2px 6px;border-radius:4px;border:1px solid var(--bdr);background:var(--bg3);color:var(--red);cursor:pointer">✕</button>
+          </div>`).join('')}
+          ${combinedOdds!=null?`<div style="font-size:.65rem;color:var(--t3);margin-top:6px;padding-top:6px;border-top:1px solid var(--bg3)">Combined: <b style="color:#a78bfa">${combinedOdds>0?'+':''}${combinedOdds}</b></div>`:''}
+          <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+            <input id="parlay-stake" type="number" min="1" placeholder="Stake $"
+              style="flex:1;padding:7px 10px;border-radius:7px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.75rem">
+            <button onclick="commitParlay(parseFloat(document.getElementById('parlay-stake')?.value)||null)"
+              style="padding:7px 12px;border-radius:7px;border:none;background:#a78bfa;color:#000;font-weight:800;font-size:.72rem;cursor:pointer">Lock In 🔒</button>
+            <button onclick="saveParlayLegs([]);renderResultsTab()"
+              style="padding:7px 10px;border-radius:7px;border:1px solid var(--bdr);background:var(--bg3);color:var(--red);font-size:.68rem;cursor:pointer">Clear</button>
+          </div>
+        </div>`;
+      }
+
       html+=`</div></div>`;
     }
 
@@ -5212,10 +5588,13 @@ async function renderResultsTab(){
 
       Object.entries(byDate).forEach(([date,bets])=>{
         const dHits=bets.filter(r=>r.actual>0).length;
-        const dPnl=bets.filter(r=>r.fdOdds&&r.betAmount).reduce((s,r)=>{
-          const stake=parseFloat(r.betAmount)||0;
-          if(r.actual>0){const d=r.fdOdds>0?r.fdOdds/100:100/Math.abs(r.fdOdds);return s+stake*d;}
-          return s-stake;
+        const dWagered=bets.reduce((s,r)=>s+(parseFloat(r.wagered||r.betAmount)||0),0);
+        const dPnl=bets.reduce((s,r)=>{
+          const stake=parseFloat(r.wagered||r.betAmount)||0; if(!stake) return s;
+          const odds=r.odds||r.fdOdds; if(!odds) return s;
+          if(r.actual>0){const p=calcPayout(stake,odds);return s+(p?p.profit:0);}
+          if(r.actual===0) return s-stake;
+          return s;
         },0);
         html+=`<div style="margin-bottom:10px">
           <div style="display:flex;align-items:center;justify-content:space-between;
@@ -5223,57 +5602,55 @@ async function renderResultsTab(){
             <div style="font-size:.65rem;font-weight:700;color:var(--t3)">${date}</div>
             <div style="display:flex;gap:8px;align-items:center">
               <span style="font-size:.62rem;color:var(--t4)">${dHits}/${bets.length} HR</span>
+              ${dWagered>0?`<span style="font-size:.62rem;color:var(--t4)">$${dWagered.toFixed(0)}</span>`:''}
               ${Math.abs(dPnl)>0.01?`<span style="font-size:.62rem;font-weight:700;
-                color:${dPnl>=0?'var(--green)':'var(--red)'}">${dPnl>=0?'+':''}$${Math.abs(dPnl).toFixed(0)}</span>`:''}
+                color:${dPnl>=0?'var(--green)':'var(--red)'}">
+                ${dPnl>=0?'+':''}$${Math.abs(dPnl).toFixed(2)}</span>`:''}
             </div>
           </div>
           ${bets.map(r=>{
-            const won=r.actual>0;
-            const isVoid=r.actual==='void';
-            const isPending=r.actual===undefined||r.actual===null;
-            const fdStr=r.fdOdds?(r.fdOdds>0?'+':'')+r.fdOdds:'--';
-            const stakeStr=r.betAmount?`$${r.betAmount}`:'';
+            const won=r.actual>0, isVoid=r.actual==='void';
+            const oddsVal=r.odds||r.fdOdds;
+            const oddsStr=oddsVal!=null?(oddsVal>0?'+':'')+oddsVal:'--';
+            const stake=parseFloat(r.wagered||r.betAmount)||null;
+            const payout=won&&stake&&oddsVal?calcPayout(stake,oddsVal):null;
+            const isPar=r.betType==='parlay';
             const rowId=`bh-${r.id}-${r.date}`;
             return `<div id="${rowId}" style="border-bottom:1px solid rgba(255,255,255,.03)">
               <div style="display:flex;align-items:center;gap:8px;padding:6px 0;
                 cursor:pointer;${isVoid?'opacity:.5':''}"
                 onclick="toggleBetEdit('${rowId}','${r.id}','${r.date}')">
-                <span style="font-size:.95rem;flex-shrink:0">${isVoid?'🚫':isPending?'⏳':won?'✅':'❌'}</span>
+                <span style="font-size:.95rem;flex-shrink:0">${isVoid?'🚫':won?'✅':'❌'}${isPar?' 🎰':''}</span>
                 <div style="flex:1;min-width:0">
                   <div style="font-size:.72rem;font-weight:700;color:${isVoid?'var(--t4)':'var(--t1)'};
                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
-                  <div style="font-size:.58rem;color:var(--t4)">${fdStr}${stakeStr?' · '+stakeStr:''} · ${r.prob?(r.prob*100).toFixed(1)+'%':'--'}${isVoid?' · voided':''}</div>
+                  <div style="font-size:.58rem;color:var(--t4)">${oddsStr}${stake?` · <b style="color:var(--t3)">$${stake}</b>`:''} · ${r.prob?(r.prob*100).toFixed(1)+'%':'--'}${isVoid?' · voided':''}</div>
+                  ${isPar&&r.parlayLegs?`<div style="font-size:.56rem;color:var(--t4);margin-top:1px">${r.parlayLegs.map(l=>l.name.split(' ')[1]||l.name).join(' + ')}</div>`:''}
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-                  ${won&&r.fdOdds&&r.betAmount?`<span style="font-size:.68rem;font-weight:700;color:var(--green)">
-                    +$${((r.fdOdds>0?r.fdOdds/100:100/Math.abs(r.fdOdds))*parseFloat(r.betAmount)).toFixed(0)}</span>`:''}
+                  ${payout?`<span style="font-size:.72rem;font-weight:800;color:var(--green)">+$${payout.profit.toFixed(2)}</span>`:''}
+                  ${!won&&r.actual===0&&stake?`<span style="font-size:.72rem;font-weight:800;color:var(--red)">-$${stake.toFixed(2)}</span>`:''}
                   <span style="font-size:.60rem;color:var(--t4)">✎</span>
                 </div>
               </div>
               <div id="${rowId}-edit" style="display:none;padding:6px 0 8px 28px;gap:6px;flex-wrap:wrap;align-items:center">
                 <span style="font-size:.62rem;color:var(--t4);margin-right:2px">Change to:</span>
                 <button onclick="resolveResult('${r.id}','${r.date}',1);event.stopPropagation()"
-                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(34,201,94,.4);
-                  background:rgba(34,201,94,.1);color:var(--green);font-size:.68rem;cursor:pointer;font-weight:700">✅ Win</button>
+                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(34,201,94,.4);background:rgba(34,201,94,.1);color:var(--green);font-size:.68rem;cursor:pointer;font-weight:700">✅ Win</button>
                 <button onclick="resolveResult('${r.id}','${r.date}',0);event.stopPropagation()"
-                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(224,80,74,.4);
-                  background:rgba(224,80,74,.08);color:var(--red);font-size:.68rem;cursor:pointer;font-weight:700">❌ Loss</button>
+                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(224,80,74,.4);background:rgba(224,80,74,.08);color:var(--red);font-size:.68rem;cursor:pointer;font-weight:700">❌ Loss</button>
                 <button onclick="voidBet('${r.id}','${r.date}');event.stopPropagation()"
-                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(148,163,184,.3);
-                  background:rgba(148,163,184,.06);color:var(--t4);font-size:.68rem;cursor:pointer;font-weight:700">🚫 Void</button>
+                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(148,163,184,.3);background:rgba(148,163,184,.06);color:var(--t4);font-size:.68rem;cursor:pointer;font-weight:700">🚫 Void</button>
                 <button onclick="pendingBet('${r.id}','${r.date}');event.stopPropagation()"
-                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(240,165,0,.35);
-                  background:rgba(240,165,0,.08);color:var(--amber);font-size:.68rem;cursor:pointer;font-weight:700">⏳ Pending</button>
+                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(240,165,0,.35);background:rgba(240,165,0,.08);color:var(--amber);font-size:.68rem;cursor:pointer;font-weight:700">⏳ Pending</button>
                 <button onclick="deleteBet('${r.id}','${r.date}');event.stopPropagation()"
-                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(224,80,74,.2);
-                  background:transparent;color:var(--red);font-size:.68rem;cursor:pointer">🗑 Remove</button>
+                  style="padding:4px 10px;border-radius:7px;border:1px solid rgba(224,80,74,.2);background:transparent;color:var(--red);font-size:.68rem;cursor:pointer">🗑 Remove</button>
               </div>
             </div>`;
           }).join('')}
-        </div>`;
-      });
-      html+=`</div></div>`; // close bet-history-body and card
-    }
+        </div>`; });
+      html+=`</div></div>`;
+    } // end if(allHistory.length)
 
     el.innerHTML = html;
 
@@ -9848,6 +10225,11 @@ function filterStatsGrid(statsId, pitchType, playerId){
 function showDetail(id){
   const r=S.allRows.find(x=>x.id===id);
   if(!r)return;
+
+  // Store for parlay builder and save scroll position
+  window._betEntryPlayer = r;
+  S._slateScrollPos = document.getElementById('content')?.scrollTop || 0;
+
   const batPid = r._batPid||r.id;
   const spId   = r._spId;
 
