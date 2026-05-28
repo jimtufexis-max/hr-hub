@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+l<!DOCTYPE html>
 <!-- DingerIQ v2.9 — cache bust -->
 <html lang="en">
 <head>
@@ -5384,9 +5384,14 @@ async function renderResultsTab(){
       if(!stake) return;
       totalWagered += stake;
       pnlBets++;
-      if(r.actual>0 && odds){
-        const p = calcPayout(stake, odds);
-        totalWon += p ? p.profit : 0;
+      if(r.actual>0){
+        if(odds){
+          const p = calcPayout(stake, odds);
+          totalWon += p ? p.profit : stake; // fallback: assume even money
+        } else {
+          // No odds stored — can't calc exact profit, skip from ROI but note it
+          totalWon += 0; // won but unknown profit — shown as $0
+        }
       } else if(r.actual===0){
         totalLost += stake;
       }
@@ -5495,6 +5500,14 @@ async function renderResultsTab(){
           <div style="font-size:.50rem;color:var(--t4)">NET</div>
         </div>
       </div>
+      ${(()=>{
+        const winsNoOdds = resolved.filter(r=>r.actual>0&&!(r.odds||r.fdOdds)&&(r.wagered||r.betAmount));
+        return winsNoOdds.length ? `<div style="font-size:.60rem;color:var(--amber);margin-top:6px;padding:6px 8px;
+          border-radius:7px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.2)">
+          ⚠️ ${winsNoOdds.length} win${winsNoOdds.length>1?'s':''} have no odds saved — profit not included in WON/NET/ROI.
+          Edit those bets to add odds for accurate P&L.
+        </div>` : '';
+      })()} 
       ${totalWagered===0&&pendingWagered===0?`<div style="font-size:.60rem;color:var(--t4);text-align:center;margin-top:8px;padding:6px;border-radius:8px;background:var(--bg3);border:1px dashed var(--bdr)">💡 Enter wagered amounts when tracking bets to see P&L</div>`:``}
     </div>`;
 
