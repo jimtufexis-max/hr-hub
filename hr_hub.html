@@ -2327,6 +2327,7 @@ async function loadFanDuelOdds(force=false){
 
     // Re-render slate now that odds are available
     if(S.allRows.length) renderSlate();
+    if(S.allRows.length) renderDailySummary();
   }catch(e){
     console.warn('[Odds] FanDuel load failed:', e.message);
     const statusEl = document.getElementById('odds-status');
@@ -2795,6 +2796,7 @@ function fireSecondaryMaps(){
       console.log(`[secondary] re-enriched ${enriched} rows with pitcher data`);
       if(enriched > 0){
         renderSlate();
+        renderDailySummary();
         queueForAutoTrack(S.allRows);
       }
     });
@@ -2817,6 +2819,7 @@ function fireSecondaryMaps(){
         }
         console.log(`[zone] enriched ${zoneHits} rows`);
         if(S.allRows.length) renderSlate();
+        if(S.allRows.length) renderDailySummary();
         if(S.allRows.length) queueForAutoTrack(S.allRows);
       });
     }, 3000);
@@ -9179,9 +9182,8 @@ function renderSlate(){
   }
   document.getElementById('hitter-list').innerHTML=bestBetHTML+hitterHTML;
   renderHRProjection();
-  // Update discover tab if open
+  renderDailySummary();
   if(document.getElementById('page-discover')?.classList.contains('active')) renderDiscover();
-  // Update best bets tab if open
   if(document.getElementById('page-picks')?.classList.contains('active')) renderBestBets();
 }
 
@@ -9928,6 +9930,7 @@ function showDetail(id){
           renderDetail(cur);
         }
         if(S.allRows.length) renderSlate();
+        if(S.allRows.length) renderDailySummary();
       }
     }).catch(()=>{});
   }
