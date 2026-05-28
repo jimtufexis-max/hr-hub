@@ -5575,8 +5575,7 @@ async function renderResultsTab(){
 
     // 5. Full bet history (resolved + voided)
     const allHistory = tracked.filter(r=>r.actual!==undefined&&r.actual!==null);
-    if(allHistory.length){
-      const byDate={};
+    if(allHistory.length){      const byDate={};
       [...allHistory].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).forEach(r=>{
         if(!byDate[r.date||'?']) byDate[r.date||'?']=[];
         byDate[r.date||'?'].push(r);
@@ -5670,6 +5669,20 @@ async function renderResultsTab(){
         </div>`; });
       html+=`</div></div>`;
     } // end if(allHistory.length)
+
+    // Always show Import button — even with zero history
+    if(!allHistory.length){
+      html += `<div class="card" style="margin-bottom:10px;text-align:center;padding:20px 16px">
+        <div style="font-size:1.5rem;margin-bottom:8px">📋</div>
+        <div style="font-size:.78rem;font-weight:700;color:var(--t1);margin-bottom:4px">No Bet History</div>
+        <div style="font-size:.65rem;color:var(--t4);margin-bottom:14px">Track bets from player detail cards, or import a previous export below</div>
+        <button onclick="importBetHistory()"
+          style="padding:10px 24px;border-radius:8px;border:1px solid rgba(96,165,250,.4);
+          background:rgba(96,165,250,.1);color:#60a5fa;font-size:.75rem;font-weight:700;cursor:pointer">
+          ⬇ Import Bet History
+        </button>
+      </div>`;
+    }
 
     el.innerHTML = html;
 
