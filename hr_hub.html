@@ -341,22 +341,16 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 </div>
 <div id="header">
   <div id="header-title">
-    <svg width="118" height="28" viewBox="0 0 148 32" xmlns="http://www.w3.org/2000/svg">
-      <!-- Speed streak lines (amber, fading left) -->
+    <svg width="95" height="22" viewBox="0 0 148 32" xmlns="http://www.w3.org/2000/svg">
       <line x1="2"  y1="13" x2="18" y2="13" stroke="#f0a500" stroke-width="1.5" stroke-linecap="round" opacity=".25"/>
       <line x1="5"  y1="17" x2="19" y2="17" stroke="#f0a500" stroke-width="2"   stroke-linecap="round" opacity=".45"/>
       <line x1="2"  y1="21" x2="16" y2="21" stroke="#f0a500" stroke-width="1.5" stroke-linecap="round" opacity=".25"/>
-      <!-- Baseball -->
       <circle cx="28" cy="17" r="10" fill="white"/>
-      <!-- Stitching left curve -->
       <path d="M23 11 Q21 17 23 23" stroke="#cc2222" stroke-width="1.3" fill="none"/>
       <path d="M22.2 12.5 L23.8 12.5 M22 17 L24 17 M22.2 21.5 L23.8 21.5" stroke="#cc2222" stroke-width="1" fill="none" stroke-linecap="round"/>
-      <!-- Stitching right curve -->
       <path d="M33 11 Q35 17 33 23" stroke="#cc2222" stroke-width="1.3" fill="none"/>
       <path d="M32.2 12.5 L33.8 12.5 M32 17 L34 17 M32.2 21.5 L33.8 21.5" stroke="#cc2222" stroke-width="1" fill="none" stroke-linecap="round"/>
-      <!-- DINGER text -->
       <text x="44" y="22" font-family="'Inter',system-ui,sans-serif" font-size="17" font-weight="900" letter-spacing="-0.5" fill="#f0f4f8">DINGER</text>
-      <!-- IQ in amber -->
       <text x="44" y="31" font-family="'Inter',system-ui,sans-serif" font-size="9" font-weight="700" letter-spacing="3.5" fill="#f0a500">IQ</text>
     </svg>
   </div>
@@ -7390,6 +7384,12 @@ function renderDailySummary(){
     return (kb?.units||0)-(ka?.units||0);
   })[0];
 
+  // Heat signal counts
+  const heatScores  = eligible.map(r=>calcHeatScore(r));
+  const eliteSpots  = eligible.filter(r=>detectAngles(r).some(a=>a.label==='Elite Spot'));
+  const dueCount    = heatScores.filter(h=>h.score>=5).length;
+  const heatingCount= heatScores.filter(h=>h.score>=3&&h.score<=4).length;
+
   const ds_label = (() => {
     const d = S.date||new Date();
     return d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});
@@ -7403,10 +7403,11 @@ function renderDailySummary(){
         <div style="font-size:.78rem;font-weight:800;color:var(--t1)">⚾ Today's Slate</div>
         <div style="font-size:.60rem;color:var(--t4);margin-top:1px">${ds_label}</div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        ${sTier.length?`<div style="text-align:center;padding:4px 9px;border-radius:8px;background:rgba(255,215,0,.12);border:1px solid rgba(255,215,0,.3)"><div style="font-size:.85rem;font-weight:900;color:#ffd700">${sTier.length}</div><div style="font-size:.50rem;color:#ffd700;opacity:.8">S-TIER</div></div>`:''}
-        ${aTier.length?`<div style="text-align:center;padding:4px 9px;border-radius:8px;background:rgba(34,201,94,.10);border:1px solid rgba(34,201,94,.25)"><div style="font-size:.85rem;font-weight:900;color:var(--green)">${aTier.length}</div><div style="font-size:.50rem;color:var(--green);opacity:.8">A-TIER</div></div>`:''}
-        <div style="text-align:center;padding:4px 9px;border-radius:8px;background:var(--bg3)"><div style="font-size:.85rem;font-weight:900;color:var(--t1)">${total}</div><div style="font-size:.50rem;color:var(--t4)">PLAYERS</div></div>
+      <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+        ${eliteSpots.length?`<div style="text-align:center;padding:4px 8px;border-radius:8px;background:rgba(255,215,0,.12);border:1px solid rgba(255,215,0,.3)"><div style="font-size:.85rem;font-weight:900;color:#ffd700">${eliteSpots.length}</div><div style="font-size:.48rem;color:#ffd700;opacity:.8;white-space:nowrap">⭐ ELITE</div></div>`:''}
+        ${dueCount?`<div style="text-align:center;padding:4px 8px;border-radius:8px;background:rgba(255,165,0,.12);border:1px solid rgba(255,165,0,.3)"><div style="font-size:.85rem;font-weight:900;color:#ffd700">${dueCount}</div><div style="font-size:.48rem;color:#ffd700;opacity:.8;white-space:nowrap">🌋 DUE</div></div>`:''}
+        ${heatingCount?`<div style="text-align:center;padding:4px 8px;border-radius:8px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.2)"><div style="font-size:.85rem;font-weight:900;color:var(--amber)">${heatingCount}</div><div style="font-size:.48rem;color:var(--amber);opacity:.8;white-space:nowrap">🌡️ HOT</div></div>`:''}
+        <div style="text-align:center;padding:4px 8px;border-radius:8px;background:var(--bg3)"><div style="font-size:.85rem;font-weight:900;color:var(--t1)">${total}</div><div style="font-size:.48rem;color:var(--t4);white-space:nowrap">PLAYERS</div></div>
       </div>
     </div>
 
@@ -7435,23 +7436,27 @@ function renderDailySummary(){
     </div>`:''}
 
     <!-- Conditions row -->
-    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:${hotPlayers.length||softSP.length?'10':'0'}px">
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
       <div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:var(--bg3);color:var(--t3)">${games} game${games!==1?'s':''}</div>
       <div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:${confirmed===total?'rgba(34,201,94,.12)':'rgba(255,165,0,.1)'};color:${confirmed===total?'var(--green)':'var(--amber)'}">${confirmed===total?'✓ All lineups':'📋 '+confirmed+'/'+total+' confirmed'}</div>
-      ${zoneElite.length?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(255,215,0,.1);color:#ffd700">🎯 ${zoneElite.length} zone elite</div>`:''}
+      ${eliteSpots.length?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(255,215,0,.15);border:1px solid rgba(255,215,0,.3);color:#ffd700;font-weight:700">⭐ ${eliteSpots.length} Elite</div>`:''}
+      ${dueCount?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(255,165,0,.12);border:1px solid rgba(255,165,0,.3);color:#ffd700;font-weight:700">🌋 ${dueCount} Due</div>`:''}
+      ${heatingCount?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.2);color:var(--amber);font-weight:700">🌡️ ${heatingCount} Heating</div>`:''}
+      ${softSP.length?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(34,201,94,.08);color:var(--green)">🎳 ${softSP.length} soft SP</div>`:''}
+      ${zoneElite.length?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(255,215,0,.08);color:#ffd700">🎯 ${zoneElite.length} zone elite</div>`:''}
       ${windBoost.length?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(240,165,0,.1);color:var(--amber)">💨 Wind boost: ${[...new Set(windBoost.map(r=>r.home||r.game?.split('@')[1]||''))].filter(Boolean).slice(0,2).join(', ')}</div>`:''}
       ${ppdRisk.length?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(96,165,250,.1);color:#60a5fa">🌧 ${ppdRisk.length} ppd risk</div>`:''}
-      ${bTier.length?`<div style="font-size:.60rem;padding:3px 8px;border-radius:99px;background:rgba(240,165,0,.08);color:var(--amber)">B ${bTier.length}</div>`:''}
     </div>
 
     <!-- Insight line -->
     ${(()=>{
       const insights = [];
-      if(hotPlayers.length>=3) insights.push(`🔥 ${hotPlayers.length} players on hot streak form`);
-      if(softSP.length>=2) insights.push(`🎳 ${softSP.length} soft SP matchups today`);
-      if(sTier.length>=2) insights.push(`💰 Strong value day — ${sTier.length} S-tier edges`);
-      if(zoneElite.length>=2) insights.push(`🎯 ${zoneElite.length} players with elite zone-pitch overlap`);
-      if(!insights.length && top3.length) insights.push(`Best anchor: ${top3[0].name} ${(top3[0].anchor*100).toFixed(1)}% barrel-pull rate`);
+      if(eliteSpots.length) insights.push(`⭐ ${eliteSpots.length} Elite Spot${eliteSpots.length>1?'s':''} today — ${eliteSpots.slice(0,2).map(r=>r.name.split(' ')[1]||r.name).join(', ')}`);
+      else if(dueCount) insights.push(`🌋 ${dueCount} player${dueCount>1?'s':''} Due — 5+ heat signals converging`);
+      else if(heatingCount) insights.push(`🌡️ ${heatingCount} player${heatingCount>1?'s':''} Heating Up — momentum building`);
+      else if(softSP.length>=2) insights.push(`🎳 ${softSP.length} soft SP matchups today`);
+      else if(sTier.length>=2) insights.push(`💰 Strong value day — ${sTier.length} S-tier edges`);
+      else if(top3.length) insights.push(`Best anchor: ${top3[0].name} ${(top3[0].anchor*100).toFixed(1)}% barrel-pull rate`);
       if(!insights.length) return '';
       return `<div style="padding:7px 10px;border-radius:8px;background:var(--bg3);font-size:.63rem;color:var(--t3);line-height:1.5;border-left:3px solid var(--amber)">${insights[0]}</div>`;
     })()}
