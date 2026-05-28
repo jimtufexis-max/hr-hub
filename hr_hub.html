@@ -2752,6 +2752,55 @@ async function ensureLeaderboards(){
 }
 
 // Called AFTER game is loaded — secondary enrichment maps
+// Prefetch all data needed for Elite Spot detection across every row.
+// Runs in background after secondary maps so Elite Spots appear on slate
+// without needing to open each player detail card.
+async function prefetchEliteSpotData(rows){
+  if(!rows?.length) return;
+  const BATCH = 6;
+  let enriched = 0;
+
+  for(let i = 0; i < rows.length; i += BATCH){
+    const chunk = rows.slice(i, i + BATCH);
+    await Promise.allSettled(chunk.map(async r => {
+      try{
+        const batPid = String(r._batPid || r.id);
+        const spId   = r._spId ? String(r._spId) : null;
+
+        // BvP arsenal (pitch-type matchup)
+        if(!r._bvp && spId){
+          const bvp = await getBatterVsPitches(batPid, spId, r.batHand).catch(()=>null);
+          if(bvp) { r._bvp = bvp; enriched++; }
+        }
+
+        // Career HR vs this specific SP
+        if(!r.careerVsSP && spId){
+          const cvs = await getCareerVsSP(batPid, spId).catch(()=>null);
+          if(cvs) { r.careerVsSP = cvs; enriched++; }
+        }
+
+        // Umpire data
+        if(!r._umpData && r._gamePk){
+          const ump = await getUmpireData(r._gamePk).catch(()=>null);
+          if(ump) { r._umpData = ump; enriched++; }
+        }
+      }catch{}
+    }));
+
+    // Small yield between batches
+    if(i + BATCH < rows.length){
+      await new Promise(res => setTimeout(res, 120));
+    }
+  }
+
+  if(enriched > 0){
+    console.log(`[prefetch] enriched ${enriched} elite-spot signals — re-rendering`);
+    renderSlate();
+    renderDailySummary();
+  }
+}
+
+
 function fireSecondaryMaps(){
   if(window._secondaryMapsFired) return;
   window._secondaryMapsFired = true;
@@ -2813,6 +2862,10 @@ function fireSecondaryMaps(){
         renderDailySummary();
         queueForAutoTrack(S.allRows);
       }
+
+      // Prefetch BvP + umpire + career data for ALL rows in background
+      // This ensures Elite Spot tags fire without opening individual cards
+      prefetchEliteSpotData(S.allRows);
     });
 
     // Zone maps fire even later — large CSVs
