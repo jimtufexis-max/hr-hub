@@ -371,6 +371,13 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
 <!-- ── CONTENT ─────────────────────────────────────────────────── -->
 <div id="content">
+<!-- Scroll-to-top button -->
+<button id="scroll-top-btn" onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'})"
+  style="position:fixed;bottom:78px;right:14px;z-index:200;width:38px;height:38px;
+  border-radius:50%;border:1px solid var(--bdr);background:var(--bg2);
+  color:var(--t3);font-size:1.1rem;cursor:pointer;display:none;
+  align-items:center;justify-content:center;
+  box-shadow:0 2px 12px rgba(0,0,0,.4);transition:opacity .2s">↑</button>
 
   <!-- SLATE PAGE -->
   <div id="page-slate" class="page active">
@@ -10385,22 +10392,30 @@ function renderDetail(r){
       ${(()=>{
         const _today=ds();
         const _stored=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
-        const _tracked=_stored.find(x=>String(x.id)===String(r.id)&&x.date===_today&&x.manualBet);
-        const _btnClr = _tracked ? 'var(--green)' : 'var(--amber)';
-        const _btnTxt = _tracked ? '✅ Tracked' : '📌 Track Bet';
-        return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+        const _tracked=_stored.find(x=>String(x.id)===String(r.id)&&x.date===_today&&x.manualBet&&x.betType!=='parlay');
+        const _inParlay=getParlayLegs().some(l=>String(l.id)===String(r.id));
+        return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px">
           <button onclick="addManualBet('${r.id}')"
-            style="padding:9px;border-radius:8px;cursor:pointer;
-            border:1px solid ${_btnClr};background:${_tracked?'rgba(34,201,94,.15)':'rgba(255,165,0,.1)'};
-            color:${_btnClr};font-size:.68rem;font-weight:700;
-            display:flex;align-items:center;justify-content:center;gap:5px">
-            ${_btnTxt}
+            style="padding:9px 6px;border-radius:8px;cursor:pointer;
+            border:1px solid ${_tracked?'var(--green)':'rgba(255,165,0,.5)'};
+            background:${_tracked?'rgba(34,201,94,.12)':'rgba(255,165,0,.08)'};
+            color:${_tracked?'var(--green)':'var(--amber)'};font-size:.66rem;font-weight:700;
+            display:flex;align-items:center;justify-content:center;gap:4px">
+            ${_tracked?'✅ Single':'📌 Single'}
+          </button>
+          <button onclick="(()=>{window._betEntryPlayer=S.allRows.find(x=>x.id==='${r.id}');showBetEntryModal({name:'${r.name.replace(/'/g,"\\'")}',id:'${r.id}',prob:${r.prob},defaultOdds:${typeof getFDOdds==='function'?getFDOdds(r.name)||'null':'null'}},(_w,_o,_t)=>{if(_t==='parlay-leg-added')renderDetail(S.allRows.find(x=>x.id==='${r.id}'));});document.querySelector('#bet-entry-modal #btype-parlay')?.click();})()"
+            style="padding:9px 6px;border-radius:8px;cursor:pointer;
+            border:1px solid ${_inParlay?'#a78bfa':'rgba(167,139,250,.4)'};
+            background:${_inParlay?'rgba(167,139,250,.15)':'rgba(167,139,250,.06)'};
+            color:${_inParlay?'#c4b5fd':'#a78bfa'};font-size:.66rem;font-weight:700;
+            display:flex;align-items:center;justify-content:center;gap:4px">
+            ${_inParlay?'🎰 In Parlay':'🎰 + Parlay'}
           </button>
           <button onclick="toggleKellyPin('${r.id}','${r.name.replace(/'/g,"\\'")}');this.textContent=isKellyPinned('${r.id}')?'📌 In Kelly':'＋ Kelly'"
-            style="padding:9px;border-radius:8px;cursor:pointer;
+            style="padding:9px 6px;border-radius:8px;cursor:pointer;
             border:1px solid rgba(255,165,0,.35);background:rgba(255,165,0,.08);
-            color:var(--amber);font-size:.68rem;font-weight:700;
-            display:flex;align-items:center;justify-content:center;gap:5px">
+            color:var(--amber);font-size:.66rem;font-weight:700;
+            display:flex;align-items:center;justify-content:center;gap:4px">
             ${isKellyPinned?.(r.id)?'📌 In Kelly':'＋ Kelly'}
           </button>
         </div>`;
@@ -12296,13 +12311,21 @@ function initApp(){
     document.head.appendChild(style);
   }
 
+  // Scroll-to-top button
+  const _scrollBtn = document.getElementById('scroll-top-btn');
+  const _contentEl = document.getElementById('content');
+  if(_scrollBtn && _contentEl){
+    _contentEl.addEventListener('scroll', ()=>{
+      _scrollBtn.style.display = _contentEl.scrollTop > 300 ? 'flex' : 'none';
+    }, {passive:true});
+  }
+
   loadSlate();
 }
 
 if(document.readyState==='loading'){
   document.addEventListener('DOMContentLoaded', initApp);
 } else {
-  // DOM already ready (script is deferred or at bottom)
   initApp();
 }
 </script>
