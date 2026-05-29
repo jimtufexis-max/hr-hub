@@ -1296,7 +1296,11 @@ const _FETCH_TTL = 15 * 60 * 1000; // 15 minutes — reduces re-fetches on same 
 
 async function fetchJSON(url){
   const cached = _fetchCache.get(url);
-  if(cached && Date.now() - cached.t < _FETCH_TTL) return cached.d;
+  // Lineup/schedule URLs expire in 2 minutes — all others 15 minutes
+  const ttl = (url.includes('hydrate=lineups') || url.includes('boxscore') || url.includes('feed/live'))
+    ? 2 * 60 * 1000
+    : _FETCH_TTL;
+  if(cached && Date.now() - cached.t < ttl) return cached.d;
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(), 8000); // 8s timeout
   try{
@@ -3040,8 +3044,6 @@ function normName(v){
 let gamesCache=[];
 
 async function refreshLineups(){
-  // Re-check lineup confirmation for any game that isn't confirmed yet
-  // Also clears stale empty lineup caches so they get re-fetched
   const unconfirmedPks = [...new Set(
     S.allRows
       .filter(r => !r.lineupConfirmed)
@@ -3051,26 +3053,30 @@ async function refreshLineups(){
 
   if(!unconfirmedPks.length) return;
 
-  // Clear stale caches for these games so getLineup re-fetches
+  // Clear all caches for these games — including fetchJSON URL cache
   unconfirmedPks.forEach(pk => {
     delete _playerCache[`lineup_confirmed_${pk}`];
-    // Clear team lineup caches too
     Object.keys(_playerCache).forEach(k => {
       if(k.startsWith(`lineup_${pk}_`)) delete _playerCache[k];
     });
-    // Clear the full game cache so loadGame re-runs
-    const awKey = `${pk}_away`, hmKey = `${pk}_home`;
-    delete S.cache[awKey];
-    delete S.cache[hmKey];
+    // Also bust fetchJSON cache for this game's schedule/lineup URLs
+    for(const [url] of _fetchCache){
+      if(url.includes(`gamePk=${pk}`) || url.includes(`gamePk%3D${pk}`)){
+        _fetchCache.delete(url);
+      }
+    }
+    delete S.cache[`${pk}_away`];
+    delete S.cache[`${pk}_home`];
   });
 
-  // Re-run games that need lineup refresh
   const gamesToRefresh = gamesCache.filter(g => unconfirmedPks.includes(g.pk));
   if(!gamesToRefresh.length) return;
 
-  await Promise.allSettled(gamesToRefresh.map(g => loadGame(g)));
+  // Load sequentially with slot limiting
+  for(const g of gamesToRefresh){
+    await loadGame(g);
+  }
 
-  // Rebuild allRows from SELECTED games only (not entire cache)
   const seen = new Set();
   S.allRows = [];
   for(const pk of S.selPks){
@@ -11133,11 +11139,16 @@ function renderDetail(r){
             }).join('')}
           </div>`;
 
-        const adjLine = pit._arsenalMult!=null && pit._arsenalMult!==1.0
+        const adjLine = pit._arsenalMult!=null
           ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bg3);font-size:.68rem;color:var(--t4)">
-              Arsenal adjustment: <b style="color:${pit._arsenalMult>=1?'var(--green)':'var(--red)'}">${pit._arsenalMult>=1?'+':''}${((pit._arsenalMult-1)*100).toFixed(0)}%</b>
-              ${pit._arsenalDesc?`<span> — ${pit._arsenalDesc}</span>`:''}
-            </div>` : '';
+              Arsenal adjustment:
+              ${pit._arsenalMult===1.0
+                ? `<b style="color:var(--t4)">Neutral</b>${pit._arsenalDesc?` — ${pit._arsenalDesc}`:' — no strong edge vs this pitch mix'}`
+                : `<b style="color:${pit._arsenalMult>1?'var(--green)':'var(--red)'}">${pit._arsenalMult>1?'+':''}${((pit._arsenalMult-1)*100).toFixed(0)}%</b>${pit._arsenalDesc?` — ${pit._arsenalDesc}`:''}`}
+            </div>`
+          : `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bg3);font-size:.62rem;color:var(--t4);opacity:.6">
+              Arsenal adjustment: loading BvP data…
+            </div>`;
 
         arsenalHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
           ${mixTag}${spType?`<span style="font-size:.68rem;color:var(--t4)">${spType}</span>`:''}
