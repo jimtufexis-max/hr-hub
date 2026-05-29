@@ -2842,7 +2842,16 @@ async function prefetchEliteSpotData(rows){
               r._pitcherStats._arsenalWeaknesses = arsenalMatch.weaknesses||[];
               // Recompute prob with updated pitcher mult
               const newRes = calcHRProb(r._batterStats||r, r._pitcherStats, r._pf, r._wx);
-              if(newRes){ r._rawProb = perPAtoGame(newRes.prob, r.lineupPos); r.prob = r._rawProb * getCalFactor(); r.pitcher = newRes.pitcher; }
+              if(newRes){
+                r._rawProb = perPAtoGame(newRes.prob, r.lineupPos);
+                r.prob = r._rawProb * getCalFactor();
+                r.pitcher = newRes.pitcher;
+              }
+              // Re-render detail card if it's open for this player
+              if(window._lastDetailId === String(r.id)){
+                const dp = document.getElementById('page-detail');
+                if(dp?.classList.contains('active')) requestAnimationFrame(()=>renderDetail(r));
+              }
             }
             enriched++;
           }
@@ -3421,35 +3430,33 @@ function scoreArsenalMatchup(arsenal,batVsPitch){
   let wISO=0,wT=0;const strengths=[],weaknesses=[];
 
   for(const[pt,pct]of Object.entries(mix)){
-    if(pct<8)continue;
+    if(pct<5)continue; // reduced from 8 — catch secondary pitches used 5%+ of time
     const bdata=batVsPitch[pt];
-    if(!bdata||bdata.pa<15)continue;
+    if(!bdata)continue;
+    if(bdata.pa<8)continue; // reduced from 15 — younger players have less history
     if(bdata.iso==null)continue;
     const lgISO=LG[pt]||0.155;
     const ratio=bdata.iso/lgISO;
-    const w=(pct/100)*Math.min(bdata.pa/40,1.0);
+    // Weight by pitch usage × sample confidence (more gentle ramp for small samples)
+    const sampleConf = Math.min(bdata.pa/30, 1.0); // reduced from 40 → 30
+    const w=(pct/100)*sampleConf;
     wISO+=ratio*w; wT+=w;
-    if(ratio>=1.4&&bdata.pa>=20) strengths.push(pt);
-    if(ratio<=0.65&&bdata.pa>=20) weaknesses.push(pt);
+    if(ratio>=1.3&&bdata.pa>=12) strengths.push(pt); // reduced from 1.4/20
+    if(ratio<=0.70&&bdata.pa>=12) weaknesses.push(pt); // reduced from 0.65/20
   }
 
-  if(wT<0.15) return{mult:1.0,desc:null};
+  if(wT<0.05) return{mult:1.0,desc:null}; // reduced from 0.15 — need less coverage
 
   const avg=wISO/wT;
-  // Rescaled: avg=1.0 → mult=1.0 (baseline)
-  // avg=1.5 → mult=1.17 (+17%) — rakes most pitches
-  // avg=2.0 → mult=1.28 (+28%) — rakes nearly every pitch (Lowe vs May)
-  // avg=0.5 → mult=0.82 (−18%) — struggles vs entire mix
-  // Formula: softer for mild, stronger for dominant — log-scale response
   const adj = avg >= 1.0
-    ? Math.min((avg-1.0)*0.30, 0.35)   // max +35% for dominant matchup
-    : Math.max((avg-1.0)*0.25, -0.25); // max -25% for bad matchup
+    ? Math.min((avg-1.0)*0.30, 0.35)
+    : Math.max((avg-1.0)*0.25, -0.25);
   const mult = clamp(1.0+adj, 0.75, 1.35);
 
   const PF2=pt=>PF[pt]||pt;
   let desc=null;
   if(strengths.length>=3&&mult>=1.15)
-    desc=`Rakes ${strengths.length} of ${Object.keys(mix).filter(p=>mix[p]>=8).length} pitches in mix`;
+    desc=`Rakes ${strengths.length} of ${Object.keys(mix).filter(p=>mix[p]>=5).length} pitches in mix`;
   else if(strengths.length>weaknesses.length&&mult>=1.05)
     desc=`Hits ${PF2(strengths[0])} well vs SP mix`;
   else if(weaknesses.length>strengths.length&&mult<=0.95)
