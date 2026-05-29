@@ -4688,6 +4688,7 @@ function addManualBet(playerId){
         gamePk: r.gamePk||null, gameNumber: r.gameNumber||1,
         manualBet: true, betType: betType||'single',
         wagered: wagered||null, odds: odds||fdO||null,
+        _rawProb: r._rawProb||r.prob, // raw pre-calibration prob for accurate tracker
       });
       if(stored.length>2000) stored.splice(0,stored.length-2000);
       localStorage.setItem(key, JSON.stringify(stored));
@@ -6348,7 +6349,8 @@ function getHitRateTracker(){
   ].map(b=>({ ...b, bets:[], hits:[] }));
 
   for(const r of resolved){
-    const b = buckets.find(b=>r.prob>=b.min && r.prob<b.max);
+    const prob = r._rawProb || r.prob; // use raw model prob for honest calibration
+    const b = buckets.find(b=>prob>=b.min && prob<b.max);
     if(b){ b.bets.push(r); if(r.actual>0) b.hits.push(r); }
   }
 
@@ -6360,7 +6362,7 @@ function getHitRateTracker(){
     if(tiers[grade]) tiers[grade].push(r);
   }
 
-  const totalExpected = resolved.reduce((s,r)=>s+r.prob, 0);
+  const totalExpected = resolved.reduce((s,r)=>s+(r._rawProb||r.prob), 0); // prefer raw pre-calibration prob
   const totalActual   = resolved.filter(r=>r.actual>0).length;
   const calibration   = totalExpected > 0 ? totalActual/totalExpected : 1;
 
@@ -6598,6 +6600,19 @@ function renderHitRateTracker(el){
       <div style="font-size:.56rem;color:var(--t4);margin-top:4px">
         Expected ${totalExpected} HRs · Actual ${totalActual} · 95% CI: ${ciLo}–${ciHi}%
       </div>
+      ${(()=>{
+        const ac = _autoCal;
+        if(!ac) return '';
+        const acClr = ac.active ? (ac.factor < 0.85 ? 'var(--amber)' : ac.factor > 1.15 ? '#60a5fa' : 'var(--green)') : 'var(--t4)';
+        return ac.active
+          ? `<div style="margin-top:6px;padding:5px 8px;border-radius:6px;background:${acClr}12;border:1px solid ${acClr}30;font-size:.58rem;color:${acClr}">
+              🎯 Auto-cal active: probs multiplied by <b>${Math.round(ac.factor*100)}%</b> based on your ${ac.n} resolved bets.
+              Raw model avg was ${ac.modelAvg}%, your actual hit rate ${ac.hitRate}%.
+            </div>`
+          : `<div style="margin-top:6px;font-size:.56rem;color:var(--t4)">
+              🎯 Auto-cal: ${ac.msg}
+            </div>`;
+      })()}
     </div>
 
     <!-- Probability bucket chart -->
