@@ -8497,7 +8497,7 @@ async function selectZonePitch(playerId, pitchType){
   const r = S.allRows.find(x=>String(x.id)===String(playerId));
   if(!r) return;
 
-  // Track which pitch is selected — blocks _recomputeZoneIfOpen from doing a full re-render
+  // Track which pitch is selected
   if(!window._selectedZonePitch) window._selectedZonePitch = {};
   window._selectedZonePitch[playerId] = pitchType;
 
@@ -8521,7 +8521,6 @@ async function selectZonePitch(playerId, pitchType){
   if(!wrap) return;
 
   if(pitchType === 'ALL'){
-    // Restore aggregate zone grids — recompute matchup fresh to get latest data
     const zm = (() => {
       if(batPid && spId){
         const fresh = calcZoneMatchup(batPid, spId, r.batHand);
@@ -8532,6 +8531,15 @@ async function selectZonePitch(playerId, pitchType){
     if(!zm){ wrap.innerHTML = '<div style="font-size:.65rem;color:var(--t4);padding:8px">Zone data loading — tap ↻</div>'; return; }
     const grids = buildZoneGrids(zm, r.batHand, 24, batPid, spId);
     if(grids) _renderZoneWrap(wrap, grids, zm);
+    return;
+  }
+
+  // Check pitch-level cache first — guarantees identical result on repeat selection
+  if(!window._zonePitchCache) window._zonePitchCache = {};
+  const cacheKey = `${playerId}_${pitchType}`;
+  if(window._zonePitchCache[cacheKey]){
+    const {grids, zm} = window._zonePitchCache[cacheKey];
+    _renderZoneWrap(wrap, grids, zm);
     return;
   }
 
@@ -8574,17 +8582,17 @@ async function selectZonePitch(playerId, pitchType){
 
   // Build zone matchup for this specific pitch type
   const hrZones = new Set(r.batHand==='L' ? HR_ZONES_LHB : HR_ZONES_RHB);
-
-  // Batter top zones for this pitch
   let pitchZm = r._zoneMatch ? {...r._zoneMatch} : {};
   if(batZoneData){
     const sorted = Object.entries(batZoneData).sort((a,b)=>b[1]-a[1]);
     const batTop3 = new Set(sorted.slice(0,3).map(([z])=>parseInt(z)));
-    // Build pitcher weak zones from throw-loc dmg5 if available
+    // Get pitcher's per-pitch weak zones from the per-pitch cache key
     let spVuln3 = new Set(pitchZm.spVuln3||[]);
     if(throwLoc?.dmg5avg){
       populatePitcherZoneFromThrowLoc(spId, pitchType, throwLoc);
-      const spZones = (_pitcherZoneMap||{})[String(spId)]||{};
+      // Use per-pitch key, not aggregate
+      const spPtKey = `${String(spId)}_pt_${pitchType}`;
+      const spZones = (_pitcherZoneMap||{})[spPtKey] || (_pitcherZoneMap||{})[String(spId)] || {};
       const spSorted = Object.entries(spZones).sort((a,b)=>b[1]-a[1]);
       spVuln3 = new Set(spSorted.slice(0,3).map(([z])=>parseInt(z)));
     }
@@ -8603,12 +8611,14 @@ async function selectZonePitch(playerId, pitchType){
       fromRealData: !!(batZoneData && throwLoc),
       pitchType,
     };
-    // Temporarily override zone maps for this render
     if(_batterZoneMap!==null) _batterZoneMap[`${batPid}_pt_${pitchType}`] = batZoneData;
   }
 
   const grids = buildZoneGrids(pitchZm, r.batHand, 24, batPid, spId);
   if(!grids){ wrap.innerHTML='<div style="font-size:.65rem;color:var(--t4);padding:4px">No zone data</div>'; return; }
+
+  // Cache this result so repeat selection is instant and identical
+  window._zonePitchCache[cacheKey] = {grids, zm: pitchZm};
   _renderZoneWrap(wrap, grids, pitchZm);
 }
 
@@ -8689,12 +8699,14 @@ function populateBatterZoneFromBvP(pid, bvpResult){
 // Populate _pitcherZoneMap from cached throw-location data
 function populatePitcherZoneFromThrowLoc(spId, pitchType, throwLoc){
   if(!throwLoc?.dmg5avg || _pitcherZoneMap === null) return;
-  const existing = _pitcherZoneMap[String(spId)] || {};
-  // Collapse 5x5 damage grid to 3x3 zones, averaging surrounding cells
+  const key = String(spId);
+  const ptKey = `${key}_pt_${pitchType}`;
+
+  // Store per-pitch zones separately — never average, never mutate aggregate
   const zoneNums = [[7,8,9],[4,5,6],[1,2,3]];
+  const ptZones = {};
   for(let r=0;r<3;r++) for(let c=0;c<3;c++){
     const z = zoneNums[r][c];
-    // Map 3x3 zone to 5x5 center (zones start at row/col 1 in 5x5)
     let sum=0, n=0;
     for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
       const r5=r+1+dr, c5=c+1+dc;
@@ -8702,14 +8714,25 @@ function populatePitcherZoneFromThrowLoc(spId, pitchType, throwLoc){
         sum+=throwLoc.dmg5avg[r5][c5]; n++;
       }
     }
-    if(n>0){
-      const val = sum/n;
-      // Accumulate across pitch types (weight by pitch count)
-      existing[z] = existing[z] ? (existing[z]+val)/2 : val;
-    }
+    if(n>0) ptZones[z] = sum/n;
   }
-  if(Object.keys(existing).length>0){
-    _pitcherZoneMap[String(spId)] = existing;
+  // Cache per-pitch (stable, never changes after first fetch)
+  if(Object.keys(ptZones).length) _pitcherZoneMap[ptKey] = ptZones;
+
+  // Rebuild aggregate from ALL cached pitch types (weighted average by pitch usage)
+  const pitchKeys = Object.keys(_pitcherZoneMap).filter(k=>k.startsWith(`${key}_pt_`));
+  if(pitchKeys.length){
+    const agg = {};
+    pitchKeys.forEach(pk=>{
+      const zones = _pitcherZoneMap[pk];
+      Object.entries(zones).forEach(([z,v])=>{
+        if(!agg[z]) agg[z]={sum:0,n:0};
+        agg[z].sum+=v; agg[z].n++;
+      });
+    });
+    const aggFinal = {};
+    Object.entries(agg).forEach(([z,{sum,n}])=>{ aggFinal[z]=sum/n; });
+    _pitcherZoneMap[key] = aggFinal;
   }
 }
 
@@ -10692,9 +10715,14 @@ function showDetail(id){
   // Store for parlay builder and save scroll position
   window._betEntryPlayer = r;
   window._lastDetailId = id;
-  // Reset pitch selector to All on each new card open
+  // Reset pitch selector and cache on each new card open
   if(!window._selectedZonePitch) window._selectedZonePitch = {};
   window._selectedZonePitch[id] = 'ALL';
+  if(!window._zonePitchCache) window._zonePitchCache = {};
+  // Clear pitch cache for this player so fresh data on each card open
+  Object.keys(window._zonePitchCache).forEach(k=>{
+    if(k.startsWith(id+'_')) delete window._zonePitchCache[k];
+  });
   S._slateScrollPos = document.getElementById('content')?.scrollTop || 0;
 
   // Pre-populate zone maps from cached BvP/throw-loc data so returning players
@@ -10911,12 +10939,23 @@ function renderDetail(r){
       ${fbar('Platoon Split',r.platoon,0.65,1.35)}
       ${fbar('Pitcher Matchup',r.pitcher,0.50,2.20)}
       ${fbar('Park × Weather',r.parkwx,0.75,1.45)}
-      ${fbar('L15 Momentum',r.momentum,0.65,1.50)}
       ${r.homeAwayMult&&r.homeAwayMult!==1?fbar(`${r.isHome?'Home':'Away'} Split`,r.homeAwayMult,0.75,1.35):''}
       ${r.hvhMult&&r.hvhMult!==1?fbar('Career vs This SP',r.hvhMult,0.75,1.40):''}
       ${r.umpMult&&r.umpMult!==1?fbar(`Umpire (${r.umpire||'?'})`,r.umpMult,0.85,1.20):''}
       ${r.paMultiplier&&r.paMultiplier!==1?fbar(`Lineup Spot #${r.lineupPos}`,r.paMultiplier,0.95,1.06):''}
       ${r.teamMult&&r.teamMult!==1?fbar('Team HR Context',r.teamMult,0.80,1.35):''}
+      ${(()=>{
+        // Note when platoon advantage coexists with arsenal weakness
+        const platoonFav = (r.platoon||1) >= 1.10;
+        const arsenalWeak = r._bvp && Object.values(r._bvp).filter(p=>p?.isoVsPitch!=null&&p.isoVsPitch<0.12).length >= 2;
+        return platoonFav && arsenalWeak
+          ? `<div style="margin-top:6px;padding:6px 8px;border-radius:7px;font-size:.60rem;
+              background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.2);color:var(--amber);line-height:1.5">
+              ⚠️ Platoon advantage is based on historical handedness splits (population-level).
+              Arsenal breakdown may show individual pitch weaknesses within that matchup —
+              both can be correct if this SP neutralizes the platoon edge with a specific pitch.
+            </div>` : '';
+      })()}
       ${(()=>{const dc=calcDataConfidence(r);return`<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bg3);font-size:.68rem;color:var(--t4)">Data confidence: <b style="color:${dc.color}">${dc.grade}</b> — ${dc.desc}</div>`;})()}
     </div>
 
