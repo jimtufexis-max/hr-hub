@@ -2829,7 +2829,7 @@ async function prefetchEliteSpotData(rows){
         const spId   = r._spId ? String(r._spId) : null;
 
         // BvP arsenal — skip if already cached
-        if(!_playerCache[`bvp_${batPid}`] && spId){
+        if(!_playerCache[`bvp_${SEASON}_${batPid}`] && spId){
           const bvp = await getBatterVsPitches(batPid).catch(()=>null);
           if(bvp){
             r._bvp = bvp;
@@ -2855,8 +2855,8 @@ async function prefetchEliteSpotData(rows){
             }
             enriched++;
           }
-        } else if(_playerCache[`bvp_${batPid}`] && !r._bvp){
-          r._bvp = _playerCache[`bvp_${batPid}`];
+        } else if(_playerCache[`bvp_${SEASON}_${batPid}`] && !r._bvp){
+          r._bvp = _playerCache[`bvp_${SEASON}_${batPid}`];
         }
 
         // Career vs SP
@@ -3519,7 +3519,7 @@ async function getBatterVsPitchType(batId){
 
 async function getBatterVsPitches(pid){
   if(!pid) return null;
-  const key=`bvp_${pid}`;
+  const key=`bvp_${SEASON}_${pid}`;
   if(_playerCache[key]!==undefined) return _playerCache[key];
   for(const s of[SEASON,SEASON-1]){
     try{
@@ -8572,7 +8572,7 @@ async function selectZonePitch(playerId, pitchType){
 
   // Get batter's zone data for this pitch type from BvP cache
   let batZoneData = null;
-  const bvp = _playerCache[`bvp_${batPid}`];
+  const bvp = _playerCache[`bvp_${SEASON}_${batPid}`];
   if(bvp?.[pitchType]?.zone3xwoba){
     // Convert 3x3 array to zone-number keyed object
     const zoneNums = [[7,8,9],[4,5,6],[1,2,3]];
@@ -9484,7 +9484,7 @@ async function loadGame(g){
     // getBatterVsPitches caches under 'bvp_{pid}' — pull it in before scoring
     hitters.forEach(h => {
       const pid = String(h.id);
-      const cached = _playerCache[`bvp_${pid}`];
+      const cached = _playerCache[`bvp_${SEASON}_${pid}`];
       if(cached) vsPitchMap[pid] = cached;
     });
 
