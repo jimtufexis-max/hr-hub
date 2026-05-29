@@ -2831,7 +2831,21 @@ async function prefetchEliteSpotData(rows){
         // BvP arsenal — skip if already cached
         if(!_playerCache[`bvp_${batPid}`] && spId){
           const bvp = await getBatterVsPitches(batPid).catch(()=>null);
-          if(bvp){ r._bvp = bvp; enriched++; }
+          if(bvp){
+            r._bvp = bvp;
+            // Re-score pitcher matchup now that we have BvP data
+            const arsenalMatch = scoreArsenalMatchup(r._pitcherStats?.arsenal, bvp);
+            if(arsenalMatch.mult !== 1.0 && r._pitcherStats){
+              r._pitcherStats._arsenalMult = arsenalMatch.mult;
+              r._pitcherStats._arsenalDesc = arsenalMatch.desc;
+              r._pitcherStats._arsenalStrengths = arsenalMatch.strengths||[];
+              r._pitcherStats._arsenalWeaknesses = arsenalMatch.weaknesses||[];
+              // Recompute prob with updated pitcher mult
+              const newRes = calcHRProb(r._batterStats||r, r._pitcherStats, r._pf, r._wx);
+              if(newRes){ r._rawProb = perPAtoGame(newRes.prob, r.lineupPos); r.prob = r._rawProb * getCalFactor(); r.pitcher = newRes.pitcher; }
+            }
+            enriched++;
+          }
         } else if(_playerCache[`bvp_${batPid}`] && !r._bvp){
           r._bvp = _playerCache[`bvp_${batPid}`];
         }
@@ -9458,8 +9472,14 @@ async function loadGame(g){
     // BvP loaded lazily on detail open — not upfront (too slow for 26 batters)
     const vsPitchMap = {};
     const hvhMap = {};
-    const bvpEnrichPromise = Promise.resolve(); // no-op
-    const hvhEnrichPromise = Promise.resolve(); // no-op
+
+    // Pre-populate vsPitchMap from _playerCache for all hitters in this game
+    // getBatterVsPitches caches under 'bvp_{pid}' — pull it in before scoring
+    hitters.forEach(h => {
+      const pid = String(h.id);
+      const cached = _playerCache[`bvp_${pid}`];
+      if(cached) vsPitchMap[pid] = cached;
+    });
 
     const rows = [];
     console.log(`[loadGame] ${key}: processing ${hitters.length} hitters`);
