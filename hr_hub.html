@@ -82,7 +82,215 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 .chip.active{background:#0e2448;border-color:var(--blue);color:var(--blue)}
 .chip.loaded{border-color:#22c95e33;color:var(--green)}
 
-/* ── Date nav ─────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════
+   DESKTOP RESPONSIVE LAYOUT  (≥900px)
+   ═══════════════════════════════════════════════════════ */
+@media(min-width:900px){
+  /* Allow scaling on desktop */
+  html { font-size: 15px; }
+
+  /* Header — wider, better padding */
+  #header {
+    padding: 0 24px;
+    height: 52px;
+  }
+  #header-title svg { width: 120px !important; height: 28px !important; }
+
+  /* Root layout — sidebar + main */
+  body {
+    display: grid;
+    grid-template-rows: 52px 1fr;
+    grid-template-columns: 300px 1fr;
+    grid-template-areas:
+      "header  header"
+      "sidebar main";
+    height: 100vh;
+    overflow: hidden;
+  }
+  #header { grid-area: header; }
+
+  /* Sidebar — game chips, filters, weather */
+  #sidebar-desktop {
+    grid-area: sidebar;
+    display: flex !important;
+    flex-direction: column;
+    background: var(--bg2);
+    border-right: 1px solid var(--bdr);
+    overflow-y: auto;
+    padding: 16px;
+    gap: 12px;
+  }
+  .sd-section-label {
+    font-size: .60rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--t4);
+    margin-bottom: 4px;
+  }
+
+  /* Main content area */
+  #content {
+    grid-area: main;
+    height: calc(100vh - 52px) !important;
+    overflow-y: scroll;
+    padding: 20px 24px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Remove mobile nav — desktop uses sidebar */
+  #nav { display: none !important; }
+
+  /* Scroll top btn — adjust for no mobile nav */
+  #scroll-top-btn { bottom: 20px !important; right: 20px !important; }
+
+  /* Pages — remove mobile padding, use full width */
+  .page { padding: 0; max-width: 100%; }
+
+  /* Slate page — 2 or 3 col card grid */
+  #page-slate .page-inner {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+  #page-slate .page-inner > #daily-summary { grid-column: 1 / -1; }
+  #page-slate .page-inner > #best-bets-band { grid-column: 1 / -1; }
+
+  /* Hitter cards — slightly wider feel */
+  .hitter-card { margin-bottom: 0; }
+
+  /* Filter pills — wrap nicely */
+  #filter-row { flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+
+  /* Search bar — wider */
+  #search-input { width: 100%; max-width: 280px; }
+
+  /* Game chips — move to sidebar, wrap */
+  #game-chips {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  #game-chips .chip {
+    width: 100%;
+    text-align: left;
+    justify-content: flex-start;
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: .75rem;
+  }
+
+  /* Date nav — in sidebar */
+  #date-nav { margin-bottom: 0; }
+
+  /* Lineup status — in sidebar */
+  #lineup-status { font-size: .65rem; color: var(--t4); margin-top: 4px; }
+
+  /* Wx area — in sidebar */
+  #wx-area { font-size: .80rem; }
+
+  /* Detail page — 2-col layout */
+  #page-detail .page-inner {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  #page-detail .page-inner .detail-left { /* player header + prob breakdown + tags */ }
+  #page-detail .page-inner .detail-right { /* arsenal, zone, splits */ }
+
+  /* Results / Discover / Kelly — centered max width */
+  #page-results .page-inner,
+  #page-discover .page-inner,
+  #page-kelly .page-inner,
+  #page-info .page-inner {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  /* Cards — more padding on desktop */
+  .card { padding: 16px 18px; }
+
+  /* Back button — cleaner on desktop */
+  .back-btn {
+    font-size: .80rem;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--bdr);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 16px;
+    cursor: pointer;
+    color: var(--t3);
+    background: var(--bg2);
+    transition: color .15s, border-color .15s;
+  }
+  .back-btn:hover { color: var(--t1); border-color: var(--t3); }
+
+  /* Tabs — horizontal, full width on desktop */
+  .tab-row { gap: 4px; }
+  .tab-btn { padding: 7px 16px; font-size: .78rem; }
+
+  /* Prob bar on detail — wider */
+  .prob-bar-wrap { max-width: 500px; }
+
+  /* Desktop nav — shown as top tabs inside content */
+  #desktop-nav {
+    display: flex !important;
+    gap: 4px;
+    margin-bottom: 16px;
+  }
+  #desktop-nav .dnav-btn {
+    padding: 8px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--bdr);
+    background: var(--bg2);
+    color: var(--t3);
+    font-size: .78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  #desktop-nav .dnav-btn:hover { color: var(--t1); border-color: var(--t3); }
+  #desktop-nav .dnav-btn.active {
+    background: var(--amber);
+    color: #000;
+    border-color: var(--amber);
+    font-weight: 800;
+  }
+
+  /* Lineup refresh btn — in sidebar */
+  #lineup-refresh-btn {
+    width: 100%;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--bdr);
+    background: var(--bg3);
+    color: var(--t3);
+    font-size: .72rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  #lineup-refresh-btn:hover { border-color: var(--amber); color: var(--amber); }
+}
+
+@media(min-width:1200px){
+  body { grid-template-columns: 280px 1fr; }
+  #page-slate .page-inner {
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  }
+}
+
+@media(min-width:1600px){
+  #page-slate .page-inner {
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  }
+}
 #date-nav{display:flex;align-items:center;gap:6px;margin-bottom:10px}
 #date-nav button{background:var(--bg2);border:1px solid var(--bdr);
   border-radius:8px;color:var(--t2);font-size:.8rem;padding:7px 12px;
@@ -371,8 +579,42 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
 <!-- ── CONTENT ─────────────────────────────────────────────────── -->
 <div id="content">
-<!-- Scroll-to-top button -->
-<button id="scroll-top-btn" onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'})"
+<!-- Desktop sidebar — hidden on mobile via CSS -->
+<div id="sidebar-desktop" style="display:none">
+  <!-- Date nav -->
+  <div>
+    <div class="sd-section-label">Date</div>
+    <div id="date-nav">
+      <button onclick="changeDate(-1)">◀</button>
+      <div id="date-lbl"></div>
+      <button onclick="changeDate(1)">▶</button>
+      <button id="today-btn" onclick="goToday()">Today</button>
+    </div>
+  </div>
+  <!-- Games -->
+  <div>
+    <div class="sd-section-label">Games</div>
+    <div id="game-chips-desktop"></div>
+  </div>
+  <!-- Lineup -->
+  <div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div class="sd-section-label" style="margin:0">Lineups</div>
+      <span id="lineup-status" style="font-size:.60rem;color:var(--t4)"></span>
+    </div>
+    <button id="lineup-refresh-btn" onclick="refreshLineups()">↺ Refresh Lineups</button>
+  </div>
+  <!-- Weather -->
+  <div>
+    <div class="sd-section-label">Weather</div>
+    <div id="wx-area-desktop" style="font-size:.78rem;color:var(--t3)"></div>
+  </div>
+  <!-- Filters -->
+  <div>
+    <div class="sd-section-label">Filters</div>
+    <div id="filter-row-desktop" style="display:flex;flex-direction:column;gap:5px"></div>
+  </div>
+</div> onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'})"
   style="position:fixed;bottom:78px;right:14px;z-index:200;width:38px;height:38px;
   border-radius:50%;border:1px solid var(--bdr);background:var(--bg2);
   color:var(--t3);font-size:1.1rem;cursor:pointer;display:none;
@@ -397,7 +639,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <div class="filter-pill" onclick="setSort('anchor',this)">Anchor</div>
         <div class="filter-pill" onclick="setSort('platoon',this)">Platoon</div>
         <div class="filter-pill" onclick="setSort('momentum',this)">L15 Hot</div>
-        <div class="filter-pill" onclick="setSort('edge',this)">FD Edge</div>
+        <div class="filter-pill" onclick="setSort('edge',this)">💰 Value</div>
       </div>
       <div id="lineup-status" style="font-size:.60rem;color:var(--green);margin-bottom:4px;min-height:14px"></div>
       <div id="search-wrap">
@@ -837,6 +1079,35 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:10px">
+      <div class="slbl">💰 Value Finder — Odds API Key</div>
+      <div style="font-size:.65rem;color:var(--t4);line-height:1.6;margin-bottom:12px">
+        Enter your <a href="https://the-odds-api.com" target="_blank" style="color:var(--amber)">The Odds API</a>
+        key to unlock the Value Finder. Free tier: 500 requests/month — enough for ~2 months of daily use.
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="odds-key-input" type="password"
+          placeholder="Paste API key here…"
+          value="${ODDS_API_KEY||''}"
+          style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid var(--bdr);
+          background:var(--bg3);color:var(--t1);font-size:.80rem;font-family:monospace">
+        <button onclick="(()=>{
+          const k=document.getElementById('odds-key-input').value.trim();
+          if(!k){alert('Paste your Odds API key first.');return;}
+          localStorage.setItem('dingeriq_odds_key',k);
+          window.ODDS_API_KEY=k;
+          loadFanDuelOdds(true).then(()=>{
+            document.getElementById('odds-key-status').textContent='✅ Key saved & odds loading…';
+          });
+        })()"
+          style="padding:10px 16px;border-radius:8px;border:none;background:var(--amber);
+          color:#000;font-weight:800;font-size:.75rem;cursor:pointer;white-space:nowrap">
+          Save Key
+        </button>
+      </div>
+      <div id="odds-key-status" style="font-size:.62rem;color:var(--t4);margin-top:8px"></div>
+    </div>
+
     <div id="model-perf-card"></div>
     <div id="clv-stats-card"></div>
     <div id="auto-cal-card"></div>
@@ -1230,6 +1501,13 @@ function showPage(name){
 
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+
+  // Sync desktop nav active state
+  document.querySelectorAll('#desktop-nav .dnav-btn').forEach(btn=>{
+    const matches = name==='slate'?btn.textContent.includes('Slate'):btn.textContent.toLowerCase().includes(name);
+    btn.classList.toggle('active', matches);
+  });
+  if(window.innerWidth>=900) syncDesktopSidebar();
   // Update info header button
   const infoHdr=document.getElementById('nav-info-header');
   if(infoHdr){
@@ -2357,52 +2635,62 @@ let _fdOddsLoaded = false;
 let _fdOddsTimestamp = null;
 
 async function loadFanDuelOdds(force=false){
-  // Refresh if older than 10 minutes
   if(_fdOddsLoaded && !force && _fdOddsTimestamp && (Date.now()-_fdOddsTimestamp < 600000)) return;
   _fdOddsLoaded = true;
   _fdOddsTimestamp = Date.now();
   if(!ODDS_API_KEY){
-    console.log('[Odds] No API key — set ODDS_API_KEY in hr_hub.html line 416');
     const statusEl = document.getElementById('odds-status');
-    if(statusEl) statusEl.textContent = 'FD odds: no key';
+    if(statusEl) statusEl.textContent = 'Add odds key → Settings';
     return;
   }
   try{
-    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=fanduel&oddsFormat=american`;
-    console.log('[Odds] Fetching FanDuel HR props...');
+    // Pull multiple books for consensus no-vig pricing
+    const books = 'fanduel,draftkings,betmgm,pointsbet,caesars';
+    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${ODDS_API_KEY}&regions=us&markets=batter_home_runs&bookmakers=${books}&oddsFormat=american`;
+    console.log('[Odds] Fetching consensus HR props...');
     const r = await fetch(url);
-    if(!r.ok){
-      const body = await r.text().catch(()=>'');
-      throw new Error(`Odds API ${r.status}: ${body.slice(0,100)}`);
-    }
+    if(!r.ok){ const body=await r.text().catch(()=>''); throw new Error(`Odds API ${r.status}: ${body.slice(0,100)}`); }
     const data = await r.json();
+
+    // Build map: playerName → { decimalPrices[], bookCount }
+    const raw = {};
+    for(const game of data){
+      for(const book of (game.bookmakers||[])){
+        const mkt = (book.markets||[]).find(m=>m.key==='batter_home_runs');
+        if(!mkt) continue;
+        for(const outcome of mkt.outcomes||[]){
+          if(!outcome.name) continue;
+          const key = normName(outcome.name);
+          if(!raw[key]) raw[key] = { name: outcome.name, prices: [] };
+          // Convert American to decimal
+          const o = outcome.price;
+          raw[key].prices.push(o > 0 ? o/100+1 : 100/Math.abs(o)+1);
+        }
+      }
+    }
+
+    // Build consensus map: no-vig average across books
     const map = {};
     let total = 0;
-    for(const game of data){
-      const fd = (game.bookmakers||[]).find(b=>b.key==='fanduel');
-      if(!fd) continue;
-      const mkt = (fd.markets||[]).find(m=>m.key==='batter_home_runs');
-      if(!mkt) continue;
-      for(const outcome of mkt.outcomes||[]){
-        if(!outcome.name) continue;
-        const key = normName(outcome.name);
-        map[key] = { odds: outcome.price, raw: outcome.name };
-        total++;
-      }
+    for(const [key, d] of Object.entries(raw)){
+      if(!d.prices.length) continue;
+      // Simple average of decimal odds → convert back to American
+      const avgDec = d.prices.reduce((a,b)=>a+b,0) / d.prices.length;
+      const american = avgDec >= 2 ? Math.round((avgDec-1)*100) : Math.round(-100/(avgDec-1));
+      // No-vig implied probability
+      const implied = avgDec > 0 ? 1/avgDec : 0;
+      map[key] = { odds: american, implied, raw: d.name, books: d.prices.length };
+      total++;
     }
     _fdOdds = map;
     const statusEl = document.getElementById('odds-status');
-    if(statusEl) statusEl.textContent = `FD: ${total} props ✓`;
-    console.log(`[Odds] ✅ Loaded ${total} FanDuel HR props. Sample:`,
-      Object.values(map).slice(0,5).map(v=>`${v.raw}: ${v.odds>0?'+':''}${v.odds}`).join(', '));
-
-    // Re-render slate now that odds are available
-    if(S.allRows.length) renderSlate();
-    if(S.allRows.length) renderDailySummary();
+    if(statusEl) statusEl.textContent = `📊 ${total} props loaded`;
+    console.log(`[Odds] ✅ Loaded ${total} consensus HR props (${books}).`);
+    if(S.allRows.length){ renderSlate(); renderDailySummary(); }
   }catch(e){
-    console.warn('[Odds] FanDuel load failed:', e.message);
+    console.warn('[Odds] load failed:', e.message);
     const statusEl = document.getElementById('odds-status');
-    if(statusEl) statusEl.textContent = `FD odds: failed`;
+    if(statusEl) statusEl.textContent = `Odds: failed (${e.message.slice(0,30)})`;
     _fdOdds = null;
   }
 }
@@ -2410,14 +2698,42 @@ async function loadFanDuelOdds(force=false){
 function getFDOdds(name){
   if(!_fdOdds) return null;
   const key = normName(name);
-  // Direct match
   if(_fdOdds[key]) return _fdOdds[key].odds;
-  // Try last-name only match as fallback
   const lastName = key.split(' ').pop();
   const match = Object.keys(_fdOdds).find(k=>k.endsWith(' '+lastName)||k===lastName);
   if(match) return _fdOdds[match].odds;
   return null;
 }
+
+function getOddsEntry(name){
+  if(!_fdOdds) return null;
+  const key = normName(name);
+  if(_fdOdds[key]) return _fdOdds[key];
+  const lastName = key.split(' ').pop();
+  const match = Object.keys(_fdOdds).find(k=>k.endsWith(' '+lastName)||k===lastName);
+  return match ? _fdOdds[match] : null;
+}
+
+// Edge = model prob − no-vig book implied prob
+// Positive = model thinks player is MORE likely than market prices them
+function calcEdgePct(modelProb, americanOdds){
+  if(modelProb==null || americanOdds==null) return null;
+  const o = parseInt(americanOdds);
+  if(isNaN(o)) return null;
+  const dec = o > 0 ? o/100+1 : 100/Math.abs(o)+1;
+  const bookImplied = 1/dec; // no-vig
+  return Math.round((modelProb - bookImplied)*100*10)/10; // edge in %
+}
+
+function getEdgeTierLabel(edge){
+  if(edge == null) return null;
+  if(edge >= 8)  return { tier:'S', label:'S MAX',  clr:'#ffd700' };
+  if(edge >= 5)  return { tier:'A', label:'A STRONG', clr:'var(--green)' };
+  if(edge >= 2)  return { tier:'B', label:'B LEAN',  clr:'var(--amber)' };
+  if(edge >= -2) return { tier:'C', label:'C PASS',  clr:'var(--t4)' };
+  return           { tier:'F', label:'F FADE',  clr:'var(--red)' };
+}
+
 
 // Debug tool — call showOddsDebug() in console to see all loaded odds
 function showOddsDebug(){
@@ -3198,8 +3514,20 @@ function renderGameChips(){
 }
 
 async function toggleGame(pk){
-  if(S.selPks.has(pk)){S.selPks.delete(pk);}
-  else{S.selPks.add(pk);}
+  if(S.selPks.has(pk)){
+    S.selPks.delete(pk);
+  } else {
+    // Hard cap — iOS crashes with too many games loaded simultaneously
+    if(S.selPks.size >= 7){
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 18px;border-radius:99px;background:rgba(30,30,40,.95);color:#fff;font-size:.72rem;font-weight:600;border:1px solid rgba(255,165,0,.4);max-width:88vw;text-align:center';
+      toast.textContent = '⚠️ Max 7 games — remove one first to add another';
+      document.body.appendChild(toast);
+      setTimeout(()=>toast.remove(), 3000);
+      return;
+    }
+    S.selPks.add(pk);
+  }
   renderGameChips();
   if(!S.selPks.size){
     document.getElementById('hitter-list').innerHTML='<div class="empty">Tap a game above to load players</div>';
@@ -3245,6 +3573,19 @@ async function loadSelectedGames(){
       return;
     }
     loaded++;
+
+    // Render what we have so far — releases DOM pressure and shows progress
+    const seenSoFar=new Set(); S.allRows=[];
+    for(const pk of S.selPks){
+      for(const side of['away','home']){
+        const c=S.cache[`${pk}_${side}`]||[];
+        for(const r of c){ if(!seenSoFar.has(r.id)){seenSoFar.add(r.id);S.allRows.push(r);} }
+      }
+    }
+    if(loaded < toLoad.length){
+      renderSlate(); // show partial results while next game loads
+      await new Promise(res=>setTimeout(res, 200)); // yield to browser GC
+    }
   }
 
   // Merge all selected into allRows
@@ -5065,6 +5406,82 @@ function clearAllTracking(){
 // importBetHistory — textarea modal implementation above
 
 // Render model performance card
+// ── DESKTOP SIDEBAR SYNC ─────────────────────────────────────────
+function syncDesktopSidebar(){
+  if(window.innerWidth < 900) return;
+
+  // Sync game chips
+  const mobileChips = document.getElementById('game-chips');
+  const desktopChips = document.getElementById('game-chips-desktop');
+  if(mobileChips && desktopChips){
+    desktopChips.innerHTML = mobileChips.innerHTML;
+  }
+
+  // Sync wx
+  const mobileWx = document.getElementById('wx-area');
+  const desktopWx = document.getElementById('wx-area-desktop');
+  if(mobileWx && desktopWx){
+    desktopWx.innerHTML = mobileWx.innerHTML;
+  }
+
+  // Sync filter pills
+  const mobileFr = document.getElementById('filter-row');
+  const desktopFr = document.getElementById('filter-row-desktop');
+  if(mobileFr && desktopFr){
+    // Clone pills as vertical stack
+    const pills = mobileFr.querySelectorAll('.filter-pill');
+    desktopFr.innerHTML = [...pills].map(p => {
+      const active = p.classList.contains('active') ? 'active' : '';
+      return `<div class="filter-pill ${active}" style="width:100%;border-radius:7px;text-align:left;padding:7px 10px;font-size:.72rem" onclick="${p.getAttribute('onclick')}">${p.textContent}</div>`;
+    }).join('');
+  }
+
+  // Sync lineup status
+  const mobileStatus = document.getElementById('lineup-status-mobile');
+  const desktopStatus = document.getElementById('lineup-status');
+  if(mobileStatus && desktopStatus){
+    desktopStatus.textContent = mobileStatus.textContent;
+  }
+}
+
+// Sync on resize
+window.addEventListener('resize', ()=>{
+  if(window.innerWidth >= 900) syncDesktopSidebar();
+});
+
+// ── DESKTOP NAV ──────────────────────────────────────────────────
+function renderDesktopNav(){
+  const existing = document.getElementById('desktop-nav');
+  if(existing || window.innerWidth < 900) return;
+  const tabs = [
+    {id:'slate',  label:'⚾ Slate'},
+    {id:'picks',  label:'💎 Best Bets'},
+    {id:'results',label:'📊 Results'},
+    {id:'kelly',  label:'📐 Kelly'},
+    {id:'discover',label:'🔭 Discover'},
+    {id:'info',   label:'ℹ️ Info'},
+  ];
+  const nav = document.createElement('div');
+  nav.id = 'desktop-nav';
+  nav.style.display = 'none'; // shown via CSS on desktop
+  tabs.forEach(t => {
+    const btn = document.createElement('button');
+    btn.className = 'dnav-btn' + (t.id==='slate' ? ' active' : '');
+    btn.textContent = t.label;
+    btn.onclick = () => {
+      document.querySelectorAll('#desktop-nav .dnav-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      showPage(t.id);
+    };
+    nav.appendChild(btn);
+  });
+  // Insert at top of content
+  const content = document.getElementById('content');
+  if(content) content.insertBefore(nav, content.firstChild);
+}
+
+// (desktop nav active state now synced inside showPage directly)
+
 function renderAutoCalCard(el){
   if(!el) return;
   computeAutoCalibration();
@@ -9450,10 +9867,12 @@ async function loadGame(g){
       _arsenalWeaknesses: [],
     };
 
-    // Adaptive batch size: smaller when loading many games simultaneously
-    // Prevents overwhelming the proxy worker and crashing iOS
-    const BATCH = S.selPks.size >= 5 ? 4 : S.selPks.size >= 3 ? 6 : 10;
-    const BATCH_DELAY = S.selPks.size >= 5 ? 100 : 0; // ms between batches
+    // Adaptive batch: large slates skip low-value calls to avoid iOS crash
+    const nGames = S.selPks.size;
+    const BATCH = nGames >= 7 ? 3 : nGames >= 5 ? 4 : nGames >= 3 ? 6 : 10;
+    const BATCH_DELAY = nGames >= 5 ? 150 : nGames >= 3 ? 80 : 0;
+    // On 5+ games skip home/away splits and prior season (low model impact, high request cost)
+    const SKIP_LOW_VALUE = nGames >= 5;
     const recentGamesMap = {};
     const platoonMap = {};
     const homeAwayMap = {};
@@ -9463,18 +9882,34 @@ async function loadGame(g){
     status(`Loading ${hitters.length} ${team} batters…`);
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk = hitters.slice(i, i+BATCH);
+      // Filter to only uncached players for expensive calls
+      const uncachedHA = SKIP_LOW_VALUE ? [] : chunk.filter(h=>_playerCache[`homeaway_${h.id}`]===undefined);
+      const uncachedPR = SKIP_LOW_VALUE ? [] : chunk.filter(h=>_playerCache[`prior_${h.id}`]===undefined);
+
       const [platResults, statResults, haResults, priorResults] = await Promise.all([
         Promise.allSettled(chunk.map(h=>_withSlot(()=>getPlayerPlatoonSplits(String(h.id))))),
         Promise.allSettled(chunk.map(h=>_withSlot(()=>getPlayerStats(String(h.id), SEASON)))),
-        Promise.allSettled(chunk.map(h=>_withSlot(()=>getHomAwaySplits(String(h.id))))),
-        Promise.allSettled(chunk.map(h=>_withSlot(()=>getPriorSeasonRate(String(h.id))))),
+        uncachedHA.length ? Promise.allSettled(uncachedHA.map(h=>_withSlot(()=>getHomAwaySplits(String(h.id))))) : Promise.resolve([]),
+        uncachedPR.length ? Promise.allSettled(uncachedPR.map(h=>_withSlot(()=>getPriorSeasonRate(String(h.id))))) : Promise.resolve([]),
       ]);
       chunk.forEach((h,j)=>{
-        if(platResults[j].status==='fulfilled')  platoonMap[String(h.id)]     = platResults[j].value;
-        if(haResults[j].status==='fulfilled')    homeAwayMap[String(h.id)]    = haResults[j].value;
-        if(priorResults[j].status==='fulfilled') priorRateMap[String(h.id)]   = priorResults[j].value;
+        if(platResults[j]?.status==='fulfilled')  platoonMap[String(h.id)]  = platResults[j].value;
       });
-      // Yield to browser between batches on large slates
+      uncachedHA.forEach((h,j)=>{
+        if(haResults[j]?.status==='fulfilled') homeAwayMap[String(h.id)] = haResults[j].value;
+      });
+      uncachedPR.forEach((h,j)=>{
+        if(priorResults[j]?.status==='fulfilled') priorRateMap[String(h.id)] = priorResults[j].value;
+      });
+      // Always pull from cache for skipped calls
+      if(SKIP_LOW_VALUE){
+        chunk.forEach(h=>{
+          const ha = _playerCache[`homeaway_${h.id}`];
+          if(ha) homeAwayMap[String(h.id)] = ha;
+          const pr = _playerCache[`prior_${h.id}`];
+          if(pr) priorRateMap[String(h.id)] = pr;
+        });
+      }
       if(BATCH_DELAY > 0 && i + BATCH < hitters.length){
         await new Promise(res => setTimeout(res, BATCH_DELAY));
       }
@@ -10047,7 +10482,65 @@ function renderSlate(){
 
   const multiGame=S.selPks.size>1;
 
-  // Best bet of the day — highest composite score
+  // ── VALUE FINDER BAND ────────────────────────────────────────
+  // Answers Q2: who is being priced like they won't hit a HR?
+  const valueBand = (()=>{
+    if(!_fdOdds) return '';
+    // Find players where model prob significantly exceeds book implied prob
+    const valued = rows
+      .map(r => {
+        const entry = getOddsEntry(r.name);
+        if(!entry) return null;
+        const edge = calcEdgePct(r.prob, entry.odds);
+        if(edge == null || edge < 3) return null;
+        return { r, edge, odds: entry.odds, books: entry.books };
+      })
+      .filter(Boolean)
+      .sort((a,b) => b.edge - a.edge)
+      .slice(0, 5);
+
+    if(!valued.length) return '';
+
+    const items = valued.map(({r, edge, odds}) => {
+      const tier = getEdgeTierLabel(edge);
+      return `<div onclick="showDetail('${r.id}')" style="cursor:pointer;padding:8px 10px;
+        border-radius:10px;background:var(--bg3);border:1px solid ${tier.clr}30;
+        transition:border-color .15s;flex:0 0 auto;min-width:130px;max-width:160px">
+        <div style="font-size:.72rem;font-weight:700;color:var(--t1);margin-bottom:2px;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name.split(' ').pop()}</div>
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
+          <span style="font-size:1.0rem;font-weight:900;color:${tier.clr}">${(r.prob*100).toFixed(0)}%</span>
+          <span style="font-size:.62rem;color:var(--t4)">vs</span>
+          <span style="font-size:.72rem;font-weight:700;color:var(--t4)">${odds>0?'+':''}${odds}</span>
+        </div>
+        <div style="font-size:.62rem;font-weight:800;color:${tier.clr}">
+          +${edge.toFixed(1)}% edge · ${tier.label}
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div style="margin-bottom:12px;padding:12px;border-radius:12px;
+      border:1px solid rgba(240,165,0,.3);background:rgba(240,165,0,.04)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-size:.68rem;font-weight:800;color:var(--amber);letter-spacing:.06em">
+            💰 VALUE FINDER — Priced to miss, model says otherwise
+          </div>
+          <div style="font-size:.58rem;color:var(--t4);margin-top:2px">
+            Model prob vs consensus book implied. Tap to see full breakdown.
+          </div>
+        </div>
+        <div id="odds-status" style="font-size:.58rem;color:var(--t4);text-align:right;cursor:pointer"
+          onclick="loadFanDuelOdds(true);this.textContent='↺ refreshing...'">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+        scrollbar-width:none;padding-bottom:4px">
+        ${items}
+      </div>
+    </div>`;
+  })();
+
   // Suppress unconfirmed/postponement risk plays from Best Bet
   const eligibleRows=rows.filter(r=>r.lineupConfirmed!==false&&(r.postponeRisk||0)<0.40);
   const scoredRows=[...(eligibleRows.length?eligibleRows:rows)].sort((a,b)=>calcCompositeBetScore(b)-calcCompositeBetScore(a));
@@ -10081,9 +10574,10 @@ function renderSlate(){
     hitterHTML = `<div class="card" style="color:var(--red);padding:12px;font-size:.75rem">
       Card render error: ${cardErr.message}</div>`;
   }
-  document.getElementById('hitter-list').innerHTML=bestBetHTML+hitterHTML;
+  document.getElementById('hitter-list').innerHTML=valueBand+bestBetHTML+hitterHTML;
   renderHRProjection();
   renderDailySummary();
+  syncDesktopSidebar();
   if(document.getElementById('page-discover')?.classList.contains('active')) renderDiscover();
   if(document.getElementById('page-picks')?.classList.contains('active')) renderBestBets();
 }
@@ -12881,6 +13375,14 @@ function initApp(){
       _scrollBtn.style.display = _contentEl.scrollTop > 300 ? 'flex' : 'none';
     }, {passive:true});
   }
+
+  // Load saved odds API key
+  const _savedOddsKey = localStorage.getItem('dingeriq_odds_key');
+  if(_savedOddsKey && !ODDS_API_KEY) window.ODDS_API_KEY = _savedOddsKey;
+
+  // Desktop nav + sidebar
+  renderDesktopNav();
+  syncDesktopSidebar();
 
   loadSlate();
 }
