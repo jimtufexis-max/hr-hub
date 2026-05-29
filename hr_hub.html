@@ -5423,42 +5423,39 @@ function showManualOddsEntry(){
       <div>
         <div style="font-size:.88rem;font-weight:800;color:var(--t1)">📋 Enter HR Prop Odds</div>
         <div style="font-size:.62rem;color:var(--t4);margin-top:3px">
-          ${loaded ? `<b style="color:var(--amber)">${loaded} already loaded</b> — new paste adds to them` : 'Type or paste odds below — one per line'}
+          ${loaded ? `<b style="color:var(--amber)">${loaded} already loaded</b> — new paste adds to them` : 'Type or paste below — one per line'}
         </div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-        ${loaded ? `<button id="clear-odds-btn" style="padding:5px 10px;border-radius:7px;border:1px solid rgba(224,80,74,.4);background:rgba(224,80,74,.08);color:var(--red);font-size:.65rem;cursor:pointer;-webkit-tap-highlight-color:rgba(224,80,74,.2)">🗑 Clear</button>` : ''}
-        <button id="close-odds-btn" style="background:none;border:none;color:var(--t4);font-size:1.4rem;cursor:pointer;line-height:1;padding:2px 6px;-webkit-tap-highlight-color:rgba(255,255,255,.1)">✕</button>
-      </div>
+      <button id="close-odds-btn" style="background:none;border:none;color:var(--t4);font-size:1.4rem;cursor:pointer;line-height:1;padding:2px 8px">✕</button>
     </div>
 
-    <div style="padding:10px 12px;border-radius:8px;background:rgba(240,165,0,.07);border:1px solid rgba(240,165,0,.2);font-size:.63rem;color:var(--t3);line-height:1.65">
-      <b style="color:var(--amber)">💡 FanDuel app blocks copying.</b> Use <b>Safari → fanduel.com</b> instead,
-      or just type what you see: <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>
+    <div style="padding:8px 12px;border-radius:8px;background:rgba(240,165,0,.07);border:1px solid rgba(240,165,0,.2);font-size:.62rem;color:var(--t3);line-height:1.6">
+      💡 FanDuel app blocks copying — use <b>Safari → fanduel.com</b> instead, or just type:
+      <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>
     </div>
-
-    <textarea id="odds-paste-input"
-      placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400&#10;Yordan Alvarez +220"
-      style="width:100%;min-height:150px;padding:12px;border-radius:8px;border:1px solid var(--bdr);
-      background:var(--bg3);color:var(--t1);font-size:.85rem;font-family:monospace;
-      line-height:1.9;resize:vertical;box-sizing:border-box;-webkit-user-select:text;user-select:text"></textarea>
 
     <div id="odds-parse-preview" style="font-size:.65rem;min-height:18px"></div>
 
     <div style="display:flex;gap:8px">
       <button id="cancel-odds-btn"
-        style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--bdr);
-        background:var(--bg3);color:var(--t3);cursor:pointer;font-size:.80rem;font-weight:600;
-        -webkit-tap-highlight-color:rgba(255,255,255,.1)">
+        style="flex:1;padding:14px;border-radius:10px;border:1px solid var(--bdr);
+        background:var(--bg3);color:var(--t3);cursor:pointer;font-size:.80rem;font-weight:600">
         Cancel
       </button>
       <button id="load-odds-btn"
-        style="flex:2;padding:13px;border-radius:10px;border:none;
-        background:var(--amber);color:#000;font-weight:800;font-size:.82rem;cursor:pointer;
-        -webkit-tap-highlight-color:rgba(255,165,0,.3)">
-        Load Odds →
+        style="flex:2;padding:14px;border-radius:10px;border:none;
+        background:var(--amber);color:#000;font-weight:800;font-size:.84rem;cursor:pointer">
+        ✓ Load Odds
       </button>
-    </div>`;
+    </div>
+
+    <textarea id="odds-paste-input"
+      placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400&#10;Yordan Alvarez +220"
+      style="width:100%;min-height:140px;padding:12px;border-radius:8px;border:1px solid var(--bdr);
+      background:var(--bg3);color:var(--t1);font-size:.85rem;font-family:monospace;
+      line-height:1.9;resize:vertical;box-sizing:border-box;-webkit-user-select:text;user-select:text"></textarea>
+
+    ${loaded ? `<button id="clear-odds-btn" style="padding:8px;border-radius:8px;border:1px solid rgba(224,80,74,.3);background:transparent;color:var(--red);font-size:.68rem;cursor:pointer;width:100%">🗑 Clear all ${loaded} loaded props</button>` : ''}`;
 
   document.body.appendChild(modal);
 
@@ -5575,14 +5572,16 @@ function commitManualOdds(){
   const statusEl = document.getElementById('odds-status');
   if(statusEl) statusEl.textContent = `📊 ${total} props`;
 
-  document.getElementById('manual-odds-modal').remove();
+  document.getElementById('manual-odds-backdrop')?.remove();
+  document.getElementById('manual-odds-modal')?.remove();
   if(S.allRows.length){ renderSlate(); renderDailySummary(); }
 
-  // Brief confirmation
-  const msg = updated > 0
-    ? `✅ Added ${added} new · updated ${updated} · ${total} total props loaded`
-    : `✅ Added ${added} players · ${total} total props loaded`;
-  console.log('[ManualOdds]', msg);
+  // Show success toast
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 20px;border-radius:99px;background:var(--green);color:#000;font-size:.78rem;font-weight:800;box-shadow:0 4px 20px rgba(0,0,0,.4);white-space:nowrap';
+  toast.textContent = `✓ ${added} players loaded · ${total} total`;
+  document.body.appendChild(toast);
+  setTimeout(()=>toast.remove(), 3000);
 }
 
 
