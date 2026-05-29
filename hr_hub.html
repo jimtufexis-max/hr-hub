@@ -1303,6 +1303,22 @@ async function fetchJSON(url){
   }
 }
 
+// Global concurrency limiter — prevents iOS from crashing on too many simultaneous requests
+let _activeRequests = 0;
+const MAX_CONCURRENT = 12;
+const _reqQueue = [];
+async function _withSlot(fn){
+  if(_activeRequests >= MAX_CONCURRENT){
+    await new Promise(res => _reqQueue.push(res));
+  }
+  _activeRequests++;
+  try{ return await fn(); }
+  finally{
+    _activeRequests--;
+    if(_reqQueue.length) _reqQueue.shift()();
+  }
+}
+
 async function getGames(){
   const url=`${MLB}/schedule?sportId=1&date=${ds()}&hydrate=team,venue,probablePitcher(note)`;
   // Use a shorter timeout for the schedule fetch so chips appear faster
@@ -2883,10 +2899,8 @@ function fireSecondaryMaps(){
         renderDailySummary();
         queueForAutoTrack(S.allRows);
       }
-
-      // Prefetch BvP + umpire + career data for ALL rows in background
-      // This ensures Elite Spot tags fire without opening individual cards
-      prefetchEliteSpotData(S.allRows);
+      // Note: prefetchEliteSpotData is scheduled by renderSlate with a delay
+      // to avoid crashing iOS when loading multiple games simultaneously
     });
 
     // Zone maps fire even later — large CSVs
@@ -3206,7 +3220,15 @@ async function loadSelectedGames(){
   const cpBar = document.getElementById('copy-picks-bar');
   if(cpBar) cpBar.style.display = S.allRows.length ? 'block' : 'none';
   // Fire secondary enrichment in background (once only)
+  // Delay prefetch if multiple games still loading to avoid crashing iOS
   fireSecondaryMaps();
+  if(S.allRows.length){
+    const prefetchDelay = S.selPks.size >= 5 ? 8000 : S.selPks.size >= 3 ? 4000 : 1500;
+    clearTimeout(window._prefetchTimer);
+    window._prefetchTimer = setTimeout(()=>{
+      if(S.allRows.length) prefetchEliteSpotData(S.allRows);
+    }, prefetchDelay);
+  }
 }
 
 async function getPitcherGameLog(pid){
@@ -9150,14 +9172,14 @@ async function loadGame(g){
     schedLineups,
     wx,
   ] = await Promise.all([
-    getPitcherHand(g.awaySpId),
-    getPitcherHand(g.homeSpId),
-    getPitcherGameLog(g.awaySpId),
-    getPitcherGameLog(g.homeSpId),
-    getPitcherArsenal(g.awaySpId),
-    getPitcherArsenal(g.homeSpId),
-    getUmpire(g.pk),
-    fetchJSON(PROXY + encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups`)).catch(()=>null),
+    _withSlot(()=>getPitcherHand(g.awaySpId)),
+    _withSlot(()=>getPitcherHand(g.homeSpId)),
+    _withSlot(()=>getPitcherGameLog(g.awaySpId)),
+    _withSlot(()=>getPitcherGameLog(g.homeSpId)),
+    _withSlot(()=>getPitcherArsenal(g.awaySpId)),
+    _withSlot(()=>getPitcherArsenal(g.homeSpId)),
+    _withSlot(()=>getUmpire(g.pk)),
+    _withSlot(()=>fetchJSON(PROXY + encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups`)).catch(()=>null)),
     getWeather(g.venue, g.gameTime||g.gameDate),
   ]);
   lap('after all fetches');
@@ -9283,10 +9305,10 @@ async function loadGame(g){
     for(let i=0; i<hitters.length; i+=BATCH){
       const chunk = hitters.slice(i, i+BATCH);
       const [platResults, statResults, haResults, priorResults] = await Promise.all([
-        Promise.allSettled(chunk.map(h=>getPlayerPlatoonSplits(String(h.id)))),
-        Promise.allSettled(chunk.map(h=>getPlayerStats(String(h.id), SEASON))),
-        Promise.allSettled(chunk.map(h=>getHomAwaySplits(String(h.id)))),
-        Promise.allSettled(chunk.map(h=>getPriorSeasonRate(String(h.id)))),
+        Promise.allSettled(chunk.map(h=>_withSlot(()=>getPlayerPlatoonSplits(String(h.id))))),
+        Promise.allSettled(chunk.map(h=>_withSlot(()=>getPlayerStats(String(h.id), SEASON)))),
+        Promise.allSettled(chunk.map(h=>_withSlot(()=>getHomAwaySplits(String(h.id))))),
+        Promise.allSettled(chunk.map(h=>_withSlot(()=>getPriorSeasonRate(String(h.id))))),
       ]);
       chunk.forEach((h,j)=>{
         if(platResults[j].status==='fulfilled')  platoonMap[String(h.id)]     = platResults[j].value;
