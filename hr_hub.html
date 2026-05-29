@@ -839,6 +839,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
     <div id="model-perf-card"></div>
     <div id="clv-stats-card"></div>
+    <div id="auto-cal-card"></div>
 
     <!-- Tag Guide -->
     <div class="card" style="margin-bottom:10px">
@@ -1282,11 +1283,12 @@ function showPage(name){
           </div>`;
         }
       }
+      // Show auto-calibration status
+      const calEl = document.getElementById('auto-cal-card');
+      if(calEl) renderAutoCalCard(calEl);
     }
   }
 }
-
-// ==================================================================
 //  DATA FETCHING
 // ==================================================================
 const _fetchCache = new Map();
@@ -1322,6 +1324,49 @@ async function _withSlot(fn){
     _activeRequests--;
     if(_reqQueue.length) _reqQueue.shift()();
   }
+}
+
+// ── AUTO-CALIBRATION ─────────────────────────────────────────────────────────
+// Learns from your tracked bets: if model predicts 15% and you're hitting 10%,
+// factor = 0.67. Applied live to all displayed probabilities.
+// Needs MIN_CAL_BETS resolved bets before activating.
+const MIN_CAL_BETS = 15;
+const CAL_SMOOTHING = 0.70;
+let _autoCal = null;
+
+function computeAutoCalibration(){
+  try{
+    const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+    const resolved = stored.filter(r =>
+      r.manualBet && r.prob > 0 &&
+      r.actual !== undefined && r.actual !== null && r.actual !== 'void'
+    );
+    if(resolved.length < MIN_CAL_BETS){
+      _autoCal = { factor:1.0, n:resolved.length, active:false,
+        msg:`Needs ${MIN_CAL_BETS - resolved.length} more resolved bets to activate` };
+      return;
+    }
+    const totalExpected = resolved.reduce((s,r) => s + r.prob, 0);
+    const totalActual   = resolved.filter(r => r.actual > 0).length;
+    const raw = totalActual / totalExpected;
+    const factor = clamp(raw * CAL_SMOOTHING + 1.0 * (1-CAL_SMOOTHING), 0.40, 1.30);
+    _autoCal = {
+      factor, n: resolved.length, raw: Math.round(raw*100)/100,
+      active: true, lastUpdate: Date.now(),
+      hitRate: Math.round(totalActual/resolved.length*100),
+      modelAvg: Math.round(totalExpected/resolved.length*100),
+      msg: `${Math.round(factor*100)}% of model predictions (${resolved.length} bets)`
+    };
+    console.log(`[AutoCal] raw=${raw.toFixed(3)} smoothed=${factor.toFixed(3)} n=${resolved.length}`);
+  }catch(e){
+    console.warn('[AutoCal]', e.message);
+    _autoCal = { factor:1.0, n:0, active:false, msg:'Calibration error' };
+  }
+}
+
+function getCalFactor(){
+  if(!_autoCal) computeAutoCalibration();
+  return _autoCal?.active ? _autoCal.factor : 1.0;
 }
 
 async function getGames(){
@@ -2873,7 +2918,8 @@ function fireSecondaryMaps(){
           try{
             const res = calcHRProb(r._batterStats, r._pitcherStats, r._pf, r._wx, r._recentGames);
             const lineupPos2 = r._batterStats?.lineupPos || r.lineupPos || null;
-            r.prob    = perPAtoGame(res.prob, lineupPos2);
+            r._rawProb = perPAtoGame(res.prob, lineupPos2);
+            r.prob     = r._rawProb * getCalFactor();
             r.probPerPA = res.prob;
             r.anchor  = res.anchor;
             r.platoon = res.platoon;
@@ -4991,6 +5037,51 @@ function clearAllTracking(){
 // importBetHistory — textarea modal implementation above
 
 // Render model performance card
+function renderAutoCalCard(el){
+  if(!el) return;
+  computeAutoCalibration();
+  const c = _autoCal;
+  if(!c){ el.innerHTML=''; return; }
+
+  const pct  = Math.round(c.factor * 100);
+  const clr  = c.active ? (pct < 85 ? 'var(--amber)' : pct > 115 ? 'var(--blue)' : 'var(--green)') : 'var(--t4)';
+  const bar  = c.active ? `<div style="height:6px;border-radius:3px;background:var(--bg3);margin:8px 0">
+    <div style="height:100%;border-radius:3px;background:${clr};width:${Math.min(pct,130)/1.30}%"></div></div>` : '';
+  const desc = c.active
+    ? (pct < 85  ? `Model is over-predicting — displayed probs scaled down to ${pct}%`
+    : pct > 115  ? `Model is under-predicting — displayed probs scaled up to ${pct}%`
+                 : `Model is well-calibrated — probs adjusted ${pct >= 100 ? '+':''}${pct-100}%`)
+    : c.msg;
+
+  el.innerHTML = `<div class="card" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div class="slbl" style="margin:0">🎯 Auto-Calibration</div>
+      ${c.active ? `<span style="font-size:.72rem;font-weight:800;color:${clr}">${pct}×</span>` : ''}
+    </div>
+    ${bar}
+    <div style="font-size:.63rem;color:var(--t4);line-height:1.5">${desc}</div>
+    ${c.active ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px">
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        <div style="font-size:.90rem;font-weight:800;color:var(--t1)">${c.n}</div>
+        <div style="font-size:.52rem;color:var(--t4)">Resolved bets</div>
+      </div>
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        <div style="font-size:.90rem;font-weight:800;color:var(--t1)">${c.hitRate}%</div>
+        <div style="font-size:.52rem;color:var(--t4)">Actual hit rate</div>
+      </div>
+      <div style="padding:8px;background:var(--bg3);border-radius:8px;text-align:center">
+        <div style="font-size:.90rem;font-weight:800;color:var(--amber)">${c.modelAvg}%</div>
+        <div style="font-size:.52rem;color:var(--t4)">Model avg prob</div>
+      </div>
+    </div>
+    <div style="font-size:.58rem;color:var(--t4);margin-top:8px">
+      Updates automatically every time you resolve a bet. Factor applies live to all slate probabilities.
+    </div>` : `<div style="font-size:.60rem;color:var(--t4);margin-top:6px">
+      Track and resolve ${MIN_CAL_BETS} bets to activate. Currently ${c.n}/${MIN_CAL_BETS}.
+    </div>`}
+  </div>`;
+}
+
 function renderTagGuide(){
   const el=document.getElementById('tag-guide-grid');
   if(!el||el.childElementCount>0) return;
@@ -5213,6 +5304,17 @@ function resolveResult(id, date, actual){
   const idx = stored.findIndex(r=>String(r.id)===String(id)&&r.date===date&&r.manualBet===true);
   if(idx>=0){ stored[idx].actual=actual; stored[idx].resolvedManual=true; }
   localStorage.setItem('hr_hub_results', JSON.stringify(stored));
+  // Recompute calibration factor — may change now that we have a new resolved bet
+  const prevFactor = _autoCal?.factor || 1.0;
+  _autoCal = null; // force recompute
+  computeAutoCalibration();
+  // If calibration changed meaningfully, re-apply to all displayed probs
+  if(S.allRows.length && Math.abs((getCalFactor() - prevFactor)) > 0.01){
+    S.allRows.forEach(r => {
+      if(r._rawProb) r.prob = r._rawProb * getCalFactor();
+    });
+    renderSlate();
+  }
   renderResultsTab();
 }
 
