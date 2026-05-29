@@ -9590,17 +9590,22 @@ async function loadGame(g){
         spFBRate:        (key.endsWith('_away') ? hmBB : awBB)?.fbRate ?? null,
       };
 
-      // Score batter vs SP arsenal and apply to pitcherStats
+      // Score batter vs SP arsenal — use a per-batter copy so Wood's score
+      // never gets overwritten by the next batter in the lineup
       const batVsPitch2 = vsPitchMap[pid] || null;
       const arsenalMatch = scoreArsenalMatchup(pitcherStats.arsenal, batVsPitch2);
-      pitcherStats._arsenalMult = arsenalMatch.mult;
-      pitcherStats._arsenalDesc = arsenalMatch.desc;
-      pitcherStats._arsenalStrengths = arsenalMatch.strengths||[];
-      pitcherStats._arsenalWeaknesses = arsenalMatch.weaknesses||[];
+      // Shallow copy pitcherStats with this batter's specific arsenal mult
+      const batterPitcherStats = {
+        ...pitcherStats,
+        _arsenalMult:       arsenalMatch.mult,
+        _arsenalDesc:       arsenalMatch.desc,
+        _arsenalStrengths:  arsenalMatch.strengths||[],
+        _arsenalWeaknesses: arsenalMatch.weaknesses||[],
+      };
 
       let res;
       try{
-        res = calcHRProb(batterStats, pitcherStats, pf, wx, recent);
+        res = calcHRProb(batterStats, batterPitcherStats, pf, wx, recent);
       }catch(calcErr){
         console.error(`[calcHRProb] FAILED for ${h.name} (${pid}):`, calcErr.message, calcErr.stack?.split('\n')[1]);
         // Show the error on screen so we can debug
@@ -9650,7 +9655,7 @@ async function loadGame(g){
         l30hr, l30pa,
         szHR, szPA,
         l15hr,
-        _pitcherStats: pitcherStats,
+        _pitcherStats: batterPitcherStats,
         _batterStats:  batterStats,
         _pf:           pf,
         _wx:           wx,
