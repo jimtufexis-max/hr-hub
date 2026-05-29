@@ -561,7 +561,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
     <!-- Model Formula -->
     <div class="card" style="margin-bottom:10px">
-      <div class="slbl">⚡ Probability Model v6</div>
+      <div class="slbl">⚡ Probability Model v7 — Recalibrated</div>
 
       <!-- Core formula -->
       <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
@@ -569,13 +569,20 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
         <span style="color:var(--t4)">// Step 1: Statcast anchor (per-plate-appearance)</span><br>
         anchor = 0.010 + barrel% × 0.042 + pull_air% × 0.018<br>
         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ hard_hit% × 0.003 + sweet_spot% × 0.001<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;− gb% × 0.002 + (barrel% × pull_air%) × 0.25<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ ISO_adj &nbsp;<span style="color:var(--t4)">// ISO above .160 adds small bonus</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;− gb% × 0.002 + (barrel% × pull_air%) × 0.25 + ISO_adj<br>
         <span style="color:var(--t4)">// Step 2: Signal adjustment in log-odds space</span><br>
         lo = logit(anchor) + Σ(signal × weight)<br>
-        perPA = sigmoid(lo) &nbsp;<span style="color:var(--t4)">// capped 10% per PA</span><br>
+        perPA = sigmoid(lo) &nbsp;<span style="color:var(--t4)">// capped 7% per PA (was 10%)</span><br>
         <span style="color:var(--t4)">// Step 3: Per-game conversion</span><br>
-        perGame = 1 − (1 − perPA)^expPA &nbsp;<span style="color:var(--t4)">// raw true-talent</span>
+        perGame = 1 − (1 − perPA)^expPA &nbsp;<span style="color:var(--t4)">// expected PAs from lineup pos</span>
+      </div>
+
+      <!-- Calibration note -->
+      <div style="font-size:.63rem;color:var(--blue);padding:8px 10px;background:rgba(61,142,240,.08);
+        border-radius:8px;margin-bottom:12px;border-left:3px solid var(--blue)">
+        <b>v7 Recalibration:</b> All signal weights reduced ~35% to fix over-prediction.
+        Per-PA cap lowered 10% → 7%. Expected per-game range: 5–22% (was 8–35%).
+        Elite matchups now show 14–20% instead of 25–35%.
       </div>
 
       <!-- Signal weights table -->
@@ -587,47 +594,45 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
             Statcast linear weights + ISO trim. Blended with HR/PA outcome rate
             as sample grows (max 60% outcome trust at 350+ PA).
-            Interaction term captures barrel×pull_air synergy (reduced from v5).
+            Interaction term captures barrel×pull_air synergy.
+            Away-park deflation for Colorado hitters playing away from Coors.
           </div>
         </div>
 
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Pitcher ×0.55</div>
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Pitcher ×0.38</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Largest single signal. xFIP 35% · Barrel% allowed 30% · HR/FB 20% · HR/9 recent 15%.
-            BvP arsenal: batter's ISO vs each pitch type × SP usage mix.
-            Rest days, whiff rate, walk rate modifiers applied.
+            Reduced from ×0.55. xFIP 35% · Barrel% allowed 30% · HR/FB 20% · HR/9 recent 15%.
+            BvP arsenal: batter ISO vs each pitch type × SP usage mix.
           </div>
         </div>
 
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#f97316;font-family:'JetBrains Mono',monospace">TTO ×0.40</div>
+            color:#f97316;font-family:'JetBrains Mono',monospace">TTO ×0.28</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Times Through Order — NEW in v6. One of the strongest predictors in baseball.
-            TTO1 (1st time through): −15% · TTO2: neutral · TTO3+: +20%.
+            Times Through Order. Reduced from ×0.40.
+            TTO1: −12% · TTO2: neutral · TTO3+: +15%.
             Estimated from lineup position + projected SP innings.
           </div>
         </div>
 
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Park/Wx ×0.35</div>
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Platoon ×0.22</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Handedness-adjusted park factor + wind + temperature.
-            Reduced from 0.45 — park was over-contributing to model bias.
-            Dome teams bypass weather entirely.
+            Reduced from ×0.35. Handedness + actual split rate (50+ PA gate) + arsenal modifier.
+            LHB vs RHP ~+18% · RHB vs LHP ~+22% at population level.
           </div>
         </div>
 
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Platoon ×0.35</div>
+            color:#90c0ff;font-family:'JetBrains Mono',monospace">Park/Wx ×0.25</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Reduced from 0.45 — platoon effect is real but smaller than originally weighted.
-            Handedness + actual split rate (50+ PA gate) + arsenal modifier.
-            LHB vs RHP +18% · RHB vs LHP +22%.
+            Reduced from ×0.35. Handedness-adjusted park factor + wind + temperature + altitude.
+            Dome teams bypass weather entirely.
           </div>
         </div>
 
@@ -635,18 +640,18 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
             color:#f472b6;font-family:'JetBrains Mono',monospace">Interaction</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Platoon × Pitcher: when both agree, effect is more than additive.
-            Penalty when both unfavorable. Coefficient 1.2× (reduced from 1.5×).
+            Platoon × Pitcher when both agree — more than additive.
+            Coefficient 0.6× (halved from 1.2×). Cap reduced to ±0.05.
           </div>
         </div>
 
         <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
           <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:var(--t4);font-family:'JetBrains Mono',monospace">+ 5 minor</div>
+            color:var(--t4);font-family:'JetBrains Mono',monospace">Minor signals</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Home/away ×0.20 · Career vs SP ×0.30 (sample-weighted) ·
-            Umpire ×0.25 · Stadium dims ×0.20 · Plate discipline ×0.15 ·
-            Bullpen ×0.12 (only when SP projects ≤5 IP)
+            Home/away ×0.15 · Career vs SP ×0.22 (sample-weighted) ·
+            Umpire ×0.18 · Stadium dims ×0.15 · Plate discipline ×0.12 ·
+            Bullpen ×0.10 (only when SP projects ≤5 IP)
           </div>
         </div>
 
@@ -655,7 +660,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
             color:#ef4444;font-family:'JetBrains Mono',monospace">Momentum ✗</div>
           <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
             Removed. L15 HR rate explains &lt;3% of next-game variance.
-            Hot/cold streaks are noise — including them introduced recency bias.
+            Hot/cold streaks are noise — now tracked separately via Heating Up / Due tags.
           </div>
         </div>
 
@@ -1935,7 +1940,7 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const lineupPosForPA = batterStats.lineupPos;
   const overallRate = batterStats.szPA>=50?batterStats.szHR/batterStats.szPA:anchor;
 
-  // ── PLATOON (weight: 0.35, reduced from 0.45 — platoon effect is real but smaller) ──
+  // ── PLATOON (weight: 0.22, reduced from 0.35 — platoon regresses quickly) ──
   const arsenalPlatMod = calcArsenalPlatoonMod(
     pitcherStats?.arsenal, batterStats.batVsPitch,
     batterStats.batHand, pitcherStats?.pitHand||'R'
@@ -1943,49 +1948,36 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platRateGated = (batterStats.platSample>=50) ? batterStats.platRate : null;
   const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
     platRateGated, overallRate, arsenalPlatMod);
-  lo += logOddsAdj(platoon) * 0.35;
+  lo += logOddsAdj(platoon) * 0.22;
 
-  // ── PITCHER (weight: 0.55 — largest single signal) ───────────────
+  // ── PITCHER (weight: 0.38, reduced from 0.55) ────────────────────
   const pitcher = calcPitcherMult(pitcherStats);
-  lo += logOddsAdj(pitcher) * 0.55;
+  lo += logOddsAdj(pitcher) * 0.38;
 
-  // ── TIMES THROUGH ORDER (TTO) PENALTY ────────────────────────────
-  // One of the strongest predictors — batters learn pitchers each time through
-  // TTO1 (1st time): pitcher advantage → suppress HR
-  // TTO2 (2nd time): neutral
-  // TTO3+ (3rd time): batter advantage → boost HR ~35%
-  // Estimated from lineup position + projected pitcher IP
+  // ── TIMES THROUGH ORDER (weight: 0.28, reduced from 0.40) ────────
   const expIPForTTO = calcExpectedInnings(pitcherStats);
   const lineupPosNum = lineupPosForPA || 5;
-  // Approximate which TTO this batter sees based on lineup pos + pitcher IP
-  // Leadoff sees TTO3 when SP goes 7+ IP; cleanup sees TTO3 around 8+ IP
-  const pasThroughOrder = expIPForTTO * (27/9); // ~3 PA per inning, 9 batters
+  const pasThroughOrder = expIPForTTO * (27/9);
   const ttoNum = pasThroughOrder > 0
     ? Math.min(3, Math.ceil((lineupPosNum + pasThroughOrder/3) / 9))
     : 2;
-  // TTO effect on HR: TTO1 = -15%, TTO2 = 0%, TTO3 = +20%
-  const ttoMult = ttoNum<=1 ? 0.85 : ttoNum>=3 ? 1.20 : 1.0;
-  if(ttoMult !== 1.0) lo += logOddsAdj(ttoMult) * 0.40;
+  const ttoMult = ttoNum<=1 ? 0.88 : ttoNum>=3 ? 1.15 : 1.0;
+  if(ttoMult !== 1.0) lo += logOddsAdj(ttoMult) * 0.28;
 
-  // ── PLATOON × PITCHER INTERACTION ────────────────────────────────
+  // ── PLATOON × PITCHER INTERACTION (halved) ───────────────────────
   if(platoon > 1.05 && pitcher > 1.05){
-    const interactionBonus = (platoon - 1.0) * (pitcher - 1.0) * 1.2;
-    lo += clamp(interactionBonus, 0, 0.10);
+    const interactionBonus = (platoon - 1.0) * (pitcher - 1.0) * 0.6;
+    lo += clamp(interactionBonus, 0, 0.05);
   } else if(platoon < 0.95 && pitcher < 0.95){
-    const interactionPenalty = (1.0 - platoon) * (1.0 - pitcher) * 1.2;
-    lo -= clamp(interactionPenalty, 0, 0.12);
+    const interactionPenalty = (1.0 - platoon) * (1.0 - pitcher) * 0.6;
+    lo -= clamp(interactionPenalty, 0, 0.06);
   }
 
-  // ── PARK × WEATHER (weight: 0.35, reduced — park is real but overstated) ──
+  // ── PARK × WEATHER (weight: 0.25, reduced from 0.35) ─────────────
   const parkwx = calcParkWxMult(pf, wx||{}, batterStats.batHand);
-  lo += logOddsAdj(parkwx) * 0.35;
+  lo += logOddsAdj(parkwx) * 0.25;
 
-  // ── MOMENTUM REMOVED ──────────────────────────────────────────────
-  // Studies show L15 HR rate explains <3% of next-game HR variance
-  // Keeping it introduces recency bias without predictive value
-  // const momentum = 1.0; // always neutral
-
-  // ── HOME/AWAY (weight: 0.20) ──────────────────────────────────────
+  // ── HOME/AWAY (weight: 0.15, reduced from 0.20) ──────────────────
   let homeAwayMult=1.0;
   const ha=batterStats.homeAwaySplits;
   if(ha){
@@ -1994,50 +1986,50 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     if(rel!=null&&relPA>=40){
       const overallForHA = overallRate||anchor||MLB_AVG;
       const ratio = rel / overallForHA;
-      homeAwayMult = clamp(ratio*0.30 + 1.0*0.70, 0.88, 1.15);
-      lo += logOddsAdj(homeAwayMult) * 0.20;
+      homeAwayMult = clamp(ratio*0.25 + 1.0*0.75, 0.90, 1.12);
+      lo += logOddsAdj(homeAwayMult) * 0.15;
     }
   }
 
-  // ── CAREER vs THIS SP (weight: 0.30 when meaningful) ─────────────
+  // ── CAREER vs THIS SP (weight: 0.22 max, reduced from 0.30) ──────
   let hvhMult=1.0;
   const hvh=batterStats.careerVsSP;
   if(hvh&&hvh.pa>=20){
-    hvhMult=clamp((hvh.hr/hvh.pa/(overallRate||MLB_AVG))*0.25+0.75,0.85,1.30);
-    // Larger weight now — this is the specific matchup history
-    const hvhWeight = Math.min(hvh.pa/80, 1.0) * 0.30;
+    hvhMult=clamp((hvh.hr/hvh.pa/(overallRate||MLB_AVG))*0.20+0.80,0.88,1.22);
+    const hvhWeight = Math.min(hvh.pa/80, 1.0) * 0.22;
     lo+=logOddsAdj(hvhMult)*hvhWeight;
   }
 
-  // ── LINEUP POSITION (weight: residual) ───────────────────────────
+  // ── LINEUP POSITION (small residual) ─────────────────────────────
   const lineupPos = lineupPosForPA;
   const paMultiplier = lineupPos&&lineupPos<=9
-    ? clamp(1.0+(4.0-lineupPos)*0.008,0.97,1.04) : 1.0;
+    ? clamp(1.0+(4.0-lineupPos)*0.006,0.97,1.03) : 1.0;
   lo+=logOddsAdj(paMultiplier);
 
-  // ── UMPIRE (weight: 0.25) ─────────────────────────────────────────
-  const umpMult=clamp(batterStats.umpMult||1.0,0.90,1.12);
-  lo+=logOddsAdj(umpMult)*0.25;
+  // ── UMPIRE (weight: 0.18, reduced from 0.25) ─────────────────────
+  const umpMult=clamp(batterStats.umpMult||1.0,0.92,1.10);
+  lo+=logOddsAdj(umpMult)*0.18;
 
-  // ── STADIUM DIMENSIONS (weight: 0.20) ────────────────────────────
+  // ── STADIUM DIMENSIONS (weight: 0.15, reduced from 0.20) ─────────
   const stadiumMult = batterStats.stadiumMult??1.0;
-  lo += logOddsAdj(stadiumMult) * 0.20;
+  lo += logOddsAdj(stadiumMult) * 0.15;
 
-  // ── PLATE DISCIPLINE (weight: 0.15) ──────────────────────────────
+  // ── PLATE DISCIPLINE (weight: 0.12, reduced from 0.15) ───────────
   const platDiscMult = batterStats.platDiscMult??1.0;
-  lo += logOddsAdj(platDiscMult) * 0.15;
+  lo += logOddsAdj(platDiscMult) * 0.12;
 
-  // ── BULLPEN EXPOSURE (weight: 0.12 when relevant) ────────────────
+  // ── BULLPEN EXPOSURE (weight: 0.10, reduced from 0.12) ───────────
   const bullpenMult = batterStats.bullpenMult??1.0;
   const expIP = calcExpectedInnings(pitcherStats);
   if(expIP<=5.0){
     const bpExposure = bullpenExposure(expIP);
     const blendedBullpen = 1.0 + (bullpenMult - 1.0) * bpExposure;
-    lo += logOddsAdj(blendedBullpen) * 0.12;
+    lo += logOddsAdj(blendedBullpen) * 0.10;
   }
 
-  // Cap per-PA at 10% — ~1 HR per 10 PA is a realistic elite ceiling
-  const prob=clamp(sigmoid(lo),0.005,0.10);
+  // Cap per-PA at 7% — realistic elite ceiling (Judge vs Wainwright in Coors)
+  // Previous 10% cap was too high and caused per-game probs of 30%+
+  const prob=clamp(sigmoid(lo),0.004,0.07);
   return{prob,anchor,platoon,pitcher,parkwx,momentum:1.0,ttoMult,
          homeAwayMult,paMultiplier,umpMult,hvhMult};
 }
@@ -6245,12 +6237,12 @@ function getHitRateTracker(){
   if(resolved.length < 3) return null;
 
   const buckets = [
-    { label:'<15%',  min:0,    max:0.150 },
-    { label:'15-20%',min:0.150,max:0.200 },
-    { label:'20-25%',min:0.200,max:0.250 },
-    { label:'25-30%',min:0.250,max:0.300 },
-    { label:'30-40%',min:0.300,max:0.400 },
-    { label:'>40%',  min:0.400,max:1.000 },
+    { label:'<8%',   min:0,    max:0.080 },
+    { label:'8-11%', min:0.080,max:0.110 },
+    { label:'11-14%',min:0.110,max:0.140 },
+    { label:'14-18%',min:0.140,max:0.180 },
+    { label:'18-22%',min:0.180,max:0.220 },
+    { label:'>22%',  min:0.220,max:1.000 },
   ].map(b=>({ ...b, bets:[], hits:[] }));
 
   for(const r of resolved){
