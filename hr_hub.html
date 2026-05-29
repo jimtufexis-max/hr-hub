@@ -562,7 +562,8 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       <text x="44" y="31" font-family="'Inter',system-ui,sans-serif" font-size="9" font-weight="700" letter-spacing="3.5" fill="#f0a500">IQ</text>
     </svg>
   </div>
-  <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="refreshOdds();this.textContent='↺ refreshing...'">FD odds: loading…</div>
+  <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer"
+    onclick="showManualOddsEntry()">📋 Enter Odds</div>
   <div id="header-date"></div>
   <button onclick="toggleTheme()" id="theme-btn"
     style="background:none;border:none;color:var(--t4);font-size:1rem;cursor:pointer;
@@ -614,12 +615,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     <div class="sd-section-label">Filters</div>
     <div id="filter-row-desktop" style="display:flex;flex-direction:column;gap:5px"></div>
   </div>
-</div> onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'})"
-  style="position:fixed;bottom:78px;right:14px;z-index:200;width:38px;height:38px;
-  border-radius:50%;border:1px solid var(--bdr);background:var(--bg2);
-  color:var(--t3);font-size:1.1rem;cursor:pointer;display:none;
-  align-items:center;justify-content:center;
-  box-shadow:0 2px 12px rgba(0,0,0,.4);transition:opacity .2s">↑</button>
+</div>
 
   <!-- SLATE PAGE -->
   <div id="page-slate" class="page active">
@@ -5406,7 +5402,159 @@ function clearAllTracking(){
 // importBetHistory — textarea modal implementation above
 
 // Render model performance card
-// ── DESKTOP SIDEBAR SYNC ─────────────────────────────────────────
+// ── MANUAL ODDS ENTRY ────────────────────────────────────────────
+// User pastes FanDuel HR props text — parser handles all common formats
+function showManualOddsEntry(){
+  document.getElementById('manual-odds-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'manual-odds-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
+  modal.onclick = e => { if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="width:100%;max-width:520px;background:var(--bg2);border-radius:20px 20px 0 0;
+      border:1px solid var(--bdr);padding:20px;max-height:85vh;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:.85rem;font-weight:800;color:var(--t1)">📋 Paste FanDuel HR Props</div>
+          <div style="font-size:.62rem;color:var(--t4);margin-top:2px">Copy from FanDuel app → paste here</div>
+        </div>
+        <button onclick="document.getElementById('manual-odds-modal').remove()"
+          style="background:none;border:none;color:var(--t4);font-size:1.3rem;cursor:pointer">✕</button>
+      </div>
+
+      <div style="padding:10px;border-radius:8px;background:var(--bg3);border:1px solid var(--bdr);font-size:.62rem;color:var(--t3);line-height:1.7">
+        <b style="color:var(--amber)">How to copy from FanDuel:</b><br>
+        Open FanDuel → More → Baseball → Player Props → HR → 
+        hold-press a player, or just type manually below.<br>
+        <b style="color:var(--t2)">Accepted formats:</b><br>
+        <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span><br>
+        <span style="font-family:monospace;color:var(--amber)">Judge +350</span><br>
+        <span style="font-family:monospace;color:var(--amber)">Aaron Judge: +350</span>
+      </div>
+
+      <textarea id="odds-paste-input" placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400&#10;&#10;Or paste from FanDuel app…"
+        style="flex:1;min-height:180px;padding:12px;border-radius:8px;border:1px solid var(--bdr);
+        background:var(--bg3);color:var(--t1);font-size:.82rem;font-family:monospace;
+        line-height:1.8;resize:none;-webkit-user-select:text;user-select:text"
+        oninput="previewOddsParse()"></textarea>
+
+      <div id="odds-parse-preview" style="font-size:.65rem;color:var(--t4);min-height:20px"></div>
+
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('manual-odds-modal').remove()"
+          style="flex:1;padding:12px;border-radius:10px;border:1px solid var(--bdr);
+          background:var(--bg3);color:var(--t4);cursor:pointer;font-size:.78rem">Cancel</button>
+        <button onclick="commitManualOdds()"
+          style="flex:2;padding:12px;border-radius:10px;border:none;
+          background:var(--amber);color:#000;font-weight:800;font-size:.78rem;cursor:pointer">
+          Load Odds →
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  setTimeout(()=>document.getElementById('odds-paste-input')?.focus(), 100);
+}
+
+function parseOddsText(text){
+  const results = [];
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
+
+  // Pattern: finds American odds like +350, -110, +1200
+  const oddsRe = /([+-]\d{2,4})/;
+  // Pattern: player name is 2-4 words of letters/dots/apostrophes/hyphens
+  const nameRe = /^([A-Z][a-zA-Z'.'-]+(?:\s+[A-Z][a-zA-Z'.'-]+){1,3})/;
+
+  let i = 0;
+  while(i < lines.length){
+    const line = lines[i];
+
+    // Skip pure label lines
+    if(/^(to hit|home run|hr|batter|player prop|more|same game|yes|no|\d+)$/i.test(line)){
+      i++; continue;
+    }
+
+    const oddsMatch = line.match(oddsRe);
+    const nameMatch = line.match(nameRe);
+
+    if(oddsMatch && nameMatch){
+      // "Aaron Judge +350" — name and odds on same line
+      results.push({ name: nameMatch[1].trim(), odds: parseInt(oddsMatch[1]) });
+    } else if(nameMatch && !oddsMatch){
+      // Name on this line, odds on next line
+      const next = lines[i+1];
+      if(next){
+        const nextOdds = next.match(/^([+-]\d{2,4})$/);
+        if(nextOdds){
+          results.push({ name: nameMatch[1].trim(), odds: parseInt(nextOdds[1]) });
+          i++; // skip next line
+        }
+      }
+    } else if(oddsMatch && !nameMatch){
+      // Just odds on this line — look backwards for name
+      if(results.length > 0 && results[results.length-1]._needsOdds){
+        results[results.length-1].odds = parseInt(oddsMatch[1]);
+        delete results[results.length-1]._needsOdds;
+      }
+    }
+    i++;
+  }
+
+  // Filter out invalid odds and dedupe
+  const seen = new Set();
+  return results.filter(r => {
+    if(!r.name || r.odds == null || isNaN(r.odds)) return false;
+    if(Math.abs(r.odds) < 100 || Math.abs(r.odds) > 5000) return false;
+    const key = normName(r.name);
+    if(seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+
+function previewOddsParse(){
+  const text = document.getElementById('odds-paste-input')?.value || '';
+  const parsed = parseOddsText(text);
+  const preview = document.getElementById('odds-parse-preview');
+  if(!preview) return;
+  if(!text.trim()){ preview.textContent = ''; return; }
+  if(!parsed.length){
+    preview.innerHTML = '<span style="color:var(--red)">No valid odds found — check format above</span>';
+    return;
+  }
+  const samples = parsed.slice(0,4).map(r=>`${r.name.split(' ').pop()} ${r.odds>0?'+':''}${r.odds}`).join(' · ');
+  preview.innerHTML = `<span style="color:var(--green)">✓ Found ${parsed.length} player${parsed.length!==1?'s':''}: ${samples}${parsed.length>4?` +${parsed.length-4} more`:''}</span>`;
+}
+
+function commitManualOdds(){
+  const text = document.getElementById('odds-paste-input')?.value || '';
+  const parsed = parseOddsText(text);
+  if(!parsed.length){
+    alert('No valid odds found. Use format: Player Name +350');
+    return;
+  }
+
+  // Build _fdOdds map from parsed data
+  if(!_fdOdds) window._fdOdds = {};
+  let added = 0;
+  for(const {name, odds} of parsed){
+    const key = normName(name);
+    const dec = odds > 0 ? odds/100+1 : 100/Math.abs(odds)+1;
+    _fdOdds[key] = { odds, implied: 1/dec, raw: name, manual: true };
+    added++;
+  }
+
+  // Update status and close
+  _fdOddsLoaded = true;
+  _fdOddsTimestamp = Date.now();
+  const statusEl = document.getElementById('odds-status');
+  if(statusEl) statusEl.textContent = `📊 ${added} props (manual)`;
+  document.getElementById('manual-odds-modal').remove();
+
+  // Re-render
+  if(S.allRows.length){ renderSlate(); renderDailySummary(); }
+  console.log(`[ManualOdds] Loaded ${added} props from paste`);
+}
+
+
 function syncDesktopSidebar(){
   if(window.innerWidth < 900) return;
 
@@ -10485,7 +10633,25 @@ function renderSlate(){
   // ── VALUE FINDER BAND ────────────────────────────────────────
   // Answers Q2: who is being priced like they won't hit a HR?
   const valueBand = (()=>{
-    if(!_fdOdds) return '';
+    if(!_fdOdds){
+      // No odds loaded — show prompt
+      return `<div style="margin-bottom:12px;padding:12px 14px;border-radius:12px;
+        border:1px solid rgba(240,165,0,.25);background:rgba(240,165,0,.04);
+        display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div>
+          <div style="font-size:.70rem;font-weight:800;color:var(--amber)">💰 Value Finder</div>
+          <div style="font-size:.62rem;color:var(--t4);margin-top:2px">
+            Add FanDuel odds to see who's priced to miss
+          </div>
+        </div>
+        <button onclick="showManualOddsEntry()"
+          style="padding:8px 16px;border-radius:8px;border:1px solid rgba(240,165,0,.4);
+          background:rgba(240,165,0,.12);color:var(--amber);font-size:.72rem;
+          font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">
+          📋 Enter Odds
+        </button>
+      </div>`;
+    }
     // Find players where model prob significantly exceeds book implied prob
     const valued = rows
       .map(r => {
@@ -10531,7 +10697,8 @@ function renderSlate(){
           </div>
         </div>
         <div id="odds-status" style="font-size:.58rem;color:var(--t4);text-align:right;cursor:pointer"
-          onclick="loadFanDuelOdds(true);this.textContent='↺ refreshing...'">
+          onclick="showManualOddsEntry()">
+          ✏️ Edit
         </div>
       </div>
       <div style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;
@@ -13393,5 +13560,14 @@ if(document.readyState==='loading'){
   initApp();
 }
 </script>
+<!-- Scroll-to-top: lives at body level, not inside #content -->
+<button id="scroll-top-btn"
+  onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'})"
+  style="position:fixed;bottom:78px;right:14px;z-index:200;width:38px;height:38px;
+    border-radius:50%;border:1px solid var(--bdr);background:var(--bg2);
+    color:var(--t3);font-size:1.1rem;cursor:pointer;display:none;
+    align-items:center;justify-content:center;
+    box-shadow:0 2px 12px rgba(0,0,0,.4)">↑</button>
+
 </body>
 </html>
