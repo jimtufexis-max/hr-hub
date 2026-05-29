@@ -5412,14 +5412,24 @@ function showManualOddsEntry(){
   modal.onclick = e => { if(e.target===modal) modal.remove(); };
   modal.innerHTML = `
     <div style="width:100%;max-width:520px;background:var(--bg2);border-radius:20px 20px 0 0;
-      border:1px solid var(--bdr);padding:20px;max-height:85vh;display:flex;flex-direction:column;gap:12px">
+      border:1px solid var(--bdr);padding:20px;max-height:85vh;display:flex;flex-direction:column;gap:12px"
+      onclick="event.stopPropagation()">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div>
           <div style="font-size:.85rem;font-weight:800;color:var(--t1)">📋 Paste FanDuel HR Props</div>
-          <div style="font-size:.62rem;color:var(--t4);margin-top:2px">Copy from FanDuel app → paste here</div>
+          <div style="font-size:.62rem;color:var(--t4);margin-top:2px">
+            Paste each game separately — odds accumulate across pastes
+            ${_fdOdds && Object.keys(_fdOdds).length ? `· <b style="color:var(--amber)">${Object.keys(_fdOdds).length} already loaded</b>` : ''}
+          </div>
         </div>
-        <button onclick="document.getElementById('manual-odds-modal').remove()"
-          style="background:none;border:none;color:var(--t4);font-size:1.3rem;cursor:pointer">✕</button>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${_fdOdds && Object.keys(_fdOdds).length ? `<button onclick="window._fdOdds=null;_fdOddsLoaded=false;const s=document.getElementById('odds-status');if(s)s.textContent='📋 Enter Odds';document.getElementById('manual-odds-modal').remove();if(S.allRows.length){renderSlate();renderDailySummary();}"
+            style="padding:6px 12px;border-radius:8px;border:1px solid rgba(224,80,74,.4);background:rgba(224,80,74,.08);color:var(--red);font-size:.68rem;cursor:pointer;white-space:nowrap">
+            🗑 Clear All
+          </button>` : ''}
+          <button onclick="document.getElementById('manual-odds-modal').remove()"
+            style="background:none;border:none;color:var(--t4);font-size:1.3rem;cursor:pointer">✕</button>
+        </div>
       </div>
 
       <div style="padding:10px;border-radius:8px;background:var(--bg3);border:1px solid var(--bdr);font-size:.62rem;color:var(--t3);line-height:1.7">
@@ -5532,26 +5542,31 @@ function commitManualOdds(){
     return;
   }
 
-  // Build _fdOdds map from parsed data
+  // Merge into existing _fdOdds — don't wipe previous pastes
   if(!_fdOdds) window._fdOdds = {};
-  let added = 0;
+  let added = 0, updated = 0;
   for(const {name, odds} of parsed){
     const key = normName(name);
     const dec = odds > 0 ? odds/100+1 : 100/Math.abs(odds)+1;
+    const isNew = !_fdOdds[key];
     _fdOdds[key] = { odds, implied: 1/dec, raw: name, manual: true };
-    added++;
+    isNew ? added++ : updated++;
   }
 
-  // Update status and close
+  const total = Object.keys(_fdOdds).length;
   _fdOddsLoaded = true;
   _fdOddsTimestamp = Date.now();
   const statusEl = document.getElementById('odds-status');
-  if(statusEl) statusEl.textContent = `📊 ${added} props (manual)`;
-  document.getElementById('manual-odds-modal').remove();
+  if(statusEl) statusEl.textContent = `📊 ${total} props`;
 
-  // Re-render
+  document.getElementById('manual-odds-modal').remove();
   if(S.allRows.length){ renderSlate(); renderDailySummary(); }
-  console.log(`[ManualOdds] Loaded ${added} props from paste`);
+
+  // Brief confirmation
+  const msg = updated > 0
+    ? `✅ Added ${added} new · updated ${updated} · ${total} total props loaded`
+    : `✅ Added ${added} players · ${total} total props loaded`;
+  console.log('[ManualOdds]', msg);
 }
 
 
