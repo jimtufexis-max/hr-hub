@@ -5407,84 +5407,78 @@ function clearAllTracking(){
 function showManualOddsEntry(){
   document.getElementById('manual-odds-modal')?.remove();
   const loaded = _fdOdds ? Object.keys(_fdOdds).length : 0;
+
+  // Separate backdrop and content so iOS touches never get intercepted
+  const backdrop = document.createElement('div');
+  backdrop.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)';
+  backdrop.id = 'manual-odds-backdrop';
+  backdrop.onclick = ()=>{ backdrop.remove(); modal.remove(); };
+  document.body.appendChild(backdrop);
+
   const modal = document.createElement('div');
   modal.id = 'manual-odds-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)';
+  modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;width:calc(100% - 32px);max-width:460px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:88vh;overflow-y:auto';
   modal.innerHTML = `
-    <div style="width:100%;max-width:460px;background:var(--bg2);border-radius:16px;
-      border:1px solid var(--bdr);padding:20px;display:flex;flex-direction:column;gap:14px;
-      box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:90vh;overflow-y:auto"
-      onclick="event.stopPropagation()">
-
-      <!-- Header -->
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
-        <div>
-          <div style="font-size:.88rem;font-weight:800;color:var(--t1)">📋 Enter HR Prop Odds</div>
-          <div style="font-size:.62rem;color:var(--t4);margin-top:3px">
-            ${loaded ? `<b style="color:var(--amber)">${loaded} props already loaded</b> — new paste adds to them` : 'Paste lines or type manually below'}
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-          ${loaded ? `<button id="clear-odds-btn" style="padding:5px 10px;border-radius:7px;border:1px solid rgba(224,80,74,.4);background:rgba(224,80,74,.08);color:var(--red);font-size:.65rem;cursor:pointer">🗑 Clear</button>` : ''}
-          <button onclick="document.getElementById('manual-odds-modal').remove()"
-            style="background:none;border:none;color:var(--t4);font-size:1.3rem;cursor:pointer;line-height:1;padding:4px">✕</button>
-        </div>
-      </div>
-
-      <!-- FanDuel tip -->
-      <div style="padding:10px 12px;border-radius:8px;background:rgba(240,165,0,.07);border:1px solid rgba(240,165,0,.2);font-size:.63rem;color:var(--t3);line-height:1.65">
-        <b style="color:var(--amber)">💡 FanDuel app won't let you copy text.</b> Instead:<br>
-        Open <b>Safari</b> → go to <b>fanduel.com</b> → More Bets → MLB → Batter Props → To Hit a Home Run →
-        Select the text and copy, or just type what you see below.
-      </div>
-
-      <!-- Textarea -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
       <div>
-        <div style="font-size:.62rem;color:var(--t4);margin-bottom:6px">
-          Type or paste — one player per line:
-          <span style="font-family:monospace;background:var(--bg3);padding:1px 5px;border-radius:4px;color:var(--amber)">Aaron Judge +350</span>
+        <div style="font-size:.88rem;font-weight:800;color:var(--t1)">📋 Enter HR Prop Odds</div>
+        <div style="font-size:.62rem;color:var(--t4);margin-top:3px">
+          ${loaded ? `<b style="color:var(--amber)">${loaded} already loaded</b> — new paste adds to them` : 'Type or paste odds below — one per line'}
         </div>
-        <textarea id="odds-paste-input"
-          placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400&#10;Yordan Alvarez +220"
-          style="width:100%;min-height:160px;padding:12px;border-radius:8px;border:1px solid var(--bdr);
-          background:var(--bg3);color:var(--t1);font-size:.84rem;font-family:monospace;
-          line-height:1.9;resize:vertical;box-sizing:border-box;-webkit-user-select:text;user-select:text"
-          oninput="previewOddsParse()"></textarea>
       </div>
-
-      <div id="odds-parse-preview" style="font-size:.65rem;min-height:18px"></div>
-
-      <!-- Buttons -->
-      <div style="display:flex;gap:8px">
-        <button onclick="document.getElementById('manual-odds-modal').remove()"
-          style="flex:1;padding:12px;border-radius:10px;border:1px solid var(--bdr);
-          background:var(--bg3);color:var(--t4);cursor:pointer;font-size:.78rem;font-weight:600">
-          Cancel
-        </button>
-        <button id="load-odds-btn"
-          style="flex:2;padding:12px;border-radius:10px;border:none;
-          background:var(--amber);color:#000;font-weight:800;font-size:.80rem;cursor:pointer">
-          Load Odds →
-        </button>
+      <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+        ${loaded ? `<button id="clear-odds-btn" style="padding:5px 10px;border-radius:7px;border:1px solid rgba(224,80,74,.4);background:rgba(224,80,74,.08);color:var(--red);font-size:.65rem;cursor:pointer;-webkit-tap-highlight-color:rgba(224,80,74,.2)">🗑 Clear</button>` : ''}
+        <button id="close-odds-btn" style="background:none;border:none;color:var(--t4);font-size:1.4rem;cursor:pointer;line-height:1;padding:2px 6px;-webkit-tap-highlight-color:rgba(255,255,255,.1)">✕</button>
       </div>
+    </div>
+
+    <div style="padding:10px 12px;border-radius:8px;background:rgba(240,165,0,.07);border:1px solid rgba(240,165,0,.2);font-size:.63rem;color:var(--t3);line-height:1.65">
+      <b style="color:var(--amber)">💡 FanDuel app blocks copying.</b> Use <b>Safari → fanduel.com</b> instead,
+      or just type what you see: <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>
+    </div>
+
+    <textarea id="odds-paste-input"
+      placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400&#10;Yordan Alvarez +220"
+      style="width:100%;min-height:150px;padding:12px;border-radius:8px;border:1px solid var(--bdr);
+      background:var(--bg3);color:var(--t1);font-size:.85rem;font-family:monospace;
+      line-height:1.9;resize:vertical;box-sizing:border-box;-webkit-user-select:text;user-select:text"></textarea>
+
+    <div id="odds-parse-preview" style="font-size:.65rem;min-height:18px"></div>
+
+    <div style="display:flex;gap:8px">
+      <button id="cancel-odds-btn"
+        style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--bdr);
+        background:var(--bg3);color:var(--t3);cursor:pointer;font-size:.80rem;font-weight:600;
+        -webkit-tap-highlight-color:rgba(255,255,255,.1)">
+        Cancel
+      </button>
+      <button id="load-odds-btn"
+        style="flex:2;padding:13px;border-radius:10px;border:none;
+        background:var(--amber);color:#000;font-weight:800;font-size:.82rem;cursor:pointer;
+        -webkit-tap-highlight-color:rgba(255,165,0,.3)">
+        Load Odds →
+      </button>
     </div>`;
 
   document.body.appendChild(modal);
 
-  // Wire buttons via JS (not inline onclick) — avoids scope issues
+  // Wire all buttons via addEventListener — never inline onclick
+  const close = ()=>{ backdrop.remove(); modal.remove(); };
+  modal.querySelector('#close-odds-btn').addEventListener('click', close);
+  modal.querySelector('#cancel-odds-btn').addEventListener('click', close);
   modal.querySelector('#load-odds-btn').addEventListener('click', commitManualOdds);
+  modal.querySelector('#odds-paste-input').addEventListener('input', previewOddsParse);
   const clearBtn = modal.querySelector('#clear-odds-btn');
   if(clearBtn) clearBtn.addEventListener('click', ()=>{
     window._fdOdds = null;
     _fdOddsLoaded = false;
     const s = document.getElementById('odds-status');
     if(s) s.textContent = '📋 Enter Odds';
-    modal.remove();
+    close();
     if(S.allRows.length){ renderSlate(); renderDailySummary(); }
   });
-  modal.addEventListener('click', e=>{ if(e.target===modal) modal.remove(); });
 
-  setTimeout(()=>document.getElementById('odds-paste-input')?.focus(), 150);
+  setTimeout(()=>modal.querySelector('#odds-paste-input')?.focus(), 200);
 }
 
 function parseOddsText(text){
