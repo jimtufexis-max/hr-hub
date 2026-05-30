@@ -5454,7 +5454,7 @@ function showManualOddsEntry(){
         <button onclick="processManualOdds()"
           style="flex:2;padding:10px;border-radius:8px;border:none;background:var(--amber);color:#000;font-weight:800;cursor:pointer;font-size:.75rem">Load Odds</button>
       </div>
-      ${loaded ? `<button onclick="window._fdOdds=null;_fdOddsLoaded=false;var s=document.getElementById('odds-status');if(s)s.textContent='📋 Enter Odds';document.getElementById('odds-entry-modal').remove();if(S.allRows.length){renderSlate();renderDailySummary();}" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(224,80,74,.3);background:transparent;color:var(--red);font-size:.68rem;cursor:pointer">🗑 Clear all ${loaded} loaded props</button>` : ''}
+      ${loaded ? `<button onclick="_fdOdds=null;_fdOddsLoaded=false;var s=document.getElementById('odds-status');if(s)s.textContent='📋 Enter Odds';document.getElementById('odds-entry-modal').remove();if(S.allRows.length){renderSlate();renderDailySummary();}" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(224,80,74,.3);background:transparent;color:var(--red);font-size:.68rem;cursor:pointer">🗑 Clear all ${loaded} loaded props</button>` : ''}
     </div>`;
   document.body.appendChild(modal);
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
@@ -5467,7 +5467,7 @@ function processManualOdds(){
   const parsed = parseOddsText(raw);
   if(!parsed.length){ showToast('No valid odds — format: Aaron Judge +350', 'red'); return; }
   document.getElementById('odds-entry-modal')?.remove();
-  if(!_fdOdds) window._fdOdds = {};
+  if(!_fdOdds) _fdOdds = {};
   let added=0, updated=0;
   for(const {name,odds} of parsed){
     const key = normName(name);
@@ -5494,7 +5494,7 @@ function loadOddsFromPanel(){
     if(prev) prev.innerHTML = '<span style="color:var(--red)">No valid odds — use: Aaron Judge +350</span>';
     return;
   }
-  if(!_fdOdds) window._fdOdds = {};
+  if(!_fdOdds) _fdOdds = {};
   let added=0, updated=0;
   for(const {name,odds} of parsed){
     const key = normName(name);
@@ -5595,7 +5595,7 @@ function commitManualOdds(){
   }
 
   // Merge into existing _fdOdds — don't wipe previous pastes
-  if(!_fdOdds) window._fdOdds = {};
+  if(!_fdOdds) _fdOdds = {};
   let added = 0, updated = 0;
   for(const {name, odds} of parsed){
     const key = normName(name);
