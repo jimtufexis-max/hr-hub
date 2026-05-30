@@ -5031,22 +5031,6 @@ function calcPayout(wagered, odds){
   return { profit: Math.round(profit*100)/100, total: Math.round((w+profit)*100)/100 };
 }
 
-function calcParlayOdds(legs){
-  // Convert each leg to decimal, multiply, convert back to American
-  if(!legs.length) return null;
-  let decimal = 1;
-  for(const odds of legs){
-    const o = parseInt(odds);
-    if(isNaN(o)) return null;
-    decimal *= o>0 ? (o/100)+1 : (100/Math.abs(o))+1;
-  }
-  // Convert decimal back to American
-  const american = decimal >= 2
-    ? Math.round((decimal-1)*100)
-    : Math.round(-100/(decimal-1));
-  return american;
-}
-
 // ── BET ENTRY MODAL ──────────────────────────────────────────────
 function addManualBet(playerId){
   try{
@@ -5179,6 +5163,10 @@ function confirmBetEntry(){
 }
 
 // ── PARLAY BUILDER ────────────────────────────────────────────────
+// ── PARLAY / SGP BUILDER ─────────────────────────────────────────
+// Leg types: 'single' (from any game) or 'sgp' (grouped legs from same game)
+// SGP = Same Game Parlay — multiple props from ONE game, entered as one odds line
+
 function getParlayLegs(){
   return JSON.parse(sessionStorage.getItem('dingeriq_parlay')||'[]');
 }
@@ -5186,52 +5174,134 @@ function saveParlayLegs(legs){
   sessionStorage.setItem('dingeriq_parlay', JSON.stringify(legs));
 }
 
+// Toggle a player into/out of the parlay directly from the slate
+function toggleSlateParlay(id){
+  const r = S.allRows.find(x=>String(x.id)===String(id));
+  if(!r){ showToast('Load game first','amber'); return; }
+  const legs = getParlayLegs();
+  const idx = legs.findIndex(l=>l.id===String(id));
+  if(idx>=0){
+    legs.splice(idx,1);
+    saveParlayLegs(legs);
+    showToast(r.name.split(' ').pop()+' removed','amber');
+  } else {
+    if(legs.length>=12){ showToast('Max 12 legs','amber'); return; }
+    legs.push({
+      id: String(r.id), name: r.name, prob: r.prob,
+      odds: getFDOdds(r.name)||null, date: ds(),
+      gamePk: String(r._gamePk||r.gamePk||''), team: r.team||'',
+      sgpGroup: null, // null = standalone leg; 'sgp_PKK' = grouped into an SGP
+    });
+    saveParlayLegs(legs);
+    showToast(r.name.split(' ').pop()+' added to parlay ·'+legs.length+' legs','green');
+  }
+  // Re-render slate cards to update parlay button state
+  renderSlate();
+  // Re-render results tab if open
+  if(document.getElementById('page-results')?.classList.contains('active')) renderResultsTab();
+}
+
 function addParlayLeg(wagered, odds){
-  // The parlay leg comes from the currently open detail card
-  const modal = document.getElementById('bet-entry-modal');
-  // Find current player
   const r = window._betEntryPlayer;
   if(!r){ showToast('No player selected','amber'); return; }
-
   const legs = getParlayLegs();
   if(legs.some(l=>l.id===String(r.id))){
     showToast(r.name+' is already in your parlay.','amber'); return;
   }
   legs.push({
     id: String(r.id), name: r.name, prob: r.prob,
-    odds: odds || getFDOdds(r.name) || null,
-    date: ds(),
+    odds: odds||getFDOdds(r.name)||null, date: ds(),
+    gamePk: String(r._gamePk||r.gamePk||''), team: r.team||'',
+    sgpGroup: null,
   });
-  saveParlayLegs(legs);
-
-  // Update wagered on parlay (stored on first leg)
   if(wagered && legs.length===1) legs[0]._parlayWagered = wagered;
   saveParlayLegs(legs);
-
-  // Update results tab if open
   if(window._betEntryCallback) window._betEntryCallback(null, null, 'parlay-leg-added');
-  showToast('✅ '+r.name+' added to parlay ('+legs.length+' leg'+(legs.length>1?'s':'')+')','green');
+  showToast('✅ '+r.name+' added · '+legs.length+' leg'+(legs.length!==1?'s':''),'green');
+}
+
+// Group legs from same game into an SGP
+function groupAsSGP(gamePk){
+  const legs = getParlayLegs();
+  const key = 'sgp_'+gamePk;
+  let changed = false;
+  legs.forEach(l=>{
+    if(l.gamePk===String(gamePk)){
+      if(l.sgpGroup===key){ l.sgpGroup=null; changed=true; } // toggle off
+      else { l.sgpGroup=key; changed=true; }
+    }
+  });
+  if(changed){ saveParlayLegs(legs); renderResultsTab(); }
+}
+
+// Calculate combined odds for regular legs (not SGP — those need manual odds)
+function calcParlayOdds(oddsArr){
+  if(!oddsArr||!oddsArr.length) return null;
+  const valids = oddsArr.filter(o=>o!=null&&!isNaN(parseInt(o)));
+  if(!valids.length) return null;
+  const combined = valids.reduce((mult,o)=>{
+    const d = parseInt(o)>0 ? parseInt(o)/100+1 : 100/Math.abs(parseInt(o))+1;
+    return mult*d;
+  },1);
+  const american = combined>=2 ? Math.round((combined-1)*100) : Math.round(-100/(combined-1));
+  return american;
 }
 
 function commitParlay(wagered){
   const legs = getParlayLegs();
   if(legs.length < 2){ showToast('Add at least 2 legs first','amber'); return; }
-  const combinedOdds = calcParlayOdds(legs.map(l=>l.odds).filter(Boolean));
-  const key = 'hr_hub_results';
-  const stored = JSON.parse(localStorage.getItem(key)||'[]');
+
+  // Separate SGP groups from standalone legs
+  const sgpGroups = {};
+  const standalone = [];
+  legs.forEach(l=>{
+    if(l.sgpGroup){
+      if(!sgpGroups[l.sgpGroup]) sgpGroups[l.sgpGroup]={legs:[],odds:null};
+      sgpGroups[l.sgpGroup].legs.push(l);
+    } else {
+      standalone.push(l);
+    }
+  });
+
+  // Check all SGP groups have manual odds entered
+  for(const [key, grp] of Object.entries(sgpGroups)){
+    const oddsEl = document.getElementById('sgp-odds-'+key);
+    const entered = oddsEl ? parseInt(oddsEl.value) : null;
+    if(!entered||isNaN(entered)){
+      showToast('Enter odds for each SGP group first','amber'); return;
+    }
+    grp.odds = entered;
+  }
+
+  // Combine odds: standalone legs + SGP groups each count as one leg
+  const allOdds = [
+    ...standalone.map(l=>l.odds).filter(Boolean),
+    ...Object.values(sgpGroups).map(g=>g.odds).filter(Boolean),
+  ];
+  const combinedOdds = calcParlayOdds(allOdds);
+
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  const totalLegs = legs.length;
+  const legNames = legs.map(l=>l.name.split(' ').pop()).join(' + ');
   stored.push({
-    id: 'parlay_'+Date.now(), name: legs.map(l=>l.name.split(' ')[1]||l.name).join(' + '),
+    id: 'parlay_'+Date.now(),
+    name: legNames,
     date: ds(), manualBet: true, betType: 'parlay',
-    parlayLegs: legs.map(l=>({id:l.id,name:l.name,odds:l.odds,prob:l.prob})),
-    odds: combinedOdds, wagered: wagered||legs[0]?._parlayWagered||null,
-    actual: undefined, prob: legs.reduce((p,l)=>p*(l.prob||0.1),1),
+    parlayLegs: legs.map(l=>({id:l.id,name:l.name,odds:l.odds,prob:l.prob,sgpGroup:l.sgpGroup||null})),
+    sgpGroups: Object.fromEntries(Object.entries(sgpGroups).map(([k,g])=>[k,{odds:g.odds,names:g.legs.map(l=>l.name)}])),
+    odds: combinedOdds,
+    wagered: wagered||legs[0]?._parlayWagered||null,
+    _rawProb: legs.reduce((p,l)=>p*(l.prob||0.1),1),
+    prob: legs.reduce((p,l)=>p*(l.prob||0.1),1),
   });
   if(stored.length>2000) stored.splice(0,stored.length-2000);
-  localStorage.setItem(key, JSON.stringify(stored));
+  localStorage.setItem('hr_hub_results', JSON.stringify(stored));
   saveParlayLegs([]);
+  renderSlate(); // clear parlay buttons
   renderResultsTab();
-  showToast('✅ Parlay locked! '+legs.length+' legs · '+(combinedOdds>0?'+':'')+combinedOdds,'green');
+  showToast('🔒 Parlay locked! '+totalLegs+' legs · '+(combinedOdds!=null?(combinedOdds>0?'+':'')+combinedOdds:'--'),'green',3500);
 }
+
 
 // ── EXPORT — clean formatted text for Notes/iMessage ─────────────
 function exportBetHistory(){
@@ -6380,32 +6450,86 @@ async function renderResultsTab(){
 
       // Parlay builder — always visible
       const parlayLegs = getParlayLegs();
-      const combinedOdds = parlayLegs.length>=2 ? calcParlayOdds(parlayLegs.map(l=>l.odds).filter(Boolean)) : null;
+      const sgpGroups = {};
+      const standaloneLegs = [];
+      parlayLegs.forEach(l=>{
+        if(l.sgpGroup){ if(!sgpGroups[l.sgpGroup])sgpGroups[l.sgpGroup]=[];sgpGroups[l.sgpGroup].push(l); }
+        else standaloneLegs.push(l);
+      });
+      const sgpOddsEntries = Object.keys(sgpGroups).map(k=>{
+        const el=document.getElementById('sgp-odds-'+k); return el?parseInt(el.value)||null:null;
+      });
+      const allOddsForCalc=[...standaloneLegs.map(l=>l.odds).filter(Boolean),...sgpOddsEntries.filter(Boolean)];
+      const combinedOdds = allOddsForCalc.length>=2 ? calcParlayOdds(allOddsForCalc) : null;
+
+      // Group legs by game for SGP
+      const byGame = {};
+      parlayLegs.forEach(l=>{
+        const pk=l.gamePk||'unknown';
+        if(!byGame[pk]) byGame[pk]={pk,legs:[],teams:l.team||''};
+        byGame[pk].legs.push(l);
+      });
+      const gameKeys = Object.keys(byGame);
+
       html+=`<div style="margin-top:8px;padding:12px;border-radius:10px;border:1px solid rgba(167,139,250,.3);background:rgba(167,139,250,.06)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:.72rem;font-weight:700;color:#a78bfa">🎰 Parlay Builder</div>
-          ${parlayLegs.length?`<span style="font-size:.62rem;color:var(--t4)">${parlayLegs.length} leg${parlayLegs.length!==1?'s':''}</span>`:''}
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div style="font-size:.74rem;font-weight:800;color:#a78bfa">🎰 Parlay Builder</div>
+          ${parlayLegs.length?`<div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:.60rem;color:var(--t4)">${parlayLegs.length} leg${parlayLegs.length!==1?'s':''}</span>
+            <button onclick="saveParlayLegs([]);renderSlate();renderResultsTab()" style="font-size:.58rem;padding:2px 8px;border-radius:5px;border:1px solid var(--bdr);background:var(--bg3);color:var(--red);cursor:pointer">Clear all</button>
+          </div>`:''}
         </div>
+
         ${parlayLegs.length===0
-          ? `<div style="font-size:.63rem;color:var(--t4);padding:8px;text-align:center;border:1px dashed rgba(167,139,250,.3);border-radius:8px">
-              Open a player's detail card → tap <b style="color:#a78bfa">Track Bet</b> → select <b style="color:#a78bfa">Add to Parlay</b>
+          ? `<div style="font-size:.63rem;color:var(--t4);padding:10px;text-align:center;border:1px dashed rgba(167,139,250,.3);border-radius:8px;line-height:1.6">
+              Tap <b style="color:#a78bfa">+ Parlay</b> on any player card in the Slate tab.<br>
+              Multiple players from the same game → group as SGP.
              </div>`
-          : `${parlayLegs.map((l,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-top:${i>0?'1px solid var(--bg3)':'none'}">
-              <span style="font-size:.70rem;color:var(--t2)">${l.name}</span>
-              <div style="display:flex;align-items:center;gap:8px">
-                <span style="font-size:.68rem;color:${l.odds>0?'var(--green)':'var(--t4)'}">${l.odds!=null?(l.odds>0?'+':'')+l.odds:'--'}</span>
-                <button onclick="(()=>{const legs=getParlayLegs();legs.splice(${i},1);saveParlayLegs(legs);renderResultsTab();})()"
-                  style="font-size:.60rem;padding:2px 7px;border-radius:4px;border:1px solid var(--bdr);background:var(--bg3);color:var(--red);cursor:pointer">✕</button>
-              </div>
-            </div>`).join('')}
-            ${combinedOdds!=null?`<div style="font-size:.65rem;font-weight:700;color:#a78bfa;margin-top:8px;padding-top:6px;border-top:1px solid var(--bg3)">Combined odds: ${combinedOdds>0?'+':''}${combinedOdds}</div>`:''}
-            <div style="display:flex;gap:6px;margin-top:10px;align-items:center">
+          : `${gameKeys.map(pk=>{
+              const group = byGame[pk];
+              const isMulti = group.legs.length > 1;
+              const sgpKey = 'sgp_'+pk;
+              const allGrouped = group.legs.every(l=>l.sgpGroup===sgpKey);
+              const noneGrouped = group.legs.every(l=>!l.sgpGroup);
+              return `<div style="margin-bottom:8px;padding:8px;border-radius:8px;background:var(--bg3);border:1px solid var(--bdr)">
+                ${isMulti ? `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                  <div style="font-size:.60rem;color:var(--t4)">${group.legs.length} players · same game</div>
+                  <button onclick="groupAsSGP('${pk}');renderResultsTab()"
+                    style="font-size:.58rem;padding:3px 9px;border-radius:5px;border:1px solid ${allGrouped?'rgba(167,139,250,.6)':'rgba(167,139,250,.3)'};background:${allGrouped?'rgba(167,139,250,.15)':'transparent'};color:#a78bfa;cursor:pointer;font-weight:700">
+                    ${allGrouped?'✓ SGP':'Group as SGP'}
+                  </button>
+                </div>` : ''}
+                ${group.legs.map((l,i)=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;${i>0?'border-top:1px solid rgba(255,255,255,.04)':''}">
+                  <div style="display:flex;align-items:center;gap:5px">
+                    ${l.sgpGroup?`<span style="font-size:.52rem;color:#a78bfa;font-weight:700">SGP</span>`:''}
+                    <span style="font-size:.70rem;color:var(--t2)">${l.name}</span>
+                    <span style="font-size:.62rem;color:var(--t4)">${l.prob?(l.prob*100).toFixed(0)+'%':''}</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    ${!l.sgpGroup ? `<span style="font-size:.65rem;color:var(--green)">${l.odds!=null?(l.odds>0?'+':'')+l.odds:'--'}</span>` : ''}
+                    <button onclick="(()=>{const legs=getParlayLegs();const idx=legs.findIndex(x=>x.id==='${l.id}');if(idx>=0){legs.splice(idx,1);saveParlayLegs(legs);renderSlate();renderResultsTab();}})()"
+                      style="font-size:.55rem;padding:2px 7px;border-radius:4px;border:1px solid var(--bdr);background:var(--bg3);color:var(--red);cursor:pointer">✕</button>
+                  </div>
+                </div>`).join('')}
+                ${allGrouped ? `<div style="margin-top:6px;display:flex;align-items:center;gap:6px">
+                  <span style="font-size:.62rem;color:#a78bfa;font-weight:700;white-space:nowrap">SGP odds:</span>
+                  <input id="sgp-odds-${sgpKey}" type="text" placeholder="+550"
+                    style="flex:1;padding:5px 8px;border-radius:6px;border:1px solid rgba(167,139,250,.4);background:var(--bg2);color:var(--t1);font-size:.72rem;font-family:monospace">
+                  <span style="font-size:.56rem;color:var(--t4)">enter FD line</span>
+                </div>` : ''}
+              </div>`;
+            }).join('')}
+            ${combinedOdds!=null?`<div style="font-size:.68rem;font-weight:800;color:#a78bfa;margin:8px 0 4px;padding:8px;background:rgba(167,139,250,.08);border-radius:8px;text-align:center">
+              Combined: ${combinedOdds>0?'+':''}${combinedOdds}
+              <span style="font-size:.56rem;font-weight:400;color:var(--t4);display:block;margin-top:2px">
+                Auto-calc from individual odds${Object.keys(sgpGroups).length?` + ${Object.keys(sgpGroups).length} SGP manual`:''}
+              </span>
+            </div>`:'<div style="font-size:.60rem;color:var(--t4);margin:6px 0;text-align:center">Add individual odds to see combined line</div>'}
+            <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
               <input id="parlay-stake" type="number" min="1" placeholder="Stake ($)"
                 style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.78rem">
               <button onclick="commitParlay(parseFloat(document.getElementById('parlay-stake')?.value)||null)"
-                style="padding:8px 14px;border-radius:8px;border:none;background:#a78bfa;color:#000;font-weight:800;font-size:.72rem;cursor:pointer">Lock In 🔒</button>
-              <button onclick="saveParlayLegs([]);renderResultsTab()"
-                style="padding:8px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--red);font-size:.68rem;cursor:pointer">Clear</button>
+                style="padding:8px 16px;border-radius:8px;border:none;background:#a78bfa;color:#000;font-weight:800;font-size:.74rem;cursor:pointer">🔒 Lock In</button>
             </div>`}
       </div>`;
 
@@ -9984,38 +10108,70 @@ async function loadGame(g){
   const gameState = schedGame?.status?.abstractGameState;
   const pf = PARK[g.home] || 1.00;
 
+  // Diagnose lineup structure
+  console.log(`[Lineup ${g.away}@${g.home}] state=${gameState} schedLineups keys=${schedLineups?Object.keys(schedLineups).join(','):'null'}`);
+  console.log(`[Lineup] schedGame keys=${schedGame?Object.keys(schedGame).join(','):'null'}`);
+  console.log(`[Lineup] lineups=`, JSON.stringify(schedGame?.lineups)?.slice(0,200));
+
   // Extract lineups — handles both {id:N} objects and raw numeric IDs
   const extractLineup = (players) => {
     const result = {};
     (players||[]).forEach((p,i) => {
-      const id = typeof p === 'object' ? (p.id||p.personId) : p;
+      const id = typeof p === 'object' ? (p.id||p.personId||p.person?.id) : p;
       if(id) result[String(id).replace(/\.0$/,'')] = i+1;
     });
     return result;
   };
   let awLineup = extractLineup(schedGame?.lineups?.awayPlayers);
   let hmLineup = extractLineup(schedGame?.lineups?.homePlayers);
+  console.log(`[Lineup] from schedule: aw=${Object.keys(awLineup).length} hm=${Object.keys(hmLineup).length}`);
 
-  // If schedule/lineups empty, try live feed (available pre-game once lineup posted)
+  // Fallback 1: live feed battingOrder
   if(Object.keys(awLineup).length < 8 || Object.keys(hmLineup).length < 8){
-    const live = await fetchJSON(PROXY + encodeURIComponent(`${MLB}/game/${g.pk}/feed/live?fields=liveData,boxscore,teams,battingOrder`)).catch(()=>null);
-    const liveTeams = live?.liveData?.boxscore?.teams;
-    if(liveTeams){
-      const aw2 = extractLineup(liveTeams.away?.battingOrder?.map(id=>({id})));
-      const hm2 = extractLineup(liveTeams.home?.battingOrder?.map(id=>({id})));
-      if(Object.keys(aw2).length >= 8) awLineup = aw2;
-      if(Object.keys(hm2).length >= 8) hmLineup = hm2;
-    }
+    try{
+      const live = await fetchJSON(PROXY + encodeURIComponent(`${MLB}/game/${g.pk}/feed/live?fields=liveData,boxscore,teams,battingOrder`)).catch(()=>null);
+      const liveTeams = live?.liveData?.boxscore?.teams;
+      console.log(`[Lineup] live feed teams keys=${liveTeams?Object.keys(liveTeams).join(','):'null'}`);
+      if(liveTeams){
+        const aw2 = extractLineup((liveTeams.away?.battingOrder||[]).map(id=>({id})));
+        const hm2 = extractLineup((liveTeams.home?.battingOrder||[]).map(id=>({id})));
+        console.log(`[Lineup] from live: aw=${Object.keys(aw2).length} hm=${Object.keys(hm2).length}`);
+        if(Object.keys(aw2).length >= 8) awLineup = aw2;
+        if(Object.keys(hm2).length >= 8) hmLineup = hm2;
+      }
+    }catch(e){ console.warn('[Lineup] live feed error:', e.message); }
   }
 
-  // If game started/final and still empty, try boxscore
-  if((gameState==='Live'||gameState==='Final') && Object.keys(awLineup).length < 8){
-    const box = await fetchJSON(PROXY + encodeURIComponent(`${MLB}/game/${g.pk}/boxscore`)).catch(()=>null);
-    if(box?.teams){
-      awLineup = extractLineup(box.teams.away?.battingOrder?.map(id=>({id})));
-      hmLineup = extractLineup(box.teams.home?.battingOrder?.map(id=>({id})));
-    }
+  // Fallback 2: v1.1 live feed (has lineup data earlier than v1)
+  if(Object.keys(awLineup).length < 8 || Object.keys(hmLineup).length < 8){
+    try{
+      const live2 = await fetchJSON(PROXY + encodeURIComponent(`https://statsapi.mlb.com/api/v1.1/game/${g.pk}/feed/live?fields=liveData,boxscore,teams,battingOrder,gameData,players`)).catch(()=>null);
+      const teams2 = live2?.liveData?.boxscore?.teams;
+      if(teams2){
+        const aw3 = extractLineup((teams2.away?.battingOrder||[]).map(id=>({id})));
+        const hm3 = extractLineup((teams2.home?.battingOrder||[]).map(id=>({id})));
+        console.log(`[Lineup] from v1.1: aw=${Object.keys(aw3).length} hm=${Object.keys(hm3).length}`);
+        if(Object.keys(aw3).length >= 8) awLineup = aw3;
+        if(Object.keys(hm3).length >= 8) hmLineup = hm3;
+      }
+    }catch(e){ console.warn('[Lineup] v1.1 error:', e.message); }
   }
+
+  // Fallback 3: boxscore (live/final games)
+  if((gameState==='Live'||gameState==='Final') && Object.keys(awLineup).length < 8){
+    try{
+      const box = await fetchJSON(PROXY + encodeURIComponent(`${MLB}/game/${g.pk}/boxscore`)).catch(()=>null);
+      if(box?.teams){
+        const aw4 = extractLineup((box.teams.away?.battingOrder||[]).map(id=>({id})));
+        const hm4 = extractLineup((box.teams.home?.battingOrder||[]).map(id=>({id})));
+        console.log(`[Lineup] from boxscore: aw=${Object.keys(aw4).length} hm=${Object.keys(hm4).length}`);
+        if(Object.keys(aw4).length >= 8) awLineup = aw4;
+        if(Object.keys(hm4).length >= 8) hmLineup = hm4;
+      }
+    }catch(e){ console.warn('[Lineup] boxscore error:', e.message); }
+  }
+
+  console.log(`[Lineup] FINAL: aw=${Object.keys(awLineup).length} hm=${Object.keys(hmLineup).length} confirmed=${Object.keys(awLineup).length>=8&&Object.keys(hmLineup).length>=8}`);
 
   const lineupConfirmed = Object.keys(awLineup).length>=8 && Object.keys(hmLineup).length>=8
     || gameState==='Live' || gameState==='Final';
