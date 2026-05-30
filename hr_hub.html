@@ -1609,6 +1609,11 @@ function showToast(msg, type, duration){
   setTimeout(function(){try{el.parentNode.removeChild(el);}catch(e){}},d2);
 }
 
+// ── AUTO-CALIBRATION ─────────────────────────────────────────────────────────
+// Learns from your tracked bets and applies a correction factor to displayed probs.
+const MIN_CAL_BETS = 15;
+const CAL_SMOOTHING = 0.70;
+let _autoCal = null;
 
 function computeAutoCalibration(){
   try{
