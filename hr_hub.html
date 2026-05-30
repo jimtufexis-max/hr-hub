@@ -2726,9 +2726,6 @@ function getFDOdds(name){
   if(!_fdOdds) return null;
   const key = normName(name);
   if(_fdOdds[key]) return _fdOdds[key].odds;
-  const lastName = key.split(' ').pop();
-  const match = Object.keys(_fdOdds).find(k=>k.endsWith(' '+lastName)||k===lastName);
-  if(match) return _fdOdds[match].odds;
   return null;
 }
 
@@ -2736,9 +2733,7 @@ function getOddsEntry(name){
   if(!_fdOdds) return null;
   const key = normName(name);
   if(_fdOdds[key]) return _fdOdds[key];
-  const lastName = key.split(' ').pop();
-  const match = Object.keys(_fdOdds).find(k=>k.endsWith(' '+lastName)||k===lastName);
-  return match ? _fdOdds[match] : null;
+  return null;
 }
 
 // Edge = model prob − no-vig book implied prob
