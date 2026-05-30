@@ -664,6 +664,25 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
     </div>
 
     <div id="hitter-list"></div>
+
+    <!-- Odds entry panel — always in DOM, shown/hidden by JS -->
+    <div id="odds-entry-panel" style="display:none;border:1px solid rgba(240,165,0,.3);border-radius:14px;padding:16px;margin-bottom:12px;background:var(--bg2)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:.82rem;font-weight:800;color:var(--t1)">📋 Enter HR Prop Odds</div>
+        <button onclick="document.getElementById('odds-entry-panel').style.display='none'" style="background:none;border:none;color:var(--t4);font-size:1.3rem;cursor:pointer;padding:4px 8px">✕</button>
+      </div>
+      <div style="font-size:.62rem;color:var(--t3);padding:8px 10px;border-radius:8px;background:rgba(240,165,0,.06);border:1px solid rgba(240,165,0,.15);margin-bottom:10px;line-height:1.65">
+        💡 FanDuel app blocks text copy. Use <b style="color:var(--t2)">Safari → fanduel.com</b> or type below:<br>
+        <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>
+      </div>
+      <textarea id="odds-panel-input" rows="6"
+        placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400"
+        style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.85rem;font-family:monospace;line-height:1.9;box-sizing:border-box;display:block;margin-bottom:8px"
+        oninput="(function(t){var p=t.value,r=parseOddsText(p),el=document.getElementById('odds-panel-preview');if(!el)return;if(!p.trim()){el.textContent='';return;}el.innerHTML=r.length?'<span style=color:var(--green)>✓ '+r.length+' found: '+r.slice(0,3).map(function(x){return x.name.split(' ').pop()+(x.odds>0?'+':'')+x.odds}).join(' · ')+(r.length>3?' +'+(r.length-3)+' more':'')+'</span>':'<span style=color:var(--red)>No valid odds found</span>';})(this)"></textarea>
+      <div id="odds-panel-preview" style="font-size:.64rem;min-height:16px;margin-bottom:8px;color:var(--t4)"></div>
+      <button onclick="loadOddsFromPanel()" style="width:100%;padding:14px;border-radius:10px;border:none;background:var(--amber);color:#000;font-weight:800;font-size:.86rem;cursor:pointer;display:block">✓ Load Odds</button>
+      <div id="odds-panel-clear-wrap" style="margin-top:8px"></div>
+    </div>
   </div>
 
   <!-- DISCOVER PAGE — Sleepers & Due -->
@@ -5405,95 +5424,84 @@ function clearAllTracking(){
 // ── MANUAL ODDS ENTRY ────────────────────────────────────────────
 // User pastes FanDuel HR props text — parser handles all common formats
 function showManualOddsEntry(){
-  // Toggle inline panel — no modal, no backdrop, no z-index issues
-  const existing = document.getElementById('odds-entry-panel');
-  if(existing){ existing.remove(); return; }
-
+  document.getElementById('odds-entry-modal')?.remove();
   const loaded = _fdOdds ? Object.keys(_fdOdds).length : 0;
-  const panel = document.createElement('div');
-  panel.id = 'odds-entry-panel';
-  panel.style.cssText = 'background:var(--bg2);border:1px solid rgba(240,165,0,.3);border-radius:14px;padding:16px;margin:0 0 12px;display:flex;flex-direction:column;gap:10px';
+  const modal = document.createElement('div');
+  modal.id = 'odds-entry-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
+  modal.innerHTML = `
+    <div style="width:100%;max-width:400px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+      <div style="font-size:.88rem;font-weight:800;color:var(--t1);margin-bottom:4px">📋 Enter HR Prop Odds</div>
+      <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">One per line: <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>${loaded ? ` · <b style="color:var(--amber)">${loaded} already loaded</b>` : ''}</div>
+      <div style="font-size:.62rem;color:var(--t3);margin-bottom:12px">💡 FanDuel app blocks copying — use <b>Safari → fanduel.com</b></div>
+      <textarea id="odds-entry-text" placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400" rows="8"
+        style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.80rem;font-family:monospace;resize:vertical;box-sizing:border-box;line-height:1.8"></textarea>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button onclick="document.getElementById('odds-entry-modal').remove()"
+          style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);cursor:pointer;font-size:.75rem">Cancel</button>
+        <button onclick="processManualOdds()"
+          style="flex:2;padding:10px;border-radius:8px;border:none;background:var(--amber);color:#000;font-weight:800;cursor:pointer;font-size:.75rem">Load Odds</button>
+      </div>
+      ${loaded ? `<button onclick="window._fdOdds=null;_fdOddsLoaded=false;var s=document.getElementById('odds-status');if(s)s.textContent='📋 Enter Odds';document.getElementById('odds-entry-modal').remove();if(S.allRows.length){renderSlate();renderDailySummary();}" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(224,80,74,.3);background:transparent;color:var(--red);font-size:.68rem;cursor:pointer">🗑 Clear all ${loaded} loaded props</button>` : ''}
+    </div>`;
+  document.body.appendChild(modal);
+  modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
+  setTimeout(()=>document.getElementById('odds-entry-text')?.focus(), 100);
+}
 
-  // Build innerHTML with no event handlers — wire them after
-  panel.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <div style="font-size:.82rem;font-weight:800;color:var(--t1)">📋 Enter HR Prop Odds</div>
-      <button id="odds-panel-close" style="background:none;border:none;color:var(--t4);font-size:1.2rem;cursor:pointer;padding:4px 8px">✕</button>
-    </div>
-    <div style="font-size:.62rem;color:var(--t3);line-height:1.6;padding:8px 10px;background:rgba(240,165,0,.06);border-radius:8px;border:1px solid rgba(240,165,0,.15)">
-      💡 FanDuel app blocks copying. Use <b style="color:var(--t2)">Safari → fanduel.com</b> or type below:<br>
-      <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span> &nbsp;·&nbsp; one player per line
-      ${loaded ? `<br><b style="color:var(--amber)">${loaded} props already loaded</b> — new entries add to them` : ''}
-    </div>
-    <textarea id="odds-panel-input"
-      placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400"
-      style="width:100%;height:130px;padding:10px 12px;border-radius:8px;
-      border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);
-      font-size:.84rem;font-family:monospace;line-height:1.9;
-      box-sizing:border-box;resize:none"></textarea>
-    <div id="odds-panel-preview" style="font-size:.64rem;color:var(--t4);min-height:16px"></div>
-    <button id="odds-panel-load" style="width:100%;padding:14px;border-radius:10px;
-      border:none;background:var(--amber);color:#000;font-weight:800;
-      font-size:.86rem;cursor:pointer">✓ Load Odds</button>
-    ${loaded ? `<button id="odds-panel-clear" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(224,80,74,.3);background:transparent;color:var(--red);font-size:.70rem;cursor:pointer">🗑 Clear all ${loaded} loaded props</button>` : ''}`;
+function processManualOdds(){
+  const raw = document.getElementById('odds-entry-text')?.value?.trim();
+  if(!raw){ alert('Nothing entered.'); return; }
+  const parsed = parseOddsText(raw);
+  if(!parsed.length){ alert('No valid odds found.\nFormat: Aaron Judge +350'); return; }
+  document.getElementById('odds-entry-modal')?.remove();
+  if(!_fdOdds) window._fdOdds = {};
+  let added=0, updated=0;
+  for(const {name,odds} of parsed){
+    const key = normName(name);
+    const dec = odds>0 ? odds/100+1 : 100/Math.abs(odds)+1;
+    _fdOdds[key] ? updated++ : added++;
+    _fdOdds[key] = {odds, implied:1/dec, raw:name, manual:true};
+  }
+  _fdOddsLoaded = true;
+  _fdOddsTimestamp = Date.now();
+  const total = Object.keys(_fdOdds).length;
+  const s = document.getElementById('odds-status');
+  if(s) s.textContent = '📊 ' + total + ' props';
+  if(S.allRows.length){ renderSlate(); renderDailySummary(); }
+  alert('✅ ' + added + ' players added · ' + total + ' total props loaded.');
+}
 
-  // Insert at top of hitter-list
-  const list = document.getElementById('hitter-list');
-  if(list) list.insertBefore(panel, list.firstChild);
 
-  // Wire buttons — all addEventListener, nothing inline
-  document.getElementById('odds-panel-close').addEventListener('click', ()=>panel.remove());
-
-  document.getElementById('odds-panel-input').addEventListener('input', ()=>{
-    const text = document.getElementById('odds-panel-input').value;
-    const parsed = parseOddsText(text);
-    const prev = document.getElementById('odds-panel-preview');
-    if(!prev) return;
-    if(!text.trim()){ prev.textContent=''; return; }
-    if(!parsed.length){ prev.innerHTML='<span style="color:var(--red)">No valid odds found</span>'; return; }
-    const sample = parsed.slice(0,3).map(r=>`${r.name.split(' ').pop()} ${r.odds>0?'+':''}${r.odds}`).join(' · ');
-    prev.innerHTML = `<span style="color:var(--green)">✓ ${parsed.length} found: ${sample}${parsed.length>3?` +${parsed.length-3} more`:''}</span>`;
-  });
-
-  document.getElementById('odds-panel-load').addEventListener('click', ()=>{
-    const text = document.getElementById('odds-panel-input').value;
-    const parsed = parseOddsText(text);
-    if(!parsed.length){
-      const prev = document.getElementById('odds-panel-preview');
-      if(prev) prev.innerHTML = '<span style="color:var(--red)">No valid odds — format: Aaron Judge +350</span>';
-      return;
-    }
-    if(!_fdOdds) window._fdOdds = {};
-    let added=0, updated=0;
-    for(const {name,odds} of parsed){
-      const key = normName(name);
-      const dec = odds>0 ? odds/100+1 : 100/Math.abs(odds)+1;
-      _fdOdds[key] ? updated++ : added++;
-      _fdOdds[key] = {odds, implied:1/dec, raw:name, manual:true};
-    }
-    _fdOddsLoaded = true;
-    _fdOddsTimestamp = Date.now();
-    const total = Object.keys(_fdOdds).length;
-    const s = document.getElementById('odds-status');
-    if(s) s.textContent = `📊 ${total} props`;
-    panel.remove();
-    if(S.allRows.length){ renderSlate(); renderDailySummary(); }
-    // Success toast
-    const toast = document.createElement('div');
-    toast.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:200;padding:10px 20px;border-radius:99px;background:var(--green);color:#000;font-size:.78rem;font-weight:800;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4)';
-    toast.textContent = `✓ ${added} added · ${total} total props`;
-    document.body.appendChild(toast);
-    setTimeout(()=>toast.remove(), 2500);
-  });
-
-  const clearBtn = document.getElementById('odds-panel-clear');
-  if(clearBtn) clearBtn.addEventListener('click', ()=>{
-    window._fdOdds = null; _fdOddsLoaded = false;
-    const s = document.getElementById('odds-status');
-    if(s) s.textContent = '📋 Enter Odds';
-    panel.remove();
-    if(S.allRows.length){ renderSlate(); renderDailySummary(); }
-  });
+function loadOddsFromPanel(){
+  const ta = document.getElementById('odds-panel-input');
+  const text = ta ? ta.value : '';
+  const parsed = parseOddsText(text);
+  const prev = document.getElementById('odds-panel-preview');
+  if(!parsed.length){
+    if(prev) prev.innerHTML = '<span style="color:var(--red)">No valid odds — use: Aaron Judge +350</span>';
+    return;
+  }
+  if(!_fdOdds) window._fdOdds = {};
+  let added=0, updated=0;
+  for(const {name,odds} of parsed){
+    const key = normName(name);
+    const dec = odds>0 ? odds/100+1 : 100/Math.abs(odds)+1;
+    _fdOdds[key] ? updated++ : added++;
+    _fdOdds[key] = {odds, implied:1/dec, raw:name, manual:true};
+  }
+  _fdOddsLoaded = true;
+  _fdOddsTimestamp = Date.now();
+  const total = Object.keys(_fdOdds).length;
+  const s = document.getElementById('odds-status');
+  if(s) s.textContent = '📊 ' + total + ' props';
+  document.getElementById('odds-entry-panel').style.display = 'none';
+  if(S.allRows.length){ renderSlate(); renderDailySummary(); }
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:200;padding:10px 20px;border-radius:99px;background:var(--green);color:#000;font-size:.78rem;font-weight:800;white-space:nowrap';
+  toast.textContent = '✓ ' + added + ' added · ' + total + ' total props';
+  document.body.appendChild(toast);
+  setTimeout(function(){toast.remove();}, 2500);
 }
 
 
