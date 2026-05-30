@@ -1108,7 +1108,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
           background:var(--bg3);color:var(--t1);font-size:.80rem;font-family:monospace">
         <button onclick="(()=>{
           const k=document.getElementById('odds-key-input').value.trim();
-          if(!k){alert('Paste your Odds API key first.');return;}
+          if(!k){showToast('Paste your Odds API key first.','amber');return;}
           localStorage.setItem('dingeriq_odds_key',k);
           window.ODDS_API_KEY=k;
           loadFanDuelOdds(true).then(()=>{
@@ -1623,7 +1623,19 @@ async function _withSlot(fn){
   }
 }
 
-// ── AUTO-CALIBRATION ─────────────────────────────────────────────────────────
+// ── TOAST UTILITY — works in PWA standalone mode unlike alert() ──
+function showToast(msg, type='green', duration=2800){
+  const clr = type==='red' ? 'var(--red)' : type==='amber' ? 'var(--amber)' : 'var(--green)';
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+    z-index:9999;padding:11px 22px;border-radius:99px;background:${clr};
+    color:${type==='amber'?'#000':'#fff'};font-size:.80rem;font-weight:800;
+    white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4);
+    max-width:88vw;text-align:center;pointer-events:none`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), duration);
+}
 // Learns from your tracked bets: if model predicts 15% and you're hitting 10%,
 // factor = 0.67. Applied live to all displayed probabilities.
 // Needs MIN_CAL_BETS resolved bets before activating.
@@ -4858,7 +4870,7 @@ function recordResult(playerId, playerName, prob, actualHR){
   }catch(e){
     console.error('recordResult error:', e.message);
     // Fallback: show alert
-    alert(actualHR ? '✅ HR result saved!' : '❌ No HR result saved!');
+    showToast(actualHR ? '✅ HR result saved!' : '❌ No HR result saved.', actualHR?'green':'red');
   }
 }
 
@@ -5044,7 +5056,7 @@ function calcParlayOdds(legs){
 function addManualBet(playerId){
   try{
     const r = S.allRows.find(x=>String(x.id)===String(playerId));
-    if(!r){ alert('Player not loaded — load game first'); return; }
+    if(!r){ showToast('Player not loaded — load game first','amber'); return; }
     const key = 'hr_hub_results';
     const today = ds();
     const stored = JSON.parse(localStorage.getItem(key)||'[]');
@@ -5184,11 +5196,11 @@ function addParlayLeg(wagered, odds){
   const modal = document.getElementById('bet-entry-modal');
   // Find current player
   const r = window._betEntryPlayer;
-  if(!r){ alert('No player selected'); return; }
+  if(!r){ showToast('No player selected','amber'); return; }
 
   const legs = getParlayLegs();
   if(legs.some(l=>l.id===String(r.id))){
-    alert(`${r.name} is already in your parlay.`); return;
+    showToast(r.name+' is already in your parlay.','amber'); return;
   }
   legs.push({
     id: String(r.id), name: r.name, prob: r.prob,
@@ -5203,12 +5215,12 @@ function addParlayLeg(wagered, odds){
 
   // Update results tab if open
   if(window._betEntryCallback) window._betEntryCallback(null, null, 'parlay-leg-added');
-  alert(`✅ ${r.name} added to parlay (${legs.length} leg${legs.length>1?'s':''} so far)\n\nGo to Results → Pending to manage the parlay.`);
+  showToast('✅ '+r.name+' added to parlay ('+legs.length+' leg'+(legs.length>1?'s':'')+')','green');
 }
 
 function commitParlay(wagered){
   const legs = getParlayLegs();
-  if(legs.length < 2){ alert('Add at least 2 legs to make a parlay.'); return; }
+  if(legs.length < 2){ showToast('Add at least 2 legs first','amber'); return; }
   const combinedOdds = calcParlayOdds(legs.map(l=>l.odds).filter(Boolean));
   const key = 'hr_hub_results';
   const stored = JSON.parse(localStorage.getItem(key)||'[]');
@@ -5223,13 +5235,13 @@ function commitParlay(wagered){
   localStorage.setItem(key, JSON.stringify(stored));
   saveParlayLegs([]);
   renderResultsTab();
-  alert(`✅ Parlay locked in (${legs.length} legs, combined odds: ${combinedOdds>0?'+':''}${combinedOdds})`);
+  showToast('✅ Parlay locked! '+legs.length+' legs · '+(combinedOdds>0?'+':'')+combinedOdds,'green');
 }
 
 // ── EXPORT — clean formatted text for Notes/iMessage ─────────────
 function exportBetHistory(){
   const bets = JSON.parse(localStorage.getItem('hr_hub_results')||'[]').filter(r=>r.manualBet);
-  if(!bets.length){ alert('No bets to export.'); return; }
+  if(!bets.length){ showToast('No bets to export','amber'); return; }
 
   const resolved = bets.filter(b=>b.actual!==undefined&&b.actual!==null);
   const won = resolved.filter(b=>b.actual>0);
@@ -5354,8 +5366,8 @@ function _fallbackCopy(text){
   ta.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:180px;z-index:9999;font-size:11px;font-family:monospace;padding:8px';
   document.body.appendChild(ta);
   ta.select(); ta.setSelectionRange(0,99999);
-  try{ document.execCommand('copy'); alert('✅ Copied! Paste into Notes to save.'); }
-  catch{ alert('Select all text and copy manually:'); }
+  try{ document.execCommand('copy'); showToast('✅ Copied — paste into Notes to save','green'); }
+  catch{ showToast('Select all text and copy manually','amber'); }
   setTimeout(()=>ta.remove(), 8000);
 }
 
@@ -5386,7 +5398,7 @@ function importBetHistory(){
 
 function processImport(){
   const raw = document.getElementById('import-text')?.value?.trim();
-  if(!raw){ alert('Nothing pasted.'); return; }
+  if(!raw){ showToast('Nothing pasted','amber'); return; }
   document.getElementById('import-modal')?.remove();
   try{
     // Try to extract JSON from formatted text (look for [...] array)
@@ -5405,8 +5417,8 @@ function processImport(){
     });
     localStorage.setItem('hr_hub_results', JSON.stringify(merged));
     renderResultsTab();
-    alert(`✅ Imported ${added} bets (${imported.length-added} duplicates skipped).`);
-  }catch(err){ alert('Import failed: '+err.message+'\n\nMake sure you pasted the full export text.'); }
+    showToast('✅ Imported '+added+' bets ('+( imported.length-added)+' dupes skipped)','green');
+  }catch(err){ showToast('Import failed: '+err.message.slice(0,40),'red'); }
 }
 
 // clearAllTracking — wipe localStorage for fresh start
@@ -5451,9 +5463,9 @@ function showManualOddsEntry(){
 
 function processManualOdds(){
   const raw = document.getElementById('odds-entry-text')?.value?.trim();
-  if(!raw){ alert('Nothing entered.'); return; }
+  if(!raw){ showToast('Nothing entered.', 'red'); return; }
   const parsed = parseOddsText(raw);
-  if(!parsed.length){ alert('No valid odds found.\nFormat: Aaron Judge +350'); return; }
+  if(!parsed.length){ showToast('No valid odds — format: Aaron Judge +350', 'red'); return; }
   document.getElementById('odds-entry-modal')?.remove();
   if(!_fdOdds) window._fdOdds = {};
   let added=0, updated=0;
@@ -5467,9 +5479,9 @@ function processManualOdds(){
   _fdOddsTimestamp = Date.now();
   const total = Object.keys(_fdOdds).length;
   const s = document.getElementById('odds-status');
-  if(s) s.textContent = '📊 ' + total + ' props';
+  if(s) s.textContent = `📊 ${total} props`;
   if(S.allRows.length){ renderSlate(); renderDailySummary(); }
-  alert('✅ ' + added + ' players added · ' + total + ' total props loaded.');
+  showToast(`✓ ${added} added · ${total} total props loaded`, 'green');
 }
 
 
@@ -5578,7 +5590,7 @@ function commitManualOdds(){
   const text = document.getElementById('odds-paste-input')?.value || '';
   const parsed = parseOddsText(text);
   if(!parsed.length){
-    alert('No valid odds found. Use format: Player Name +350');
+    showToast('No valid odds — format: Aaron Judge +350','amber');
     return;
   }
 
