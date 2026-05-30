@@ -1123,8 +1123,6 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
       <div id="odds-key-status" style="font-size:.62rem;color:var(--t4);margin-top:8px"></div>
     </div>
 
-    <div id="model-perf-card"></div>
-    <div id="clv-stats-card"></div>
     <div id="auto-cal-card"></div>
 
     <!-- Tag Guide -->
@@ -1554,32 +1552,9 @@ function showPage(name){
   }
   if(name==='info'){
     renderTagGuide();
-    const el=document.getElementById('model-perf-card');
-    if(el){
-      const stats=getModelStats();
-      renderModelPerf(el);
-      autoTrackResults().then(()=>renderModelPerf(el));
-      // Show CLV stats
-      const clvEl = document.getElementById('clv-stats-card');
-      if(clvEl){
-        const clv = getCLVStats();
-        if(clv){
-          clvEl.innerHTML=`<div class="card" style="margin-bottom:10px">
-            <div class="slbl">📈 Closing Line Value (Model Sharpness)</div>
-            <div class="stat-scroll">
-              <div class="stat-box"><span class="sb-val">${clv.total}</span><span class="sb-lbl">Tracked</span></div>
-              <div class="stat-box"><span class="sb-val" style="color:${clv.beatClosePct>=55?'var(--green)':'var(--red)'}">${clv.beatClosePct}%</span><span class="sb-lbl">Beat Close</span></div>
-              <div class="stat-box"><span class="sb-val" style="color:${clv.avgCLV>0?'var(--green)':'var(--red)'}">${clv.avgCLV>0?'+':''}${clv.avgCLV}%</span><span class="sb-lbl">Avg CLV</span></div>
-              <div class="stat-box"><span class="sb-val" style="color:var(--amber)">${clv.verdict}</span><span class="sb-lbl">Verdict</span></div>
-            </div>
-            <div style="font-size:.62rem;color:var(--t4);margin-top:6px">CLV = Closing Line Value. If model consistently beats the closing line, it's genuinely sharp.</div>
-          </div>`;
-        }
-      }
-      // Show auto-calibration status
-      const calEl = document.getElementById('auto-cal-card');
-      if(calEl) renderAutoCalCard(calEl);
-    }
+    // Show auto-calibration status
+    const calEl = document.getElementById('auto-cal-card');
+    if(calEl) renderAutoCalCard(calEl);
   }
 }
 //  DATA FETCHING
@@ -1623,25 +1598,17 @@ async function _withSlot(fn){
   }
 }
 
-// ── TOAST UTILITY — works in PWA standalone mode unlike alert() ──
-function showToast(msg, type='green', duration=2800){
-  const clr = type==='red' ? 'var(--red)' : type==='amber' ? 'var(--amber)' : 'var(--green)';
-  const t = document.createElement('div');
-  t.style.cssText = `position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
-    z-index:9999;padding:11px 22px;border-radius:99px;background:${clr};
-    color:${type==='amber'?'#000':'#fff'};font-size:.80rem;font-weight:800;
-    white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4);
-    max-width:88vw;text-align:center;pointer-events:none`;
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(()=>t.remove(), duration);
+// ── TOAST UTILITY ──
+function showToast(msg, type, duration){
+  var t2 = type||'green', d2 = duration||2800;
+  var clr2 = t2==='red' ? 'var(--red)' : t2==='amber' ? 'var(--amber)' : 'var(--green)';
+  var el = document.createElement('div');
+  el.setAttribute('style','position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:9999;padding:11px 22px;border-radius:99px;background:'+clr2+';color:'+(t2==='amber'?'#000':'#fff')+';font-size:.80rem;font-weight:800;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:88vw;text-align:center;pointer-events:none');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(function(){try{el.parentNode.removeChild(el);}catch(e){}},d2);
 }
-// Learns from your tracked bets: if model predicts 15% and you're hitting 10%,
-// factor = 0.67. Applied live to all displayed probabilities.
-// Needs MIN_CAL_BETS resolved bets before activating.
-const MIN_CAL_BETS = 15;
-const CAL_SMOOTHING = 0.70;
-let _autoCal = null;
+
 
 function computeAutoCalibration(){
   try{
@@ -4986,8 +4953,6 @@ async function autoTrackResults(){
     // Refresh model performance display if on info tab
     const infoPage = document.getElementById('page-info');
     if(infoPage?.classList.contains('active')){
-      const el = document.getElementById('model-perf-card');
-      if(el) renderModelPerf(el);
     }
   }catch(e){ console.warn('[autoTrack] error:', e.message); }
 }
@@ -5042,7 +5007,7 @@ function addManualBet(playerId){
     const existing = stored.find(x=>String(x.id)===String(r.id)&&x.date===today&&x.manualBet&&x.betType!=='parlay');
 
     if(existing){
-      if(!confirm(`${r.name} already tracked today. Remove?`)) return;
+      // Allow multiple bets same player
       stored.splice(stored.indexOf(existing),1);
       localStorage.setItem(key, JSON.stringify(stored));
       renderDetail(r); return;
@@ -5179,25 +5144,17 @@ function toggleSlateParlay(id){
   const r = S.allRows.find(x=>String(x.id)===String(id));
   if(!r){ showToast('Load game first','amber'); return; }
   const legs = getParlayLegs();
-  const idx = legs.findIndex(l=>l.id===String(id));
-  if(idx>=0){
-    legs.splice(idx,1);
-    saveParlayLegs(legs);
-    showToast(r.name.split(' ').pop()+' removed','amber');
-  } else {
-    if(legs.length>=12){ showToast('Max 12 legs','amber'); return; }
-    legs.push({
-      id: String(r.id), name: r.name, prob: r.prob,
-      odds: getFDOdds(r.name)||null, date: ds(),
-      gamePk: String(r._gamePk||r.gamePk||''), team: r.team||'',
-      sgpGroup: null, // null = standalone leg; 'sgp_PKK' = grouped into an SGP
-    });
-    saveParlayLegs(legs);
-    showToast(r.name.split(' ').pop()+' added to parlay ·'+legs.length+' legs','green');
-  }
-  // Re-render slate cards to update parlay button state
+  if(legs.length>=12){ showToast('Max 12 legs','amber'); return; }
+  legs.push({ id:String(r.id), name:r.name, prob:r.prob,
+    odds:getFDOdds(r.name)||null, date:ds(),
+    gamePk:String(r._gamePk||r.gamePk||''), team:r.team||'', sgpGroup:null });
+  saveParlayLegs(legs);
+  const count = legs.filter(l=>l.id===String(id)).length;
+  const msg = count > 1
+    ? r.name.split(' ').pop()+' added again ('+count+'x) · '+legs.length+' legs total'
+    : r.name.split(' ').pop()+' added · '+legs.length+' leg'+(legs.length!==1?'s':'');
+  showToast(msg,'green');
   renderSlate();
-  // Re-render results tab if open
   if(document.getElementById('page-results')?.classList.contains('active')) renderResultsTab();
 }
 
@@ -5205,9 +5162,7 @@ function addParlayLeg(wagered, odds){
   const r = window._betEntryPlayer;
   if(!r){ showToast('No player selected','amber'); return; }
   const legs = getParlayLegs();
-  if(legs.some(l=>l.id===String(r.id))){
-    showToast(r.name+' is already in your parlay.','amber'); return;
-  }
+  // Allow same player multiple times in parlay
   legs.push({
     id: String(r.id), name: r.name, prob: r.prob,
     odds: odds||getFDOdds(r.name)||null, date: ds(),
@@ -5492,7 +5447,6 @@ function clearAllTracking(){
   localStorage.removeItem('hr_hub_results');
   const el = document.getElementById('results-content');
   if(el) el.innerHTML = '<div class="empty" style="padding:40px 0">Tracking cleared. Tap Track Bet on any player to start tracking.</div>';
-  renderModelPerf(document.getElementById('model-perf-card'));
 }
 
 // importBetHistory — textarea modal implementation above
@@ -5549,6 +5503,27 @@ function processManualOdds(){
   showToast(`✓ ${added} added · ${total} total props loaded`, 'green');
 }
 
+
+function quickTrackKelly(playerId, odds, wagered){
+  const r = S.allRows.find(x=>String(x.id)===String(playerId));
+  if(!r){ showToast('Player not loaded','amber'); return; }
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  // Avoid exact duplicates (same player, same date, not yet resolved)
+  const today = ds();
+  // Multiple bets on same player allowed
+  stored.push({
+    id: playerId, name: r.name, prob: r.prob, _rawProb: r._rawProb||r.prob,
+    date: today, manualBet: true, betType: 'single',
+    odds: odds||getFDOdds(r.name)||null,
+    fdOdds: odds||getFDOdds(r.name)||null,
+    wagered: wagered||null,
+    actual: undefined,
+  });
+  if(stored.length>2000) stored.splice(0,stored.length-2000);
+  localStorage.setItem('hr_hub_results', JSON.stringify(stored));
+  computeAutoCalibration();
+  showToast('✅ '+r.name.split(' ').pop()+' tracked · $'+Number(wagered).toFixed(2)+' · '+(odds>0?'+':'')+odds,'green',3000);
+}
 
 function loadOddsFromPanel(){
   const ta = document.getElementById('odds-panel-input');
@@ -12785,22 +12760,28 @@ function renderDetail(r){
         ${kelly2 && kelly2.units > 0 ? `
         <div style="margin-bottom:10px">
           <div style="font-size:.60rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-            letter-spacing:.07em;margin-bottom:6px">Kelly Sizing (¼ Kelly)</div>
+            letter-spacing:.07em;margin-bottom:6px">Tap to Track · Kelly Sizing (¼ Kelly)</div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
             ${[['$50 bank', 50],['$100 bank', 100],['$250 bank', 250],
                ['$500 bank', 500],['$1k bank', 1000],['$2k bank', 2000]]
               .map(([lbl,bank])=>{
                 const bet = Math.round(bank * kelly2.kelly * 0.25 / 100 * 100)/100;
                 const win = Math.round(bet * (fdOdds2>0 ? fdOdds2/100 : 100/Math.abs(fdOdds2)) * 100)/100;
-                return `<div style="padding:7px 8px;background:var(--bg3);border-radius:7px;text-align:center">
-                  <div style="font-size:.72rem;font-weight:800;color:${tierColor}">$${bet.toFixed(2)}</div>
+                const betStr = bet.toFixed(2);
+                return `<button onclick="quickTrackKelly('${r.id}',${fdOdds2},${betStr})"
+                  style="padding:7px 8px;background:var(--bg3);border-radius:7px;text-align:center;
+                  border:1px solid var(--bdr);cursor:pointer;transition:border-color .15s;width:100%;
+                  -webkit-tap-highlight-color:rgba(240,165,0,.15)"
+                  onmouseenter="this.style.borderColor='var(--amber)'"
+                  onmouseleave="this.style.borderColor='var(--bdr)'">
+                  <div style="font-size:.72rem;font-weight:800;color:${tierColor}">$${betStr}</div>
                   <div style="font-size:.58rem;color:var(--t4)">${lbl}</div>
                   <div style="font-size:.58rem;color:var(--green);margin-top:1px">+$${win.toFixed(0)} win</div>
-                </div>`;
+                </button>`;
               }).join('')}
           </div>
           <div style="font-size:.60rem;color:var(--t4);margin-top:6px;text-align:center">
-            Kelly: ${kelly2.kelly.toFixed(1)}% · Using ¼ Kelly = ${(kelly2.kelly*0.25).toFixed(1)}% of bankroll
+            Kelly: ${kelly2.kelly.toFixed(1)}% · ¼ Kelly = ${(kelly2.kelly*0.25).toFixed(1)}% · Tap any size to track instantly
           </div>
         </div>` : tier2?.tier==='F' ? `
         <div style="padding:8px 10px;background:rgba(224,80,74,.08);border-radius:8px;
