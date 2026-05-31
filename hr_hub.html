@@ -3677,7 +3677,6 @@ async function ensurePercentileMap(){
     const pf = (row,c) => { const v=parseFloat(row[c]); return isNaN(v)||v===0?null:v; };
     const pi = (row,...cs) => { for(const c of cs){ const v=parseInt(row[c]); if(!isNaN(v)&&v>0)return v; } return null; };
 
-    // First pass: collect raw values
     for(const row of rows){
       const pid = String(row[idC]||'').replace(/\.0$/,'');
       if(!pid) continue;
@@ -3693,8 +3692,9 @@ async function ensurePercentileMap(){
         bb:          pf(row,'bb_percent'),
         sprint:      pf(row,'sprint_speed'),
         whiff:       pf(row,'whiff_percent'),
-        pa:          pf(row,'pa')||pf(row,'pa_total'),
-        // Pre-computed Savant ranks (only EV/barrel/xwOBA reliably present)
+        chase:       pf(row,'oz_swing_percent')     ?? pf(row,'o_swing_percent') ?? pf(row,'chase_rate'),
+        pa:          pf(row,'pa')                   ?? pf(row,'pa_total'),
+        // Pre-computed Savant percentile ranks
         evPct:       pi(row,'percent_rank_exit_velocity','p_exit_velocity'),
         brlPct:      pi(row,'percent_rank_barrel','p_brl_percent'),
         xwobaPct:    pi(row,'percent_rank_xwoba','p_xwoba'),
@@ -3705,38 +3705,82 @@ async function ensurePercentileMap(){
         bbPct:       pi(row,'percent_rank_bb_percent','percent_rank_bb','p_bb_percent'),
         hardHitPct:  pi(row,'percent_rank_hard_hit','percent_rank_ev95','p_ev95percent'),
         sprintPct:   pi(row,'percent_rank_sprint_speed','p_sprint_speed'),
+        whiffPct:    pi(row,'percent_rank_whiff_percent','p_whiff_percent'),
+        chasePct:    pi(row,'percent_rank_oz_swing','percent_rank_chase_rate','p_oz_swing_percent'),
       };
     }
 
-    // Second pass: for any missing percentile ranks, compute from distribution
-    const statKeys = ['ev','barrelPct','hardHit','xwoba','xba','xslg','sweetSpot','k','bb','sprint'];
-    const pctKeys  = ['evPct','brlPct','hardHitPct','xwobaPct','xbaPct','xslgPct','sweetSpotPct','kPct','bbPct','sprintPct'];
-    const invertedKeys = new Set(['kPct']); // lower raw = higher percentile
-
-    // Build sorted arrays for each stat
-    const sortedVals = {};
+    // Second pass: compute missing ranks from distribution
+    const statKeys    = ['ev','barrelPct','hardHit','xwoba','xba','xslg','sweetSpot','k','bb','sprint','whiff','chase'];
+    const pctKeys     = ['evPct','brlPct','hardHitPct','xwobaPct','xbaPct','xslgPct','sweetSpotPct','kPct','bbPct','sprintPct','whiffPct','chasePct'];
+    const invertedSet = new Set(['kPct','whiffPct','chasePct']); // lower raw = higher percentile
+    const sortedVals  = {};
     for(let i=0;i<statKeys.length;i++){
       const sk=statKeys[i];
-      const vals = Object.values(_percentileMap).map(p=>p[sk]).filter(v=>v!=null&&v>0);
+      const vals=Object.values(_percentileMap).map(p=>p[sk]).filter(v=>v!=null&&v>0);
       vals.sort((a,b)=>a-b);
-      sortedVals[sk] = vals;
+      sortedVals[sk]=vals;
     }
-
-    // Fill missing percentile ranks
     for(const pm of Object.values(_percentileMap)){
       for(let i=0;i<statKeys.length;i++){
-        const sk=statKeys[i], pk=pctKeys[i];
-        if(pm[pk]!=null) continue; // already have it
+        const sk=statKeys[i],pk=pctKeys[i];
+        if(pm[pk]!=null) continue;
         const val=pm[sk]; if(val==null) continue;
         const arr=sortedVals[sk]; if(!arr.length) continue;
         const idx=arr.findIndex(v=>v>=val);
-        const rawPct = idx<0 ? 99 : Math.round(idx/arr.length*100);
-        pm[pk] = invertedKeys.has(pk) ? 100-rawPct : rawPct;
+        const raw=idx<0?99:Math.round(idx/arr.length*100);
+        pm[pk]=invertedSet.has(pk)?100-raw:raw;
       }
     }
 
-    console.log('[Percentile] loaded', Object.keys(_percentileMap).length, 'players, sample:',
-      Object.entries(Object.values(_percentileMap)[0]||{}).slice(0,8).map(([k,v])=>`${k}=${v}`).join(' '));
+    console.log('[Percentile] loaded',Object.keys(_percentileMap).length,'players');
+
+    // ── Also load bat tracking (bat speed, squared-up%, blast%) ─────────────
+    try{
+      const btUrl=`https://baseballsavant.mlb.com/leaderboard/bat-tracking?attackZone=&batSide=&contactType=&count=&dateStart=&dateEnd=&gameType=&isOAA=false&minSwings=50&minGroupSwings=1&pitchType=&position=&resultType=&seasonStart=${SEASON}&seasonEnd=${SEASON}&team=&type=batter&csv=true`;
+      const btResp=await fetch(PROXY+encodeURIComponent(btUrl));
+      if(btResp.ok){
+        const btRows=parseCSVText(await btResp.text());
+        const bs=btRows[0]||{};
+        const btIdC=['player_id','batter','id'].find(c=>bs[c]!=null);
+        console.log('[BatTracking] cols:',Object.keys(bs).slice(0,15).join(', '));
+        for(const row of btRows){
+          const pid=String(row[btIdC]||'').replace(/\.0$/,'');
+          if(!pid) continue;
+          const batSpd = parseFloat(row.avg_swing_speed||row.swing_speed||row.bat_speed||0)||null;
+          const sqUp   = parseFloat(row.squared_up_percent||row.squared_up_rate||row.sq_up_percent||0)||null;
+          const blast  = parseFloat(row.blast_rate||row.hard_swing_rate||0)||null;
+          const batSpdPct = parseInt(row.p_avg_swing_speed||row.percent_rank_avg_swing_speed||row.percent_rank_swing_speed||0)||null;
+          const sqUpPct   = parseInt(row.p_squared_up_percent||row.percent_rank_squared_up||0)||null;
+          // Merge into existing percentileMap entry or create new
+          if(!_percentileMap[pid]) _percentileMap[pid]={};
+          Object.assign(_percentileMap[pid],{
+            batSpeed:    batSpd,
+            squaredUp:   sqUp,
+            blast:       blast,
+            batSpeedPct: batSpdPct,
+            squaredUpPct:sqUpPct,
+          });
+          // Also update _swingSpeedMap for backward compat
+          if(batSpd!=null && _swingSpeedMap!==null) _swingSpeedMap[pid]={swingSpeed:batSpd,blastPct:blast};
+        }
+        // Compute bat speed percentiles from distribution if missing
+        const bsVals=Object.values(_percentileMap).map(p=>p.batSpeed).filter(v=>v!=null&&v>0).sort((a,b)=>a-b);
+        const suVals=Object.values(_percentileMap).map(p=>p.squaredUp).filter(v=>v!=null&&v>0).sort((a,b)=>a-b);
+        for(const pm of Object.values(_percentileMap)){
+          if(!pm.batSpeedPct && pm.batSpeed!=null && bsVals.length>10){
+            const i=bsVals.findIndex(v=>v>=pm.batSpeed);
+            pm.batSpeedPct=i<0?99:Math.round(i/bsVals.length*100);
+          }
+          if(!pm.squaredUpPct && pm.squaredUp!=null && suVals.length>10){
+            const i=suVals.findIndex(v=>v>=pm.squaredUp);
+            pm.squaredUpPct=i<0?99:Math.round(i/suVals.length*100);
+          }
+        }
+        console.log('[BatTracking] merged into percentileMap');
+      }
+    }catch(btErr){ console.warn('[BatTracking]:', btErr.message); }
+
   }catch(e){ console.warn('[Percentile]:', e.message); _percentileMap={}; }
 }
 
@@ -11925,7 +11969,8 @@ function renderDetail(r){
               // Try _pm (Savant pre-computed rank) first
               const pmKeys={avg_ev:'evPct',barrel_pct:'brlPct',hard_hit_pct:'hardHitPct',
                 xwoba:'xwobaPct',xba:'xbaPct',xslg:'xslgPct',sweet_spot:'sweetSpotPct',
-                k_pct:'kPct',bb_pct:'bbPct',whiff:'whiffRate',chase:'chaseRate'};
+                bat_speed:'batSpeedPct',squared_up:'squaredUpPct',
+                k_pct:'kPct',bb_pct:'bbPct',whiff:'whiffPct',chase:'chasePct'};
               if(_pm && _pm[pmKeys[key]]!=null) return _pm[pmKeys[key]];
 
               // Estimate from MLB distribution
@@ -11943,18 +11988,19 @@ function renderDetail(r){
 
             // ── Build raw value for each stat ──────────────────────────────
             const stats=[
-              {key:'xwoba',     val:_pm?.xwoba??null},
-              {key:'xba',       val:_pm?.xba??null},
-              {key:'xslg',      val:_pm?.xslg??null},
-              {key:'avg_ev',    val:r.avg_ev??null},
-              {key:'barrel_pct',val:r.barrel_pct??null},
-              {key:'hard_hit_pct',val:r.hard_hit_pct??null},
-              {key:'sweet_spot',val:_pm?.sweetSpot??null},
-              {key:'bat_speed', val:_sw.swingSpeed??null},
-              {key:'k_pct',     val:_pm?.k??null},
-              {key:'bb_pct',    val:_pm?.bb??null},
-              {key:'whiff',     val:r.whiffRate??null},
-              {key:'chase',     val:r.chaseRate??null},
+              {key:'xwoba',      val:_pm?.xwoba??null},
+              {key:'xba',        val:_pm?.xba??null},
+              {key:'xslg',       val:_pm?.xslg??null},
+              {key:'avg_ev',     val:_pm?.ev??r.avg_ev??null},
+              {key:'barrel_pct', val:_pm?.barrelPct??r.barrel_pct??null},
+              {key:'hard_hit_pct',val:_pm?.hardHit??r.hard_hit_pct??null},
+              {key:'sweet_spot', val:_pm?.sweetSpot??null},
+              {key:'bat_speed',  val:_pm?.batSpeed??_sw.swingSpeed??null},
+              {key:'squared_up', val:_pm?.squaredUp??null},
+              {key:'k_pct',      val:_pm?.k??null},
+              {key:'bb_pct',     val:_pm?.bb??null},
+              {key:'whiff',      val:_pm?.whiff??null},
+              {key:'chase',      val:_pm?.chase??null},
             ].filter(s=>s.val!=null);
 
             if(!stats.length) return '<div style="padding:20px;text-align:center;font-size:.70rem;color:var(--t4)">No Statcast data — load a game first</div>';
@@ -12136,15 +12182,15 @@ function renderDetail(r){
       const pid     = String(r._batPid||r.id);
       const detailId= 'rf-'+pid;
       const abRows  = (S.abBatterPid===pid) ? (S.abRows||null) : null;
-      const l7  = recent.slice(0,7);
       const l14 = recent.slice(0,14);
+      const l30 = recent.slice(0,30);
       return `<div class="card" style="margin-bottom:10px" id="${detailId}-form">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <div class="slbl" style="margin:0">📅 Recent Form</div>
           <div style="font-size:.58rem;color:var(--t4)">△ = vs season avg</div>
         </div>
         <div style="display:flex;gap:5px;margin-bottom:12px">
-          ${[['L7','L7'],['L14','L14'],['L15_BIP','L15 BIP']].map(([key,lbl],i)=>`
+          ${[['L14','L14'],['L30','L30'],['L30_BIP','L30 BIP']].map(([key,lbl],i)=>`
             <button onclick="switchRecentFormTab('${detailId}','${key}')" id="${detailId}-tab-${key}"
               style="flex:1;padding:7px 4px;border-radius:8px;font-size:.65rem;font-weight:700;cursor:pointer;
               ${i===0
@@ -12153,14 +12199,14 @@ function renderDetail(r){
               ${lbl}
             </button>`).join('')}
         </div>
-        <div id="${detailId}-panel-L7">
+        <div id="${detailId}-panel-L30">
           ${buildRecentFormPanel(r, l7, abRows, 'L7')}
         </div>
-        <div id="${detailId}-panel-L14" style="display:none">
+        <div id="${detailId}-panel-L30" style="display:none">
           ${buildRecentFormPanel(r, l14, abRows, 'L14')}
         </div>
-        <div id="${detailId}-panel-L15_BIP" style="display:none">
-          ${buildRecentFormPanel(r, l14, abRows, 'L15_BIP')}
+        <div id="${detailId}-panel-L30_BIP" style="display:none">
+          ${buildRecentFormPanel(r, l14, abRows, 'L30_BIP')}
         </div>
       </div>`;
     })()}
@@ -13256,7 +13302,7 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 //  RECENT FORM TAB HELPERS
 // ==================================================================
 function switchRecentFormTab(detailId, tab){
-  ['L7','L14','L15_BIP'].forEach(t=>{
+  ['L14','L30','L30_BIP'].forEach(t=>{
     const btn   = document.getElementById(detailId+'-tab-'+t);
     const panel = document.getElementById(detailId+'-panel-'+t);
     const active = t === tab.replace(/ /g,'_');
@@ -13305,13 +13351,13 @@ function buildRecentFormPanel(r, games, abRows, mode){
   var bips = null;
   if(abRows && abRows.length){
     var evRows = abRows.filter(function(b){return b.ev!=null&&!isNaN(b.ev);});
-    if(mode==='L15_BIP') evRows = evRows.slice(0,15);
-    else if(mode==='L7'){
-      var cut7 = new Date(); cut7.setDate(cut7.getDate()-7);
-      evRows = evRows.filter(function(b){return b.date && new Date(b.date)>=cut7;});
-    } else { // L14
+    if(mode==='L30_BIP') evRows = evRows.slice(0,30);
+    else if(mode==='L14'){
       var cut14 = new Date(); cut14.setDate(cut14.getDate()-14);
       evRows = evRows.filter(function(b){return b.date && new Date(b.date)>=cut14;});
+    } else { // L30
+      var cut30 = new Date(); cut30.setDate(cut30.getDate()-30);
+      evRows = evRows.filter(function(b){return b.date && new Date(b.date)>=cut30;});
     }
     if(evRows.length){
       var n       = evRows.length;
@@ -13353,7 +13399,7 @@ function buildRecentFormPanel(r, games, abRows, mode){
   }
 
   // ── HR dots ─────────────────────────────────────────────────────────────
-  var dots = games.slice(0, mode==='L7'?7:14).map(function(g){
+  var dots = games.slice(0, mode==='L14'?14:30).map(function(g){
     return g.hr>0
       ? '<div style="width:10px;height:10px;border-radius:50%;background:#ffd700;flex-shrink:0;box-shadow:0 0 5px rgba(255,215,0,.5)" title="'+(g.date||'')+(g.opp?' vs '+g.opp:'')+' — HR"></div>'
       : '<div style="width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.14);flex-shrink:0" title="'+(g.date||'')+(g.opp?' vs '+g.opp:'')+'"></div>';
