@@ -10510,16 +10510,16 @@ function filterSprayChart(sprayId, pitchType, playerId){
 
 function switchMatchupTab(playerId, tab){
   const panels = ['arsenal','stats','spray','splits','pctile'];
-  const colors  = {arsenal:'var(--green)',stats:'#3b82f6',spray:'#06b6d4',splits:'var(--amber)'};
-  const textClr = {arsenal:'#000',stats:'#fff',spray:'#000',splits:'#000'};
+  const colors  = {arsenal:'var(--green)',stats:'#3b82f6',spray:'#06b6d4',splits:'var(--amber)',pctile:'#8b5cf6'};
+  const textClr = {arsenal:'#000',stats:'#fff',spray:'#000',splits:'#000',pctile:'#fff'};
 
   panels.forEach(p=>{
     const panel = document.getElementById(`panel-${p}-${playerId}`);
     const btn   = document.getElementById(`tab-${p}-${playerId}`);
     if(panel) panel.style.display = p===tab ? 'block' : 'none';
     if(btn){
-      btn.style.background = p===tab ? colors[p] : 'var(--bg3)';
-      btn.style.color      = p===tab ? textClr[p] : 'var(--t3)';
+      btn.style.background = p===tab ? (colors[p]||'var(--amber)') : 'var(--bg3)';
+      btn.style.color      = p===tab ? (textClr[p]||'#000') : 'var(--t3)';
     }
   });
 
@@ -10535,6 +10535,90 @@ function switchMatchupTab(playerId, tab){
         setTimeout(()=>switchMatchupTab(playerId,'splits'),50);
       }
     }
+  }
+
+  // Percentile: build panel dynamically so data is always fresh
+  if(tab==='pctile'){
+    const pctPanel = document.getElementById(`panel-pctile-${playerId}`);
+    if(!pctPanel) return;
+    const r = S.allRows.find(x=>String(x.id)===String(playerId));
+    if(!r){ pctPanel.innerHTML='<div style="color:var(--t4);padding:16px;font-size:.72rem;text-align:center">Player data not found</div>'; return; }
+
+    const pid = String(r._batPid||r.id);
+    const pm  = (_percentileMap||{})[pid] || (_percentileMap||{})[String(r.id)] || {};
+    const sw  = (_swingSpeedMap||{})[pid] || (_swingSpeedMap||{})[String(r.id)] || {};
+
+    const hasAny = Object.values(pm).some(v=>v!=null&&v>0);
+
+    if(!hasAny){
+      pctPanel.innerHTML = '<div style="font-size:.70rem;color:var(--t4);text-align:center;padding:24px 0">Percentile data loading…<br><span style="font-size:.62rem">Available after leaderboards finish loading.</span></div>';
+      // Re-check after 2s
+      setTimeout(()=>{ if(document.getElementById(`panel-pctile-${playerId}`)?.style.display!=='none') switchMatchupTab(playerId,'pctile'); }, 2000);
+      return;
+    }
+
+    // ── Build the chart ─────────────────────────────────────────────────
+    const f3 = v => v!=null ? '.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3) : null;
+
+    // Bat speed percentile from distribution
+    let batSpeedPct = null;
+    if(sw.swingSpeed!=null){
+      const all=Object.values(_swingSpeedMap||{}).map(x=>x.swingSpeed).filter(v=>v!=null).sort((a,b)=>a-b);
+      if(all.length>10){ const idx=all.findIndex(v=>v>=sw.swingSpeed); batSpeedPct=idx<0?99:Math.round(idx/all.length*100); }
+    }
+
+    function pctRow(lbl, pct, val, inv){
+      if(pct==null && val==null) return '';
+      const p   = pct!=null ? Math.max(1,Math.min(99,pct)) : null;
+      const eff = p!=null ? (inv?100-p:p) : null;
+      const clr = eff==null?'var(--t4)':eff>=80?'#22c95e':eff>=60?'#4ade80':eff>=40?'#94a3b8':eff>=20?'#f59e0b':'#e0504a';
+      const grade = eff==null?'':eff>=80?'Elite':eff>=60?'Great':eff>=40?'Avg':eff>=20?'Poor':'Poor';
+      const fill  = p!=null ? p : 0;
+      const inside= fill>=32;
+      const bar   = p!=null
+        ? `<div style="position:relative;flex:1;height:22px;border-radius:6px;overflow:hidden;background:var(--bg3)">
+            <div style="height:100%;width:${fill}%;background:${clr};border-radius:6px;opacity:.85;transition:width .3s"></div>
+            <div style="position:absolute;left:33.3%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.1)"></div>
+            <div style="position:absolute;left:66.6%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.1)"></div>
+            <div style="position:absolute;inset:0;display:flex;align-items:center;${inside?'justify-content:flex-end;padding-right:6px':'justify-content:flex-start;padding-left:6px'}">
+              <span style="font-size:.63rem;font-weight:800;color:${inside?'rgba(0,0,0,.9)':'rgba(255,255,255,.85)'};">${Math.round(p)}</span>
+            </div>
+          </div>`
+        : `<div style="flex:1;height:22px;border-radius:6px;background:var(--bg3);opacity:.3"></div>`;
+
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="width:90px;flex-shrink:0">
+          <div style="font-size:.63rem;color:var(--t3);line-height:1.2">${lbl}${inv?' ↓':''}</div>
+          ${val?`<div style="font-size:.59rem;color:var(--t4)">${val}</div>`:''}
+        </div>
+        ${bar}
+        <div style="width:56px;flex-shrink:0;text-align:right;font-size:.60rem;font-weight:800;color:${clr}">${grade}</div>
+      </div>`;
+    }
+
+    pctPanel.innerHTML =
+      `<div style="display:flex;justify-content:space-between;font-size:.51rem;color:var(--t4);
+        margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">
+        <span style="color:#e0504a">◀ Poor</span><span>Average</span><span style="color:#22c95e">Great ▶</span>
+       </div>`
+      + pctRow('xwOBA',      pm.xwobaPct,    pm.xwoba!=null    ? f3(pm.xwoba)                        : null,  false)
+      + pctRow('xBA',        pm.xbaPct,      pm.xba!=null      ? f3(pm.xba)                          : null,  false)
+      + pctRow('xSLG',       pm.xslgPct,     pm.xslg!=null     ? f3(pm.xslg)                         : null,  false)
+      + pctRow('Exit Velocity', pm.evPct,    pm.ev!=null       ? pm.ev.toFixed(1)+' mph'
+                                              : r.avg_ev!=null  ? r.avg_ev.toFixed(1)+' mph'          : null,  false)
+      + pctRow('Barrel %',   pm.brlPct,      pm.barrelPct!=null? pm.barrelPct.toFixed(1)+'%'
+                                              : r.barrel_pct!=null? r.barrel_pct.toFixed(1)+'%'       : null,  false)
+      + pctRow('Hard Hit %', pm.hardHitPct,  pm.hardHit!=null  ? pm.hardHit.toFixed(1)+'%'
+                                              : r.hard_hit_pct!=null? r.hard_hit_pct.toFixed(1)+'%'   : null,  false)
+      + pctRow('Sweet Spot%',pm.sweetSpotPct,pm.sweetSpot!=null? pm.sweetSpot.toFixed(1)+'%'         : null,  false)
+      + pctRow('Bat Speed',  batSpeedPct,    sw.swingSpeed!=null? sw.swingSpeed.toFixed(1)+' mph'     : null,  false)
+      + pctRow('K %',        pm.kPct,        pm.k!=null        ? pm.k.toFixed(1)+'%'                 : null,  true)
+      + pctRow('BB %',       pm.bbPct,       pm.bb!=null       ? pm.bb.toFixed(1)+'%'                : null,  false)
+      + pctRow('Whiff %',    null,           r.whiffRate!=null ? r.whiffRate.toFixed(1)+'%'           : null,  true)
+      + pctRow('Chase %',    null,           r.chaseRate!=null ? r.chaseRate.toFixed(1)+'%'           : null,  true)
+      + `<div style="font-size:.54rem;color:var(--t4);margin-top:8px;opacity:.6">
+          Baseball Savant · ${SEASON} season · bar = MLB percentile · ↓ lower is better
+         </div>`;
   }
 }
 
