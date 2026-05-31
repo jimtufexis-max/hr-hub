@@ -226,8 +226,21 @@ input:focus,textarea:focus{border-color:var(--amber)}
 .stat-chip.bad  .val{color:var(--red)}
 
 /* ── Loading Spinner ─────────────────────────────────────────── */
-.spinner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:40px 20px;color:var(--t4);font-size:.78rem}
-.spin{width:32px;height:32px;border:3px solid rgba(255,255,255,.1);border-top-color:var(--amber);border-radius:50%;animation:spin .75s linear infinite}
+.spinner{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:60px 20px;color:var(--t4);font-size:.75rem;
+  min-height:200px;width:100%;text-align:center
+}
+.spin{
+  width:40px;height:40px;
+  border:3px solid rgba(240,165,0,.15);
+  border-top-color:var(--amber);
+  border-radius:50%;
+  animation:spin .8s cubic-bezier(.4,0,.2,1) infinite
+}
+.spinner-label{
+  font-size:.72rem;color:var(--t4);font-weight:500;letter-spacing:.02em
+}
 
 
 /* ── Detail Card ─────────────────────────────────────────────── */
@@ -294,12 +307,12 @@ input:focus,textarea:focus{border-color:var(--amber)}
       </button>
 
       <button onclick="refreshData()"
-        style="background:none;border:1px solid var(--bdr);border-radius:7px;color:var(--t4);font-size:.70rem;font-weight:600;cursor:pointer;padding:5px 8px;display:flex;align-items:center;gap:4px;flex-shrink:0"
+        style="background:none;border:1px solid var(--bdr);border-radius:7px;color:var(--t4);font-size:.70rem;font-weight:600;cursor:pointer;padding:5px 8px;display:flex;align-items:center;justify-content:center;flex-shrink:0"
         title="Refresh">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
           <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
           <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-        </svg> Refresh
+        </svg>
       </button>
 
       <button onclick="showManualOddsEntry()"
@@ -307,7 +320,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
         title="Enter Odds">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-        </svg> <span id="odds-status">Odds</span>
+        </svg> <span id="odds-status">Add Odds</span>
       </button>
 
       <!-- Right: theme + date -->
@@ -364,12 +377,76 @@ input:focus,textarea:focus{border-color:var(--amber)}
 
       <!-- A/B -->
       <div id="page-ab" class="page">
-        <div id="ab-content"></div>
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">⚾ At-Bat Log Analyzer</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div>
+              <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Batter</div>
+              <select id="ab-batter" onchange="loadABLog()"
+                style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.80rem">
+                <option value="">— Load a game first —</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1">
+                <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Pitcher hand</div>
+                <select id="ab-arm" onchange="loadABLog()"
+                  style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.80rem">
+                  <option value="">Both</option>
+                  <option value="R">vs RHP</option>
+                  <option value="L">vs LHP</option>
+                </select>
+              </div>
+              <div style="flex:1">
+                <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Last N PA</div>
+                <select id="ab-n" onchange="loadABLog()"
+                  style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.80rem">
+                  <option value="100">100</option>
+                  <option value="200" selected>200</option>
+                  <option value="500">500</option>
+                  <option value="1000">Career</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="ab-summary" class="card" style="margin-bottom:8px"></div>
+        <div id="ab-list"></div>
       </div>
 
       <!-- PITCHER -->
       <div id="page-pl" class="page">
-        <div id="pl-content"></div>
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">⚾ Pitcher Log Analyzer</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div>
+              <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Pitcher</div>
+              <select id="pl-pitcher" onchange="populatePLPitchTypes();loadPitcherLog()"
+                style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.80rem">
+                <option value="">— Load a game first —</option>
+              </select>
+            </div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1">
+                <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Batter hand</div>
+                <select id="pl-arm" onchange="loadPitcherLog()"
+                  style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.80rem">
+                  <option value="">Both</option>
+                  <option value="R">vs RHB</option>
+                  <option value="L">vs LHB</option>
+                </select>
+              </div>
+              <div style="flex:1">
+                <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Pitch type</div>
+                <select id="pl-pitch-type" onchange="loadPitcherLog()"
+                  style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.80rem">
+                  <option value="">All Pitches</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="pl-list"></div>
       </div>
 
       <!-- DETAIL (player card) -->
@@ -2220,7 +2297,7 @@ async function ensureLeaderboards(){
   console.log('Loading leaderboards via proxy...');
   // Show loading status
   const el=document.getElementById('hitter-list');
-  if(el) el.innerHTML='<div class="spinner"><div class="spin"></div>Loading Statcast leaderboards… (30-60s first load)</div>';
+  if(el) el.innerHTML='<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading Statcast leaderboards… (30-60s first load)</div></div>';
   const [savB, fgB, savP, fgP] = await Promise.all([
     getSavantBatters(), getFGBatters(), getSavantPitchers(), getFGPitchers()
   ]);
@@ -2531,7 +2608,7 @@ async function loadSlate(){
   if(headerDate) headerDate.textContent=ds();
   // Show loading state immediately so user knows it's working
   if(gameChips) gameChips.innerHTML='<div style="font-size:.72rem;color:var(--t4);padding:8px 0;white-space:nowrap">Loading games…</div>';
-  if(hitterList) hitterList.innerHTML='<div class="spinner"><div class="spin"></div>Loading schedule…</div>';
+  if(hitterList) hitterList.innerHTML='<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading schedule…</div></div>';
   if(wxArea) wxArea.innerHTML='';
 
   gamesCache=[];
@@ -2625,6 +2702,9 @@ function renderGameChips(){
 async function toggleGame(pk){
   if(S.selPks.has(pk)){
     S.selPks.delete(pk);
+    // Clear this game's cache so re-selecting gets fresh lineup/player data
+    delete S.cache[`${pk}_away`];
+    delete S.cache[`${pk}_home`];
   } else {
     // Hard cap — iOS crashes with too many games loaded simultaneously
     if(S.selPks.size >= 7){
@@ -2650,7 +2730,7 @@ async function toggleGame(pk){
 let _savB=null,_fgB=null,_savP=null,_fgP=null;
 async function loadSelectedGames(){
   const el=document.getElementById('hitter-list');
-  el.innerHTML='<div class="spinner"><div class="spin"></div>Loading games…</div>';
+  el.innerHTML='<div class="spinner" style="min-height:calc(100vh - 220px)"><div class="spin"></div><div class="spinner-label">Loading games…</div></div>';
   loadFanDuelOdds(); // fire and forget
 
   // Ensure core leaderboards are ready before loading game data
@@ -2665,14 +2745,26 @@ async function loadSelectedGames(){
 
   console.log(`[loadSelectedGames] toLoad: ${toLoad.length} games, selPks: ${[...S.selPks].join(',')}`);
 
-  if(!toLoad.length && !S.allRows.length){
-    el.innerHTML='<div class="empty">Tap a game above to load players</div>';
+  if(!toLoad.length){
+    // All selected games are already cached — just rebuild allRows and render
+    const seen=new Set(); S.allRows=[];
+    for(const pk of S.selPks){
+      for(const side of['away','home']){
+        const c=S.cache[`${pk}_${side}`]||[];
+        for(const r of c){ if(!seen.has(r.id)){seen.add(r.id);S.allRows.push(r);} }
+      }
+    }
+    if(!S.allRows.length){
+      el.innerHTML='<div style="color:var(--t4);font-size:.82rem;text-align:center;padding:30px 16px">☝️ Tap a game chip above to load players</div>';
+      return;
+    }
+    try{ renderSlate(); renderDailySummary(); }catch(e){ console.error('[render from cache]',e); }
     return;
   }
 
   let loaded=0;
   for(const g of toLoad){
-    el.innerHTML=`<div class="spinner"><div class="spin"></div>Loading ${g.away}@${g.home}… (${loaded+1}/${toLoad.length})</div>`;
+    el.innerHTML=`<div class="spinner" style="min-height:calc(100vh - 220px)"><div class="spin"></div><div class="spinner-label">Loading ${g.away}@${g.home}… (${loaded+1}/${toLoad.length})</div></div>`;
     try{
       await loadGame(g);
       console.log(`[loadSelectedGames] loadGame done for ${g.away}@${g.home}`);
@@ -5316,7 +5408,7 @@ async function loadDayResults(){
 async function renderResultsTab(){
   const el = document.getElementById('results-content');
   if(!el) return;
-  el.innerHTML = '<div class="spinner"><div class="spin"></div>Loading results…</div>';
+  el.innerHTML = '<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading results…</div></div>';
 
   try{
     const today     = ds();
@@ -9198,7 +9290,7 @@ async function loadGame(g){
   const lap = (label) => console.log(`[loadGame ${g.away}@${g.home}] ${label}: +${Date.now()-t0}ms`);
   console.log(`[loadGame] START ${g.away}@${g.home} pk=${pk}`);
   const el = document.getElementById('hitter-list');
-  const status = (msg) => { el.innerHTML=`<div class="spinner"><div class="spin"></div>${msg}</div>`; };
+  const status = (msg) => { el.innerHTML=`<div class="spinner"><div class="spin"></div><div class="spinner-label">${msg}</div></div>`; };
 
   try{
 
@@ -12253,7 +12345,7 @@ async function loadPitcherLog(){
   const pt=document.getElementById('pl-pitch-type')?.value||'';
   const listEl=document.getElementById('pl-list');
   if(!pid||!listEl) return;
-  listEl.innerHTML='<div class="spinner"><div class="spin"></div>Loading pitcher data…</div>';
+  listEl.innerHTML='<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading pitcher data…</div></div>';
   try{
     const rows=await fetchPitcherLog(pid,n,hand,pt);
     renderPitcherLog(rows);
@@ -12423,7 +12515,7 @@ async function loadABLog(){
     return;
   }
 
-  listEl.innerHTML='<div class="spinner"><div class="spin"></div>Loading Statcast batted balls…</div>';
+  listEl.innerHTML='<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading Statcast batted balls…</div></div>';
   sumEl.innerHTML='';
 
   try{
