@@ -587,9 +587,9 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
   <div>
     <div class="sd-section-label">Date</div>
     <div id="date-nav">
-      <button onclick="changeDate(-1)">◀</button>
+      <button onclick="shiftDate(-1)">◀</button>
       <div id="date-lbl"></div>
-      <button onclick="changeDate(1)">▶</button>
+      <button onclick="shiftDate(1)">▶</button>
       <button id="today-btn" onclick="goToday()">Today</button>
     </div>
   </div>
@@ -1438,9 +1438,11 @@ const S = {
   cache:    {},          // pk_away / pk_home → [rows]
   allRows:  [],          // merged deduped rows
   sortKey:  'prob',
+  noiseFilter: false,
   abRows:   [],
   parlaySelected: new Set(),  // player ids in parlay
 };
+let _prevPage = 'slate';
 
 var SEASON = 2026;
 var MLB    = 'https://statsapi.mlb.com/api/v1';
@@ -13805,13 +13807,13 @@ if(document.readyState==='loading'){
 </script>
 <!-- Scroll-to-top: lives at body level, not inside #content -->
 <button id="scroll-top-btn"
-  style="transform:translateZ(0);-webkit-transform:translateZ(0)"
   onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'})"
   style="position:fixed;bottom:78px;right:14px;z-index:200;width:38px;height:38px;
     border-radius:50%;border:1px solid var(--bdr);background:var(--bg2);
     color:var(--t3);font-size:1.1rem;cursor:pointer;display:none;
     align-items:center;justify-content:center;
-    box-shadow:0 2px 12px rgba(0,0,0,.4)">↑</button>
+    box-shadow:0 2px 12px rgba(0,0,0,.4);
+    transform:translateZ(0);-webkit-transform:translateZ(0)">↑</button>
 
 </body>
 </html>
