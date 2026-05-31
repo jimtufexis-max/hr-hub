@@ -34,27 +34,40 @@ input,textarea,select,button{font-family:inherit;font-size:inherit}
   --bdr:rgba(0,0,0,.12)
 }
 
-/* ── Root — solid dark background everywhere, no transparency ── */
-html{height:100%;background:#0f1117}
+/* ── Root — fills entire screen in PWA mode ─────────────────── */
+html{
+  height:100%;height:-webkit-fill-available;
+  background:#0f1117
+}
 body{
-  height:100%;background:#0f1117;color:var(--t2);
+  height:100%;height:-webkit-fill-available;
+  background:#0f1117;color:var(--t2);
   font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;
   font-size:14px;-webkit-text-size-adjust:100%;
-  overscroll-behavior:none
+  overscroll-behavior:none;
+  /* Prevent iOS bounce on body */
+  position:fixed;width:100%;overflow:hidden
 }
 #app{
   display:flex;flex-direction:column;
-  height:100vh;height:100dvh;
-  background:#0f1117;overflow:hidden
+  /* Use fill-available for iOS PWA — fills entire screen including safe areas */
+  height:100vh;
+  height:100dvh;
+  height:-webkit-fill-available;
+  width:100%;
+  background:#0f1117;overflow:hidden;
+  position:fixed;top:0;left:0;right:0;bottom:0
 }
 
 /* ── Header ──────────────────────────────────────────────────── */
 #header{
   display:flex;align-items:center;gap:6px;flex-shrink:0;
   padding:10px 12px 8px;
-  padding-top:calc(var(--safe-top) + 8px);
+  padding-top:calc(var(--safe-top) + 10px);
   background:#0f1117;border-bottom:1px solid var(--bdr);z-index:20;
-  overflow-x:auto;scrollbar-width:none
+  overflow-x:auto;scrollbar-width:none;
+  /* Extend behind status bar on notched iPhones */
+  margin-top:0
 }
 #header::-webkit-scrollbar{display:none}
 #header-title{font-size:.95rem;font-weight:800;color:var(--t1);letter-spacing:-.02em;flex-shrink:0}
@@ -64,7 +77,9 @@ body{
 #content{
   flex:1;overflow-y:auto;background:#0f1117;
   padding-bottom:calc(var(--safe-bot) + 64px);
-  position:relative
+  position:relative;
+  /* Ensure content fills all available space */
+  min-height:0
 }
 
 /* ── PAGE SWITCHING — THE FIX FOR PWA BLACK SCREENS ─────────── */
