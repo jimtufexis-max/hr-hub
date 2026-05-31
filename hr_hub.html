@@ -50,13 +50,15 @@ body{
 
 /* ── Header ──────────────────────────────────────────────────── */
 #header{
-  display:flex;align-items:center;gap:10px;flex-shrink:0;
-  padding:12px 14px 8px;
-  padding-top:calc(var(--safe-top) + 10px);
-  background:#0f1117;border-bottom:1px solid var(--bdr);z-index:20
+  display:flex;align-items:center;gap:6px;flex-shrink:0;
+  padding:10px 12px 8px;
+  padding-top:calc(var(--safe-top) + 8px);
+  background:#0f1117;border-bottom:1px solid var(--bdr);z-index:20;
+  overflow-x:auto;scrollbar-width:none
 }
-#header-title{font-size:1.05rem;font-weight:800;color:var(--t1);letter-spacing:-.02em}
-#header-date{font-size:.72rem;color:var(--t4);margin-left:auto}
+#header::-webkit-scrollbar{display:none}
+#header-title{font-size:.95rem;font-weight:800;color:var(--t1);letter-spacing:-.02em;flex-shrink:0}
+#header-date{font-size:.65rem;color:var(--t4)}
 
 /* ── Content scroll container ────────────────────────────────── */
 #content{
@@ -211,7 +213,32 @@ input:focus,textarea:focus{border-color:var(--amber)}
 .tab-btn{flex-shrink:0;padding:6px 12px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);font-size:.68rem;font-weight:600;color:var(--t4);cursor:pointer}
 .tab-btn.active{border-color:var(--amber);background:rgba(240,165,0,.12);color:var(--amber)}
 
-/* ── Zone Grid ───────────────────────────────────────────────── */
+/* ── Grade borders on cards ───────────────────────────────────── */
+.hitter-card.grade-a{border-left:3px solid var(--green)}
+.hitter-card.grade-b{border-left:3px solid var(--amber)}
+.hitter-card.grade-c{border-left:3px solid var(--red)}
+
+/* ── Stat Chips ───────────────────────────────────────────────── */
+.stat-chip{background:var(--bg3);border:1px solid var(--bdr);border-radius:6px;padding:3px 7px;font-size:.68rem;font-weight:600;color:var(--t3);display:inline-flex;align-items:center;gap:2px}
+.stat-chip .val{color:var(--t1);margin-left:3px;font-weight:700}
+.stat-chip.good .val{color:var(--green)}
+.stat-chip.warn .val{color:var(--amber)}
+.stat-chip.bad  .val{color:var(--red)}
+
+/* ── Loading Spinner ─────────────────────────────────────────── */
+.spinner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:40px 20px;color:var(--t4);font-size:.78rem}
+.spin{width:32px;height:32px;border:3px solid rgba(255,255,255,.1);border-top-color:var(--amber);border-radius:50%;animation:spin .75s linear infinite}
+
+
+/* ── Detail Card ─────────────────────────────────────────────── */
+.detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:10px}
+.detail-prob-big{font-size:2.4rem;font-weight:900;line-height:1;letter-spacing:-.03em}
+.detail-meta{font-size:.70rem;color:var(--t4);margin-top:2px}
+.factor-item{margin-bottom:8px}
+.fi-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.fi-name{font-size:.68rem;color:var(--t3);font-weight:600}
+.fi-val{font-size:.72rem;font-weight:800}
+
 .zone-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:110px;flex-shrink:0}
 .zone-cell{height:34px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700}
 
@@ -255,17 +282,40 @@ input:focus,textarea:focus{border-color:var(--amber)}
 
     <header id="header">
       <div id="header-title">⚾ DingerIQ</div>
+
+      <!-- Left action buttons -->
       <button id="nav-info-header" onclick="showPage('info')"
-        style="background:none;border:none;color:var(--t4);font-size:1.1rem;cursor:pointer;margin-left:4px;padding:4px"
+        style="background:none;border:none;color:var(--t4);font-size:.70rem;font-weight:600;cursor:pointer;padding:5px 8px;border-radius:7px;border:1px solid var(--bdr);display:flex;align-items:center;gap:4px;flex-shrink:0"
         title="Info">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
           <line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg> Info
       </button>
-      <button id="theme-btn" onclick="toggleTheme()"
-        style="background:none;border:none;color:var(--t4);font-size:1.1rem;cursor:pointer;padding:4px;margin-left:2px">🌙</button>
-      <div id="header-date"></div>
+
+      <button onclick="refreshData()"
+        style="background:none;border:1px solid var(--bdr);border-radius:7px;color:var(--t4);font-size:.70rem;font-weight:600;cursor:pointer;padding:5px 8px;display:flex;align-items:center;gap:4px;flex-shrink:0"
+        title="Refresh">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg> Refresh
+      </button>
+
+      <button onclick="showManualOddsEntry()"
+        style="background:none;border:1px solid rgba(240,165,0,.4);border-radius:7px;color:var(--amber);font-size:.70rem;font-weight:700;cursor:pointer;padding:5px 8px;display:flex;align-items:center;gap:4px;flex-shrink:0"
+        title="Enter Odds">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+        </svg> <span id="odds-status">Odds</span>
+      </button>
+
+      <!-- Right: theme + date -->
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0">
+        <button id="theme-btn" onclick="toggleTheme()"
+          style="background:none;border:none;color:var(--t4);font-size:1rem;cursor:pointer;padding:2px">🌙</button>
+        <div id="header-date" style="font-size:.65rem;color:var(--t4);white-space:nowrap"></div>
+      </div>
     </header>
 
     <div id="desktop-nav"></div>
@@ -322,6 +372,16 @@ input:focus,textarea:focus{border-color:var(--amber)}
         <div id="pl-content"></div>
       </div>
 
+      <!-- DETAIL (player card) -->
+      <div id="page-detail" class="page">
+        <button onclick="showPage(_prevPage||'slate')"
+          style="display:flex;align-items:center;gap:6px;background:none;border:none;color:var(--t4);font-size:.78rem;font-weight:600;cursor:pointer;padding:0 0 12px;margin-bottom:4px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          Back to Slate
+        </button>
+        <div id="detail-content"></div>
+      </div>
+
       <!-- PICKS / BEST BETS -->
       <div id="page-picks" class="page">
         <div id="picks-content"></div>
@@ -342,7 +402,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
               <div style="font-size:.62rem;color:var(--t4)">Enter odds to see value edge on each player</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
-              <span id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="showManualOddsEntry()">📋 Enter Odds</span>
+              <span style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="showManualOddsEntry()">📋 Enter Odds</span>
               <button onclick="showManualOddsEntry()" style="padding:6px 12px;border-radius:8px;border:1px solid rgba(240,165,0,.4);background:rgba(240,165,0,.08);color:var(--amber);font-size:.68rem;font-weight:700;cursor:pointer">📋 Enter Odds</button>
             </div>
           </div>
@@ -424,10 +484,6 @@ input:focus,textarea:focus{border-color:var(--amber)}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
     Slate
   </button>
-  <button class="nav-btn" id="nav-results" onclick="showPage('results')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
-    Results
-  </button>
   <button class="nav-btn" id="nav-kelly" onclick="showPage('kelly')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     Kelly
@@ -447,6 +503,10 @@ input:focus,textarea:focus{border-color:var(--amber)}
   <button class="nav-btn" id="nav-discover" onclick="showPage('discover')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
     Discover
+  </button>
+  <button class="nav-btn" id="nav-results" onclick="showPage('results')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+    Results
   </button>
 </nav>
 
@@ -708,12 +768,11 @@ async function _withSlot(fn){
 
 async function getGames(){
   const url=`${MLB}/schedule?sportId=1&date=${ds()}&hydrate=team,venue,probablePitcher(note)`;
-  // Use a shorter timeout for the schedule fetch so chips appear faster
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(), 10000);
   let d;
   try{
-    const r = await fetch(url, {signal:controller.signal});
+    const r = await fetch(PROXY + encodeURIComponent(url), {signal:controller.signal});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     d = await r.json();
     _fetchCache.set(url, {d, t:Date.now()});
@@ -2462,7 +2521,7 @@ async function refreshLineups(){
 }
 
 async function loadSlate(){
-  const dateLbl  = document.getElementById('date-lbl');
+  const dateLbl    = document.getElementById('date-label');
   const headerDate = document.getElementById('header-date');
   const hitterList = document.getElementById('hitter-list');
   const gameChips = document.getElementById('game-chips');
@@ -9986,7 +10045,7 @@ function renderSlate(){
             Model prob vs consensus book implied. Tap to see full breakdown.
           </div>
         </div>
-        <div id="odds-status" style="font-size:.58rem;color:var(--t4);text-align:right;cursor:pointer"
+        <div class="odds-status-slate" style="font-size:.58rem;color:var(--t4);text-align:right;cursor:pointer"
           onclick="showManualOddsEntry()">
           ✏️ Edit
         </div>
@@ -12859,8 +12918,18 @@ function initApp(){
 if(document.readyState==='loading'){
   document.addEventListener('DOMContentLoaded', initApp);
 } else {
+  // DOM already ready (PWA cache load) — run immediately
   initApp();
 }
+
+// Belt-and-suspenders: if games still empty after 1.5s, reload slate
+// Handles PWA cache cases where initApp ran but fetch hadn't resolved
+setTimeout(()=>{
+  if(!S.allRows.length && !S.selPks.size){
+    // No games loaded yet — try again
+    loadSlate();
+  }
+}, 1500);
 
 
 </script>
