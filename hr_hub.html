@@ -225,21 +225,29 @@ input:focus,textarea:focus{border-color:var(--amber)}
 .stat-chip.warn .val{color:var(--amber)}
 .stat-chip.bad  .val{color:var(--red)}
 
-/* ── Loading Spinner ─────────────────────────────────────────── */
+/* ── Loading Spinner — colorful segmented wheel ──────────────── */
 .spinner{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:14px;padding:60px 20px;color:var(--t4);font-size:.75rem;
-  min-height:200px;width:100%;text-align:center
+  gap:16px;padding:60px 20px;min-height:200px;width:100%;text-align:center
 }
 .spin{
-  width:40px;height:40px;
-  border:3px solid rgba(240,165,0,.15);
-  border-top-color:var(--amber);
-  border-radius:50%;
-  animation:spin .8s cubic-bezier(.4,0,.2,1) infinite
+  position:relative;width:44px;height:44px
 }
+.spin::before,.spin::after{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  border:4px solid transparent;animation:spin-seg .9s cubic-bezier(.4,0,.2,1) infinite
+}
+.spin::before{
+  border-top-color:#f0a500;border-right-color:#22c95e;
+}
+.spin::after{
+  border-bottom-color:#3d8ef0;border-left-color:#e0504a;
+  animation-delay:-.45s;
+  width:32px;height:32px;inset:6px
+}
+@keyframes spin-seg{to{transform:rotate(360deg)}}
 .spinner-label{
-  font-size:.72rem;color:var(--t4);font-weight:500;letter-spacing:.02em
+  font-size:.72rem;color:var(--t4);font-weight:500;letter-spacing:.03em
 }
 
 
@@ -1830,8 +1838,9 @@ async function loadFanDuelOdds(force=false){
   _fdOddsLoaded = true;
   _fdOddsTimestamp = Date.now();
   if(!ODDS_API_KEY){
+    // Only reset if no manual odds are loaded
     const statusEl = document.getElementById('odds-status');
-    if(statusEl) statusEl.textContent = 'Add odds key → Settings';
+    if(statusEl && !_fdOdds) statusEl.textContent = 'Add Odds';
     return;
   }
   try{
@@ -2813,6 +2822,9 @@ async function loadSelectedGames(){
     renderSlate();
     renderDailySummary();
     checkLineupLockAlert();
+    // Update AB/Pitcher tabs if they're active
+    if(document.getElementById('page-ab')?.classList.contains('active')) populateABSelect();
+    if(document.getElementById('page-pl')?.classList.contains('active')) populatePitcherSelect();
     // Auto-refresh lineups in background for any unconfirmed games
     const hasUnconfirmed = S.allRows.some(r=>!r.lineupConfirmed);
     if(hasUnconfirmed) setTimeout(()=>refreshLineups(), 1500);
