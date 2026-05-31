@@ -34,25 +34,25 @@ input,textarea,select,button{font-family:inherit;font-size:inherit}
   --bdr:rgba(0,0,0,.12)
 }
 
-/* ── Root — fills entire screen in PWA mode ─────────────────── */
-html,body{
-  margin:0;padding:0;
-  /* No height — let #app define the space */
+/* ── Root ────────────────────────────────────────────────────── */
+html{
+  height:100%;
   background:#0f1117;
-  overflow:hidden
+  overscroll-behavior:none
 }
 body{
-  color:var(--t2);
+  height:100%;
+  margin:0;padding:0;
+  background:#0f1117;color:var(--t2);
   font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;
   font-size:14px;-webkit-text-size-adjust:100%;
   overscroll-behavior:none
 }
 #app{
   display:flex;flex-direction:column;
-  /* Use inset:0 — fills from physical top to physical bottom edge.
-     Do NOT set height here — height+bottom:0 causes bottom gap on iOS PWA */
-  position:fixed;
-  top:0;left:0;right:0;bottom:0;
+  width:100%;
+  /* JS sets exact px height via window.innerHeight — most reliable on iOS PWA */
+  height:var(--app-h,100vh);
   background:#0f1117;overflow:hidden
 }
 
@@ -12987,6 +12987,20 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 //  INIT — wait for DOM to be fully ready
 // ==================================================================
 function initApp(){
+  // ── PWA full-screen height fix ──────────────────────────────
+  // CSS vh/dvh are unreliable in iOS PWA mode. Set height directly
+  // from window.innerHeight which returns the actual usable pixels.
+  function setAppHeight(){
+    const h = window.innerHeight;
+    const app = document.getElementById('app');
+    if(app) app.style.height = h + 'px';
+    document.documentElement.style.setProperty('--app-h', h + 'px');
+  }
+  setAppHeight();
+  window.addEventListener('resize', setAppHeight);
+  // Run again after a tick in case iOS fires resize late
+  setTimeout(setAppHeight, 100);
+  // ────────────────────────────────────────────────────────────
   populateABSelect();
 
   // Apply saved theme — runs even if SW serves old HTML
@@ -13051,12 +13065,8 @@ if(document.readyState==='loading'){
 }
 
 // Belt-and-suspenders: if games still empty after 1.5s, reload slate
-// Handles PWA cache cases where initApp ran but fetch hadn't resolved
 setTimeout(()=>{
-  if(!S.allRows.length && !S.selPks.size){
-    // No games loaded yet — try again
-    loadSlate();
-  }
+  if(!S.allRows.length && !S.selPks.size) loadSlate();
 }, 1500);
 
 
