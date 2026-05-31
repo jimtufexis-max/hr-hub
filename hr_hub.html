@@ -35,28 +35,25 @@ input,textarea,select,button{font-family:inherit;font-size:inherit}
 }
 
 /* ── Root — fills entire screen in PWA mode ─────────────────── */
-html{
-  height:100%;height:-webkit-fill-available;
-  background:#0f1117
+html,body{
+  margin:0;padding:0;
+  /* No height — let #app define the space */
+  background:#0f1117;
+  overflow:hidden
 }
 body{
-  height:100%;height:-webkit-fill-available;
-  background:#0f1117;color:var(--t2);
+  color:var(--t2);
   font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;
   font-size:14px;-webkit-text-size-adjust:100%;
-  overscroll-behavior:none;
-  /* Prevent iOS bounce on body */
-  position:fixed;width:100%;overflow:hidden
+  overscroll-behavior:none
 }
 #app{
   display:flex;flex-direction:column;
-  /* Use fill-available for iOS PWA — fills entire screen including safe areas */
-  height:100vh;
-  height:100dvh;
-  height:-webkit-fill-available;
-  width:100%;
-  background:#0f1117;overflow:hidden;
-  position:fixed;top:0;left:0;right:0;bottom:0
+  /* Use inset:0 — fills from physical top to physical bottom edge.
+     Do NOT set height here — height+bottom:0 causes bottom gap on iOS PWA */
+  position:fixed;
+  top:0;left:0;right:0;bottom:0;
+  background:#0f1117;overflow:hidden
 }
 
 /* ── Header ──────────────────────────────────────────────────── */
