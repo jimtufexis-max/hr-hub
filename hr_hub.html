@@ -644,6 +644,7 @@ const S = {
   cache:    {},          // pk_away / pk_home → [rows]
   allRows:  [],          // merged deduped rows
   sortKey:  'prob',
+  activeFilter: null,    // quick filter chip key
   abRows:   [],
   parlaySelected: new Set(),  // player ids in parlay
 };
@@ -9783,6 +9784,11 @@ function setSort(key,el){
   renderSlate();
 }
 
+function setFilter(key){
+  S.activeFilter = (S.activeFilter===key) ? null : key;
+  renderSlate();
+}
+
 // ==================================================================
 //  PROJECTED HR TOTAL — sum of all player probabilities
 //  Expected value of total HRs today
@@ -10089,6 +10095,34 @@ function renderSlate(){
     if(hl) hl.innerHTML='<div class="empty">No players loaded</div>';
     return;
   }
+
+  // ── BUILD FILTER CHIPS ───────────────────────────────────────────────────
+  const FILTERS = [
+    { key:'all',       icon:'⚾', label:'All',        tip:'All players sorted by HR%' },
+    { key:'sharp',     icon:'🎯', label:'Sharp',      tip:'Strong power profile (Barrel%≥8, PA≥40)' },
+    { key:'value',     icon:'💰', label:'Value',      tip:'Model prob > book implied (edge≥3%)' },
+    { key:'elite',     icon:'⭐', label:'Elite Spot', tip:'Elite Spot or Prime Spot tag' },
+    { key:'barrel',    icon:'🛢️', label:'Barrel',     tip:'Barrel%≥11% power hitters' },
+    { key:'platoon',   icon:'🔀', label:'Platoon',    tip:'Favorable platoon matchup ≥1.15×' },
+    { key:'windy',     icon:'💨', label:'Wind Out',   tip:'Wind blowing out ≥12 mph' },
+    { key:'park',      icon:'🏟️', label:'HR Park',    tip:'Park factor ≥1.08×' },
+    { key:'due',       icon:'🌋', label:'Due',        tip:'Due or Regression Due tag' },
+    { key:'confirmed', icon:'✅', label:'Confirmed',  tip:'Lineup confirmed' },
+  ];
+  const fr = document.getElementById('filter-row');
+  if(fr){
+    const af = S.activeFilter||'all';
+    fr.innerHTML = FILTERS.map(f=>{
+      const active = af===f.key;
+      const count = f.key==='all' ? S.allRows.length : null; // could add count per filter
+      return `<button class="chip ${active?'active':''}" onclick="setFilter('${f.key}')" title="${f.tip}"
+        style="flex-shrink:0;white-space:nowrap">
+        ${f.icon} ${f.label}
+      </button>`;
+    }).join('');
+  }
+
+  // ── APPLY ACTIVE FILTER ──────────────────────────────────────────────────
   const q=((document.getElementById('search-input')?.value)||'').toLowerCase();
   const sortFn={
     prob:(a,b)=>b.prob-a.prob,
@@ -10100,22 +10134,92 @@ function renderSlate(){
 
   let rows=[...S.allRows];
 
-  // Sharp filter: hide noise — low PA, weak power profile, no Statcast
-  if(S.noiseFilter){
+  const af = S.activeFilter;
+
+  // Sharp filter: strong power profile
+  if(af==='sharp' || S.noiseFilter){
     rows=rows.filter(r=>{
-      const pa=(r.szPA||0);
-      if(pa<40) return false; // too small a sample
+      if((r.szPA||0)<40) return false;
       const hasRealPower=(r.barrel_pct!=null&&r.barrel_pct>=8)
         ||(r.pull_air_pct!=null&&r.pull_air_pct>=13)
         ||(r.iso!=null&&r.iso>=0.170);
       if(!hasRealPower) return false;
-      // Must have meaningful probability (not just platoon/park bump)
       if(r.prob<0.04) return false;
       return true;
     });
   }
-  if(q)rows=rows.filter(r=>r.name.toLowerCase().includes(q)||r.team.toLowerCase().includes(q));
-  rows.sort(sortFn);
+
+  if(af==='value'){
+    rows=rows.filter(r=>{
+      const odds=getFDOdds(r.name)||getOddsEntry(r.name)?.odds;
+      if(!odds) return false;
+      const edge=calcEdgePct(r.prob,odds);
+      return edge!=null && edge>=3;
+    });
+    rows.sort((a,b)=>{
+      const ea=calcEdgePct(a.prob,getFDOdds(a.name)||getOddsEntry(a.name)?.odds)||0;
+      const eb=calcEdgePct(b.prob,getFDOdds(b.name)||getOddsEntry(b.name)?.odds)||0;
+      return eb-ea;
+    });
+  }
+
+  if(af==='elite'){
+    rows=rows.filter(r=>{
+      const tags=detectAngles(r).map(a=>a.label.toLowerCase());
+      return tags.some(t=>t.includes('elite')||t.includes('prime'));
+    });
+  }
+
+  if(af==='barrel'){
+    rows=rows.filter(r=>(r.barrel_pct||0)>=11);
+    rows.sort((a,b)=>(b.barrel_pct||0)-(a.barrel_pct||0));
+  }
+
+  if(af==='platoon'){
+    rows=rows.filter(r=>(r.platoon||1)>=1.15);
+    rows.sort((a,b)=>(b.platoon||1)-(a.platoon||1));
+  }
+
+  if(af==='windy'){
+    rows=rows.filter(r=>{
+      const wx=r._wx||r.wx||{};
+      const spd=wx.wind||0;
+      const dir=wx.wdir||0;
+      // Wind out = blowing toward outfield (roughly 315-45 or within 90deg of out)
+      return spd>=12 && (dir<=45||dir>=315||Math.abs(dir-180)<=30===false);
+    });
+    rows.sort((a,b)=>((b._wx||{}).wind||0)-((a._wx||{}).wind||0));
+  }
+
+  if(af==='park'){
+    rows=rows.filter(r=>(r.pf||1)>=1.08);
+    rows.sort((a,b)=>(b.pf||1)-(a.pf||1));
+  }
+
+  if(af==='due'){
+    rows=rows.filter(r=>{
+      const tags=detectAngles(r).map(a=>a.label.toLowerCase());
+      return tags.some(t=>t.includes('due')||t.includes('regression'));
+    });
+  }
+
+  if(af==='confirmed'){
+    rows=rows.filter(r=>r.lineupConfirmed===true);
+  }
+
+  if(af!=='value' && af!=='barrel' && af!=='platoon' && af!=='windy' && af!=='park'){
+    rows.sort(sortFn);
+  }
+
+  if(q) rows=rows.filter(r=>r.name.toLowerCase().includes(q)||r.team.toLowerCase().includes(q));
+
+  // Show count badge on active filter
+  if(fr && af && af!=='all'){
+    const activeBtn = fr.querySelector('.chip.active');
+    if(activeBtn && rows.length>0){
+      activeBtn.innerHTML += ` <span style="background:rgba(255,255,255,.2);border-radius:99px;padding:1px 6px;font-size:.55rem">${rows.length}</span>`;
+    }
+  }
 
   const multiGame=S.selPks.size>1;
 
@@ -11788,67 +11892,108 @@ function renderDetail(r){
 
             return html;
           })()}
-        <!-- Percentile Rankings panel — rendered inline, r is in scope -->
+
+
+        <!-- Percentile Rankings panel -->
         <div id="panel-pctile-${r.id}" style="display:none">
           ${(()=>{
-            const _pid = String(r._batPid||r.id);
-            const _pm  = (_percentileMap && Object.keys(_percentileMap).length)
-                         ? ((_percentileMap[_pid]||_percentileMap[String(r.id)])||{})
-                         : {};
-            const _sw  = (_swingSpeedMap||{})[_pid] || (_swingSpeedMap||{})[String(r.id)] || {};
-            const f3   = v => v!=null ? '.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3) : null;
-
-            // Bat speed pct from distribution
-            let _bsPct=null;
-            if(_sw.swingSpeed!=null){
-              const _bsAll=Object.values(_swingSpeedMap||{}).map(x=>x.swingSpeed).filter(v=>v!=null).sort((a,b)=>a-b);
-              if(_bsAll.length>5){const _bi=_bsAll.findIndex(v=>v>=_sw.swingSpeed);_bsPct=_bi<0?99:Math.round(_bi/_bsAll.length*100);}
-            }
-            // Compute pct from _savB distribution
-            const _cpct=(key,val,hi)=>{
-              if(val==null)return null;
-              const arr=Object.values(_savB||{}).map(p=>p[key]).filter(v=>v!=null&&!isNaN(v)).sort((a,b)=>a-b);
-              if(arr.length<10)return null;
-              const i=arr.findIndex(v=>v>=val);
-              const raw=i<0?99:Math.round(i/arr.length*100);
-              return hi?raw:100-raw;
+            // ── MLB average distributions for fallback percentile estimation ──
+            // P10/P50/P90 thresholds from 2024-2026 Statcast
+            const MLB_DIST={
+              xwoba:  {p10:.270,p50:.310,p90:.380,name:'xwOBA',  fmt:v=>'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3), inv:false},
+              xba:    {p10:.205,p50:.237,p90:.290,name:'xBA',    fmt:v=>'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3), inv:false},
+              xslg:   {p10:.310,p50:.400,p90:.550,name:'xSLG',   fmt:v=>'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3), inv:false},
+              avg_ev: {p10:84.5,p50:88.7,p90:92.5,name:'Exit Velo',fmt:v=>v.toFixed(1)+' mph',       inv:false},
+              barrel_pct:{p10:2.5,p50:7.5,p90:14.5,name:'Barrel %', fmt:v=>v.toFixed(1)+'%',          inv:false},
+              hard_hit_pct:{p10:28,p50:38,p90:50, name:'Hard Hit %',fmt:v=>v.toFixed(1)+'%',          inv:false},
+              sweet_spot:{p10:26,p50:32,p90:38,   name:'Sweet Spot%',fmt:v=>v.toFixed(1)+'%',         inv:false},
+              k_pct:  {p10:12, p50:22, p90:30,    name:'K %',      fmt:v=>v.toFixed(1)+'%',           inv:true},
+              bb_pct: {p10:5,  p50:9,  p90:14,    name:'BB %',     fmt:v=>v.toFixed(1)+'%',           inv:false},
+              bat_speed:{p10:63,p50:70,p90:74,    name:'Bat Speed', fmt:v=>v.toFixed(1)+' mph',       inv:false},
+              whiff:  {p10:16, p50:25, p90:34,    name:'Whiff %',  fmt:v=>v.toFixed(1)+'%',           inv:true},
+              chase:  {p10:20, p50:30, p90:39,    name:'Chase %',  fmt:v=>v.toFixed(1)+'%',           inv:true},
             };
 
-            // Build one bar row
-            const _bar=(lbl,pct,val,inv)=>{
-              if(pct==null&&(val==null||val===''))return'';
+            // ── Player data ─────────────────────────────────────────────────
+            const _pid=String(r._batPid||r.id);
+            const _pm=(_percentileMap&&Object.keys(_percentileMap).length)
+              ?((_percentileMap[_pid]||_percentileMap[String(r.id)])||{}):null;
+            const _sw=(_swingSpeedMap||{})[_pid]||(_swingSpeedMap||{})[String(r.id)]||{};
+
+            // ── Compute pct: use Savant rank if available, else estimate from distribution ──
+            function getPct(key, val, inv){
+              // Try _pm (Savant pre-computed rank) first
+              const pmKeys={avg_ev:'evPct',barrel_pct:'brlPct',hard_hit_pct:'hardHitPct',
+                xwoba:'xwobaPct',xba:'xbaPct',xslg:'xslgPct',sweet_spot:'sweetSpotPct',
+                k_pct:'kPct',bb_pct:'bbPct',whiff:'whiffRate',chase:'chaseRate'};
+              if(_pm && _pm[pmKeys[key]]!=null) return _pm[pmKeys[key]];
+
+              // Estimate from MLB distribution
+              if(val==null) return null;
+              const dist=MLB_DIST[key]; if(!dist) return null;
+              const {p10,p50,p90}=dist;
+              let raw;
+              if(val<=p10)      raw=5+(val-p10*0.7)/(p10-p10*0.7)*5;
+              else if(val<=p50) raw=10+(val-p10)/(p50-p10)*40;
+              else if(val<=p90) raw=50+(val-p50)/(p90-p50)*40;
+              else              raw=90+(val-p90)/(p90*0.3)*9;
+              raw=Math.max(1,Math.min(99,Math.round(raw)));
+              return inv?100-raw:raw;
+            }
+
+            // ── Build raw value for each stat ──────────────────────────────
+            const stats=[
+              {key:'xwoba',     val:_pm?.xwoba??null},
+              {key:'xba',       val:_pm?.xba??null},
+              {key:'xslg',      val:_pm?.xslg??null},
+              {key:'avg_ev',    val:r.avg_ev??null},
+              {key:'barrel_pct',val:r.barrel_pct??null},
+              {key:'hard_hit_pct',val:r.hard_hit_pct??null},
+              {key:'sweet_spot',val:_pm?.sweetSpot??null},
+              {key:'bat_speed', val:_sw.swingSpeed??null},
+              {key:'k_pct',     val:_pm?.k??null},
+              {key:'bb_pct',    val:_pm?.bb??null},
+              {key:'whiff',     val:r.whiffRate??null},
+              {key:'chase',     val:r.chaseRate??null},
+            ].filter(s=>s.val!=null);
+
+            if(!stats.length) return '<div style="padding:20px;text-align:center;font-size:.70rem;color:var(--t4)">No Statcast data — load a game first</div>';
+
+            // ── Bar renderer ───────────────────────────────────────────────
+            function bar(key,val,d){
+              const inv=d.inv;
+              const pct=getPct(key,val,inv);
               const p=pct!=null?Math.max(1,Math.min(99,pct)):null;
               const eff=p!=null?(inv?100-p:p):null;
               const clr=eff==null?'#64748b':eff>=80?'#22c95e':eff>=60?'#4ade80':eff>=40?'#94a3b8':eff>=20?'#f59e0b':'#e0504a';
               const grade=eff==null?'':eff>=80?'Elite':eff>=60?'Great':eff>=40?'Avg':eff>=20?'Poor':'Poor';
-              const fill=p||0;
-              const inside=fill>=35;
+              const fill=p||0,inside=fill>=35;
               const track=p!=null
-                ? `<div style="position:relative;flex:1;height:24px;border-radius:6px;overflow:hidden;background:rgba(255,255,255,.1)"><div style="height:100%;width:${fill}%;background:${clr};border-radius:6px"></div><div style="position:absolute;left:33%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.2)"></div><div style="position:absolute;left:66%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.2)"></div><div style="position:absolute;inset:0;display:flex;align-items:center;${inside?'justify-content:flex-end;padding-right:7px':'justify-content:flex-start;padding-left:7px'}"><span style="font-size:.66rem;font-weight:900;color:${inside?'#000':'rgba(255,255,255,.9)'}">${Math.round(p)}</span></div></div>`
-                : `<div style="flex:1;height:24px;border-radius:6px;background:rgba(255,255,255,.08)"></div>`;
-              return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:9px"><div style="width:88px;flex-shrink:0"><div style="font-size:.63rem;color:var(--t2)">${lbl}${inv?' ↓':''}</div>${val?'<div style="font-size:.60rem;color:var(--t4)">'+val+'</div>':''}</div>${track}<div style="width:50px;flex-shrink:0;text-align:right;font-size:.60rem;font-weight:800;color:${clr}">${grade}</div></div>`;
-            };
+                ?`<div style="position:relative;flex:1;height:24px;border-radius:6px;overflow:hidden;background:rgba(255,255,255,.12)"><div style="height:100%;width:${fill}%;background:${clr}"></div><div style="position:absolute;left:33%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.2)"></div><div style="position:absolute;left:66%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.2)"></div><div style="position:absolute;inset:0;display:flex;align-items:center;${inside?'justify-content:flex-end;padding-right:7px':'justify-content:flex-start;padding-left:7px'}"><span style="font-size:.67rem;font-weight:900;color:${inside?'#000':'#fff'};text-shadow:0 1px 2px rgba(0,0,0,.4)">${Math.round(p)}</span></div></div>`
+                :`<div style="flex:1;height:24px;border-radius:6px;background:rgba(255,255,255,.1);display:flex;align-items:center;padding-left:8px"><span style="font-size:.60rem;color:var(--t4)">no rank</span></div>`;
+              return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+                <div style="width:90px;flex-shrink:0">
+                  <div style="font-size:.64rem;font-weight:600;color:var(--t2)">${d.name}${inv?' ↓':''}</div>
+                  <div style="font-size:.60rem;color:var(--t4)">${d.fmt(val)}</div>
+                </div>
+                ${track}
+                <div style="width:48px;flex-shrink:0;text-align:right;font-size:.60rem;font-weight:800;color:${clr}">${grade}</div>
+              </div>`;
+            }
 
-            const rows=
-               _bar('xwOBA',     _pm.xwobaPct,                                         _pm.xwoba!=null?f3(_pm.xwoba):null,                false)
-              +_bar('xBA',       _pm.xbaPct,                                            _pm.xba!=null?f3(_pm.xba):null,                    false)
-              +_bar('xSLG',      _pm.xslgPct,                                           _pm.xslg!=null?f3(_pm.xslg):null,                  false)
-              +_bar('Exit Velo', _pm.evPct||_cpct('avg_ev',r.avg_ev,true),             r.avg_ev!=null?r.avg_ev.toFixed(1)+' mph':null,     false)
-              +_bar('Barrel %',  _pm.brlPct||_cpct('barrel_pct',r.barrel_pct,true),   r.barrel_pct!=null?r.barrel_pct.toFixed(1)+'%':null, false)
-              +_bar('Hard Hit %',_pm.hardHitPct||_cpct('hard_hit_pct',r.hard_hit_pct,true),r.hard_hit_pct!=null?r.hard_hit_pct.toFixed(1)+'%':null,false)
-              +_bar('Sweet Spot',_pm.sweetSpotPct,                                     _pm.sweetSpot!=null?_pm.sweetSpot.toFixed(1)+'%':null,false)
-              +_bar('Bat Speed', _bsPct,                                               _sw.swingSpeed!=null?_sw.swingSpeed.toFixed(1)+' mph':null,false)
-              +_bar('K %',       _pm.kPct,                                             _pm.k!=null?_pm.k.toFixed(1)+'%':null,             true)
-              +_bar('BB %',      _pm.bbPct,                                            _pm.bb!=null?_pm.bb.toFixed(1)+'%':null,           false);
-
-            if(!rows) return `<div style="padding:20px;text-align:center;font-size:.70rem;color:var(--t4)">Leaderboard data still loading — tap Pctile again in a moment</div>`;
+            const rows=stats.map(({key,val})=>bar(key,val,MLB_DIST[key]||{name:key,fmt:v=>v,inv:false})).join('');
 
             return `<div>
-              <div style="display:flex;justify-content:space-between;font-size:.51rem;color:var(--t4);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">
-                <span style="color:#e0504a">◀ Poor</span><span>Avg</span><span style="color:#22c95e">Great ▶</span>
+              <div style="display:flex;justify-content:space-between;font-size:.52rem;color:var(--t4);
+                margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">
+                <span style="color:#e0504a">◀ Poor</span>
+                <span>Average</span>
+                <span style="color:#22c95e">Great ▶</span>
               </div>
               ${rows}
-              <div style="font-size:.54rem;color:var(--t4);margin-top:4px;opacity:.6">Baseball Savant · ${SEASON} · bar = MLB %ile · ↓ lower is better</div>
+              <div style="font-size:.54rem;color:var(--t4);margin-top:6px;opacity:.7">
+                Baseball Savant ${SEASON} · bar = MLB percentile · ↓ lower is better
+              </div>
             </div>`;
           })()}
         </div>
@@ -13437,51 +13582,4 @@ setTimeout(()=>{
 </script>
 </body>
 </html
-        <!-- Percentile Rankings panel — fully inline, r is in scope -->
-        <div id="panel-pctile-${r.id}" style="display:none">
-          ${(()=>{
-            const _pid=String(r._batPid||r.id);
-            const _pm=(_percentileMap&&Object.keys(_percentileMap).length)
-              ?((_percentileMap[_pid]||_percentileMap[String(r.id)])||{}):{};
-            const _sw=(_swingSpeedMap||{})[_pid]||(_swingSpeedMap||{})[String(r.id)]||{};
-            const f3=v=>v!=null?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):null;
-            let _bsPct=null;
-            if(_sw.swingSpeed!=null){
-              const _a=Object.values(_swingSpeedMap||{}).map(x=>x.swingSpeed).filter(v=>v!=null).sort((a,b)=>a-b);
-              if(_a.length>5){const _i=_a.findIndex(v=>v>=_sw.swingSpeed);_bsPct=_i<0?99:Math.round(_i/_a.length*100);}
-            }
-            const _cpct=(key,val,hi)=>{
-              if(val==null)return null;
-              const arr=Object.values(_savB||{}).map(p=>p[key]).filter(v=>v!=null&&!isNaN(v)).sort((a,b)=>a-b);
-              if(arr.length<10)return null;
-              const i=arr.findIndex(v=>v>=val);
-              const raw=i<0?99:Math.round(i/arr.length*100);
-              return hi?raw:100-raw;
-            };
-            const _b=(lbl,pct,val,inv)=>{
-              if(pct==null&&(val==null||val===''))return'';
-              const p=pct!=null?Math.max(1,Math.min(99,pct)):null;
-              const eff=p!=null?(inv?100-p:p):null;
-              const clr=eff==null?'#64748b':eff>=80?'#22c95e':eff>=60?'#4ade80':eff>=40?'#94a3b8':eff>=20?'#f59e0b':'#e0504a';
-              const grade=eff==null?'':eff>=80?'Elite':eff>=60?'Great':eff>=40?'Avg':eff>=20?'Poor':'Poor';
-              const fill=p||0,inside=fill>=35;
-              const track=p!=null
-                ?`<div style="position:relative;flex:1;height:24px;border-radius:6px;overflow:hidden;background:rgba(255,255,255,.1)"><div style="height:100%;width:${fill}%;background:${clr};border-radius:6px"></div><div style="position:absolute;left:33%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.2)"></div><div style="position:absolute;left:66%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.2)"></div><div style="position:absolute;inset:0;display:flex;align-items:center;${inside?'justify-content:flex-end;padding-right:7px':'justify-content:flex-start;padding-left:7px'}"><span style="font-size:.66rem;font-weight:900;color:${inside?'#000':'rgba(255,255,255,.9)'}">${Math.round(p)}</span></div></div>`
-                :`<div style="flex:1;height:24px;border-radius:6px;background:rgba(255,255,255,.08)"></div>`;
-              return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:9px"><div style="width:88px;flex-shrink:0"><div style="font-size:.63rem;color:var(--t2)">${lbl}${inv?' ↓':''}</div>${val?'<div style="font-size:.60rem;color:var(--t4)">'+val+'</div>':''}</div>${track}<div style="width:50px;flex-shrink:0;text-align:right;font-size:.60rem;font-weight:800;color:${clr}">${grade}</div></div>`;
-            };
-            const rows=
-               _b('xwOBA',     _pm.xwobaPct,                                    _pm.xwoba!=null?f3(_pm.xwoba):null,                   false)
-              +_b('xBA',       _pm.xbaPct,                                       _pm.xba!=null?f3(_pm.xba):null,                       false)
-              +_b('xSLG',      _pm.xslgPct,                                      _pm.xslg!=null?f3(_pm.xslg):null,                     false)
-              +_b('Exit Velo', _pm.evPct||_cpct('avg_ev',r.avg_ev,true),        r.avg_ev!=null?r.avg_ev.toFixed(1)+' mph':null,        false)
-              +_b('Barrel %',  _pm.brlPct||_cpct('barrel_pct',r.barrel_pct,true),r.barrel_pct!=null?r.barrel_pct.toFixed(1)+'%':null,  false)
-              +_b('Hard Hit %',_pm.hardHitPct||_cpct('hard_hit_pct',r.hard_hit_pct,true),r.hard_hit_pct!=null?r.hard_hit_pct.toFixed(1)+'%':null,false)
-              +_b('Sweet Spot',_pm.sweetSpotPct,                                 _pm.sweetSpot!=null?_pm.sweetSpot.toFixed(1)+'%':null, false)
-              +_b('Bat Speed', _bsPct,                                           _sw.swingSpeed!=null?_sw.swingSpeed.toFixed(1)+' mph':null,false)
-              +_b('K %',       _pm.kPct,                                         _pm.k!=null?_pm.k.toFixed(1)+'%':null,                true)
-              +_b('BB %',      _pm.bbPct,                                        _pm.bb!=null?_pm.bb.toFixed(1)+'%':null,              false);
-            if(!rows)return`<div style="padding:20px;text-align:center;font-size:.70rem;color:var(--t4)">Leaderboard data still loading…</div>`;
-            return `<div><div style="display:flex;justify-content:space-between;font-size:.51rem;color:var(--t4);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em"><span style="color:#e0504a">◀ Poor</span><span>Avg</span><span style="color:#22c95e">Great ▶</span></div>${rows}<div style="font-size:.54rem;color:var(--t4);margin-top:4px;opacity:.6">Baseball Savant · ${SEASON} · bar = MLB percentile · ↓ lower is better</div></div>`;
-          })()}
-        </div>>
+>
