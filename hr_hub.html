@@ -12053,8 +12053,8 @@ function renderDetail(r){
       if(!recent.length) return '';
       let html = '';
 
-      // ── 7-Day HR dot pattern ────────────────────────────────────
-      const l7 = recent.slice(0,7);
+      // ── 14-Day HR dot pattern ────────────────────────────────────
+      const l7 = recent.slice(0,14);
       const dots = l7.map(g=>{
         const hasHR = g.hr>0;
         const noAB  = !g.ab && !g.pa;
@@ -12078,7 +12078,7 @@ function renderDetail(r){
 
         <!-- 7-day dots -->
         <div style="display:flex;align-items:center;gap:5px;margin-bottom:12px">
-          <div style="font-size:.58rem;color:var(--t4);margin-right:2px">L7</div>
+          <div style="font-size:.58rem;color:var(--t4);margin-right:2px">L14</div>
           ${dots}
           <div style="font-size:.58rem;color:var(--t4);margin-left:auto">🟡=HR</div>
         </div>
@@ -12199,14 +12199,14 @@ function renderDetail(r){
               ${lbl}
             </button>`).join('')}
         </div>
-        <div id="${detailId}-panel-L30">
-          ${buildRecentFormPanel(r, l7, abRows, 'L7')}
-        </div>
-        <div id="${detailId}-panel-L30" style="display:none">
+        <div id="${detailId}-panel-L14">
           ${buildRecentFormPanel(r, l14, abRows, 'L14')}
         </div>
+        <div id="${detailId}-panel-L30" style="display:none">
+          ${buildRecentFormPanel(r, l30, abRows, 'L30')}
+        </div>
         <div id="${detailId}-panel-L30_BIP" style="display:none">
-          ${buildRecentFormPanel(r, l14, abRows, 'L30_BIP')}
+          ${buildRecentFormPanel(r, l30, abRows, 'L30_BIP')}
         </div>
       </div>`;
     })()}
