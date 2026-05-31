@@ -37,13 +37,16 @@ input,textarea,select,button{font-family:inherit;font-size:inherit}
 /* ── Root ────────────────────────────────────────────────────── */
 html{
   height:100%;
-  background:#0f1117;
+  /* Match nav background — any overflow gap shows nav color not black */
+  background:#161b22;
   overscroll-behavior:none
 }
 body{
   height:100%;
   margin:0;padding:0;
-  background:#0f1117;color:var(--t2);
+  /* Match nav background — any gap below nav is invisible */
+  background:#161b22;
+  color:var(--t2);
   font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;
   font-size:14px;-webkit-text-size-adjust:100%;
   overscroll-behavior:none
@@ -51,8 +54,7 @@ body{
 #app{
   display:flex;flex-direction:column;
   width:100%;
-  /* JS sets exact px height via window.innerHeight — most reliable on iOS PWA */
-  height:var(--app-h,100vh);
+  height:100%;
   background:#0f1117;overflow:hidden
 }
 
@@ -127,7 +129,8 @@ body{
   flex-shrink:0;
   background:var(--bg2);border-top:1px solid var(--bdr);
   display:flex;
-  padding-bottom:env(safe-area-inset-bottom,0px);
+  /* Minimum 20px ensures home indicator zone is always covered */
+  padding-bottom:max(env(safe-area-inset-bottom,0px),20px);
   z-index:20
 }
 .nav-btn{
@@ -12987,20 +12990,7 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 //  INIT — wait for DOM to be fully ready
 // ==================================================================
 function initApp(){
-  // ── PWA full-screen height fix ──────────────────────────────
-  // CSS vh/dvh are unreliable in iOS PWA mode. Set height directly
-  // from window.innerHeight which returns the actual usable pixels.
-  function setAppHeight(){
-    const h = window.innerHeight;
-    const app = document.getElementById('app');
-    if(app) app.style.height = h + 'px';
-    document.documentElement.style.setProperty('--app-h', h + 'px');
-  }
-  setAppHeight();
-  window.addEventListener('resize', setAppHeight);
-  // Run again after a tick in case iOS fires resize late
-  setTimeout(setAppHeight, 100);
-  // ────────────────────────────────────────────────────────────
+  // ── PWA full-screen: html/body height:100% fills WebView ──
   populateABSelect();
 
   // Apply saved theme — runs even if SW serves old HTML
