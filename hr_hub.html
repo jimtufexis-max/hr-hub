@@ -41,7 +41,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 #header{
   background:var(--bg2);border-bottom:1px solid var(--bdr);
   padding:calc(var(--safe-top) + 10px) 16px 10px;
-  display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:20}
+  display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:20;-webkit-transform:translateZ(0);transform:translateZ(0)}
 #header-title{display:flex;align-items:center;flex-shrink:0}
 #header-title span{color:var(--amber)}
 #header-date{font-size:.72rem;color:var(--t4);margin-left:auto}
@@ -49,7 +49,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 #nav{
   position:fixed;bottom:0;left:0;right:0;
   background:var(--bg2);border-top:1px solid var(--bdr);
-  display:flex;padding-bottom:var(--safe-bot);z-index:20}
+  display:flex;padding-bottom:var(--safe-bot);z-index:20;-webkit-transform:translateZ(0);transform:translateZ(0)}
 .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;
   justify-content:center;padding:8px 4px 6px;gap:3px;
   font-size:.6rem;font-weight:600;color:var(--t4);
@@ -78,7 +78,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 .chip-scroll::-webkit-scrollbar{display:none}
 .chip{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;
   padding:6px 10px;font-size:.74rem;font-weight:600;color:var(--t2);
-  white-space:nowrap;cursor:pointer;transition:all .15s;flex-shrink:0}
+  white-space:nowrap;cursor:pointer;transition:color .15s;flex-shrink:0}
 .chip.active{background:#0e2448;border-color:var(--blue);color:var(--blue)}
 .chip.loaded{border-color:#22c95e33;color:var(--green)}
 
@@ -302,7 +302,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 
 /* ── Hitter cards ─────────────────────────────────────────────── */
 .hitter-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:14px;
-  padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:opacity .1s;
+  padding:12px 14px;margin-bottom:8px;cursor:pointer;
   border-left:4px solid var(--bdr)}
 .hitter-card:active{opacity:.8}
 .hitter-card.grade-a{border-left-color:var(--green)}
@@ -310,16 +310,10 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 .hitter-card.grade-c{border-left-color:var(--red)}
 
 /* ── Pulse glow for elite plays ───────────────────────────────── */
-@keyframes pulse-glow{
-  0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,.0)}
-  50%{box-shadow:0 0 12px 3px rgba(255,215,0,.25)}
-}
-@keyframes pulse-glow-green{
-  0%,100%{box-shadow:0 0 0 0 rgba(34,201,94,.0)}
-  50%{box-shadow:0 0 10px 2px rgba(34,201,94,.20)}
-}
-.hitter-card.pulse-gold{animation:pulse-glow 2.4s ease-in-out infinite;border-color:rgba(255,215,0,.4)}
-.hitter-card.pulse-green{animation:pulse-glow-green 2.8s ease-in-out infinite}
+/* pulse-glow removed — caused black screen flicker on iOS scroll */
+.hitter-card.pulse-gold{border-color:rgba(255,215,0,.5);border-left-width:3px}
+.hitter-card.pulse-green{border-color:rgba(34,201,94,.4);border-left-width:3px}
+
 
 /* ── Headshot ─────────────────────────────────────────────────── */
 .hc-headshot{width:38px;height:38px;border-radius:50%;object-fit:cover;
@@ -329,12 +323,12 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 /* ── Kelly Calculator ─────────────────────────────────────────── */
 .kelly-fraction-btn{flex:1;padding:12px 0;border:none;border-radius:10px;
   font-size:.75rem;font-weight:700;cursor:pointer;letter-spacing:.04em;
-  text-transform:uppercase;transition:all .2s;background:transparent;
+  text-transform:uppercase;transition:color .15s,border-color .15s;background:transparent;
   color:rgba(255,255,255,.3)}
 .kelly-fraction-btn.active{background:var(--amber);color:#000}
 .spray-popup{position:absolute;z-index:50;pointer-events:none;
-  animation:fadeInUp .15s ease-out}
-@keyframes fadeInUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  animation:fadeIn .15s ease-out}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .pitch-row-btn{width:100%;background:none;border:none;cursor:pointer;
   padding:0;text-align:left;border-radius:8px;transition:background .1s}
 .pitch-row-btn:active{background:rgba(255,255,255,.04)}
@@ -400,7 +394,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 .filter-row::-webkit-scrollbar{display:none}
 .filter-pill{background:var(--bg2);border:1px solid var(--bdr);border-radius:99px;
   padding:5px 12px;font-size:.72rem;font-weight:600;color:var(--t3);
-  cursor:pointer;white-space:nowrap;transition:all .15s}
+  cursor:pointer;white-space:nowrap;transition:color .15s}
 .filter-pill.active{background:#0e2448;border-color:var(--blue);color:var(--blue)}
 
 /* ── Player detail ────────────────────────────────────────────── */
@@ -486,7 +480,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 .toggle-row{display:flex;gap:4px;background:var(--bg3);
   border-radius:8px;padding:3px;margin-bottom:10px}
 .toggle-btn{flex:1;padding:6px 8px;border-radius:6px;font-size:.72rem;
-  font-weight:600;text-align:center;cursor:pointer;color:var(--t3);transition:all .15s}
+  font-weight:600;text-align:center;cursor:pointer;color:var(--t3);transition:color .15s}
 .toggle-btn.active{background:var(--bg2);color:var(--t1);
   box-shadow:0 1px 4px rgba(0,0,0,.4)}
 
@@ -5966,7 +5960,7 @@ function toggleHRSection(id){
   if(!body) return;
   const open = body.style.display !== 'none';
   body.style.display = open ? 'none' : 'block';
-  if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+  if(arrow) arrow.textContent = open ? '▼' : '▲';
 }
 
 function toggleBetHistory(){
@@ -5974,8 +5968,9 @@ function toggleBetHistory(){
   const arrow = document.getElementById('bet-history-arrow');
   if(!body) return;
   const open = body.style.display !== 'none';
-  body.style.display  = open ? 'none' : 'block';
-  if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+  body.style.display = open ? 'none' : 'block';
+  // Simple text swap instead of transform (no GPU layer needed)
+  if(arrow) arrow.textContent = open ? '▼' : '▲';
 }
 
 
@@ -6558,7 +6553,7 @@ async function renderResultsTab(){
             <span style="font-size:.60rem;color:var(--t4)">${gamesCount}G · ${hrHitters.length} HR${hrHitters.length!==1?'s':''}</span>
           </div>
           <span id="hr-arrow-${safeId}" style="font-size:.80rem;color:var(--t4);
-            transition:transform .2s;display:inline-block;transform:rotate(180deg)">▼</span>
+            display:inline-block">▲</span>
         </div>
         <div id="hr-section-${safeId}" style="display:block;margin-top:8px;
           border-top:1px solid var(--bg3);padding-top:8px">
@@ -6620,8 +6615,7 @@ async function renderResultsTab(){
             <button onclick="clearAllTracking()" style="font-size:.60rem;padding:3px 8px;
               border-radius:6px;border:1px solid rgba(224,80,74,.3);
               background:rgba(224,80,74,.06);color:var(--red);cursor:pointer">🗑️ Clear</button>
-            <span id="bet-history-arrow" style="font-size:.80rem;color:var(--t4);
-              transition:transform .2s;display:inline-block">▼</span>
+            <span id="bet-history-arrow" style="font-size:.80rem;color:var(--t4);display:inline-block">▼</span>
           </div>
         </div>
         <div id="bet-history-body" style="display:none;margin-top:10px;border-top:1px solid var(--bg3);padding-top:10px">`;
@@ -8625,7 +8619,7 @@ function toggleKellyExplainer(){
   if(!body) return;
   const open = body.style.display==='block';
   body.style.display  = open?'none':'block';
-  if(arrow) arrow.style.transform = open?'':'rotate(90deg)';
+  if(arrow) arrow.textContent = open ? '▶' : '▼';
 }
 
 
@@ -11305,7 +11299,7 @@ async function togglePitchDrill(drillId, spId, batId, pt){
   }
 
   panel.style.display = 'block';
-  if(arrow) arrow.style.transform = 'rotate(180deg)';
+  if(arrow) arrow.textContent = '▲';
 
   // Guard: treat string "undefined"/"null" as missing
   const cleanSpId  = (spId  && spId!=='undefined'  && spId!=='null')  ? spId  : null;
@@ -12114,19 +12108,19 @@ function renderDetail(r){
         <div style="display:flex;gap:6px;margin-bottom:12px">
           <button id="tab-arsenal-${r.id}" onclick="switchMatchupTab('${r.id}','arsenal')"
             style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
-            font-size:.70rem;font-weight:700;background:var(--green);color:#000;transition:all .15s">
+            font-size:.70rem;font-weight:700;background:var(--green);color:#000;transition:color .15s">
             ⚾ Arsenal</button>
           <button id="tab-stats-${r.id}" onclick="switchMatchupTab('${r.id}','stats')"
             style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
-            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
+            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:color .15s">
             📊 Stats</button>
           <button id="tab-spray-${r.id}" onclick="switchMatchupTab('${r.id}','spray')"
             style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
-            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
+            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:color .15s">
             🗺️ Spray</button>
           <button id="tab-splits-${r.id}" onclick="switchMatchupTab('${r.id}','splits')"
             style="flex:1;padding:7px 0;border-radius:8px;border:none;cursor:pointer;
-            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:all .15s">
+            font-size:.70rem;font-weight:700;background:var(--bg3);color:var(--t3);transition:color .15s">
             🔀 Splits</button>
         </div>
 
