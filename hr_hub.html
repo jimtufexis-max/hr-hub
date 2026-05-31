@@ -45,7 +45,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 #header-title{display:flex;align-items:center;flex-shrink:0}
 #header-title span{color:var(--amber)}
 #header-date{font-size:.72rem;color:var(--t4);margin-left:auto}
-#content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--safe-bot) + 60px)}
+#content{flex:1;overflow-y:auto;padding-bottom:calc(var(--safe-bot) + 60px);-webkit-transform:translateZ(0);transform:translateZ(0)}
 #nav{
   position:fixed;bottom:0;left:0;right:0;
   background:var(--bg2);border-top:1px solid var(--bdr);
@@ -74,7 +74,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 
 /* ── Chips ────────────────────────────────────────────────────── */
 .chip-scroll{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;
-  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+  scrollbar-width:none}
 .chip-scroll::-webkit-scrollbar{display:none}
 .chip{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;
   padding:6px 10px;font-size:.74rem;font-weight:600;color:var(--t2);
@@ -135,7 +135,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
     height: calc(100vh - 52px) !important;
     overflow-y: scroll;
     padding: 20px 24px;
-    -webkit-overflow-scrolling: touch;
+    
   }
 
   /* Remove mobile nav — desktop uses sidebar */
@@ -387,7 +387,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 
 /* ── Weather strip ────────────────────────────────────────────── */
 .wx-strip{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px;
-  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+  scrollbar-width:none}
 .wx-strip::-webkit-scrollbar{display:none}
 .wx-item{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;
   padding:7px 10px;text-align:center;flex-shrink:0;min-width:68px}
@@ -396,7 +396,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);
 
 /* ── Filters ──────────────────────────────────────────────────── */
 .filter-row{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;
-  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+  scrollbar-width:none}
 .filter-row::-webkit-scrollbar{display:none}
 .filter-pill{background:var(--bg2);border:1px solid var(--bdr);border-radius:99px;
   padding:5px 12px;font-size:.72rem;font-weight:600;color:var(--t3);
@@ -492,7 +492,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
 /* ── Scrollable stat row ──────────────────────────────────────── */
 .stat-scroll{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;
-  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+  scrollbar-width:none}
 .stat-scroll::-webkit-scrollbar{display:none}
 .stat-box{background:var(--bg3);border:1px solid var(--bdr);border-radius:8px;
   padding:8px 10px;text-align:center;flex-shrink:0;min-width:70px}
@@ -5023,7 +5023,7 @@ function addManualBet(playerId){
     showBetEntryModal({
       name: r.name, id: String(r.id), prob: r.prob,
       defaultOdds: fdO, betType: 'single',
-    }, (wagered, odds, betType) => {
+    }, (wagered, odds, betType, closingOdds) => {
       stored.push({
         id: String(r.id), name: r.name, prob: r.prob,
         fdOdds: fdO, actual: undefined, date: today, grade: r.grade,
@@ -5032,7 +5032,8 @@ function addManualBet(playerId){
         gamePk: r.gamePk||null, gameNumber: r.gameNumber||1,
         manualBet: true, betType: betType||'single',
         wagered: wagered||null, odds: odds||fdO||null,
-        _rawProb: r._rawProb||r.prob, // raw pre-calibration prob for accurate tracker
+        closingOdds: closingOdds||null,
+        _rawProb: r._rawProb||r.prob,
       });
       if(stored.length>2000) stored.splice(0,stored.length-2000);
       localStorage.setItem(key, JSON.stringify(stored));
@@ -5045,7 +5046,7 @@ function showBetEntryModal(config, onConfirm){
   document.getElementById('bet-entry-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'bet-entry-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.65);';
   modal.innerHTML = `
     <div style="width:100%;max-width:360px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:20px 18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="font-size:.90rem;font-weight:800;color:var(--t1);margin-bottom:4px">📌 Track Bet</div>
@@ -5064,11 +5065,20 @@ function showBetEntryModal(config, onConfirm){
           style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--bdr);
           background:var(--bg3);color:var(--t1);font-size:.88rem;box-sizing:border-box">
       </div>
-      <div style="margin-bottom:18px">
+      <div style="margin-bottom:12px">
         <div style="font-size:.65rem;color:var(--t4);margin-bottom:4px">Odds (American, e.g. +130 or -110)</div>
         <input id="bet-odds" type="text" placeholder="${config.defaultOdds!=null?(config.defaultOdds>0?'+':'')+config.defaultOdds:'e.g. +130'}"
           value="${config.defaultOdds!=null?(config.defaultOdds>0?'+':'')+config.defaultOdds:''}"
           style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--bdr);
+          background:var(--bg3);color:var(--t1);font-size:.88rem;box-sizing:border-box">
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div style="font-size:.65rem;color:var(--t4)">Closing Line <span style="color:var(--t4);font-weight:400">(optional — fill before first pitch)</span></div>
+          <div style="font-size:.58rem;color:var(--blue)">📈 CLV tracking</div>
+        </div>
+        <input id="bet-closing" type="text" placeholder="e.g. +280 (enter before game starts)"
+          style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(61,142,240,.3);
           background:var(--bg3);color:var(--t1);font-size:.88rem;box-sizing:border-box">
       </div>
       <div id="bet-payout-preview" style="font-size:.68rem;color:var(--green);margin-bottom:16px;min-height:18px"></div>
@@ -5122,13 +5132,15 @@ function confirmBetEntry(){
   const wagered = parseFloat(document.getElementById('bet-wagered')?.value)||null;
   const oddsStr = document.getElementById('bet-odds')?.value?.trim()||'';
   const odds = parseInt(oddsStr)||null;
+  const closingStr = document.getElementById('bet-closing')?.value?.trim()||'';
+  const closingOdds = parseInt(closingStr)||null;
   const betType = window._betEntryType||'single';
   document.getElementById('bet-entry-modal')?.remove();
 
   if(betType==='parlay'){
     addParlayLeg(wagered, odds);
   } else if(window._betEntryCallback){
-    window._betEntryCallback(wagered, odds, 'single');
+    window._betEntryCallback(wagered, odds, 'single', closingOdds);
   }
 }
 
@@ -5343,7 +5355,7 @@ function exportBetHistory(){
   document.getElementById('export-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'export-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.7);';
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
   modal.innerHTML = `
     <div style="width:100%;max-width:420px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:18px;max-height:88vh;display:flex;flex-direction:column;gap:10px">
@@ -5402,7 +5414,7 @@ function importBetHistory(){
   document.getElementById('import-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'import-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);';
   modal.innerHTML = `
     <div style="width:100%;max-width:400px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="font-size:.88rem;font-weight:800;color:var(--t1);margin-bottom:4px">⬇️ Import Bets</div>
@@ -5464,7 +5476,7 @@ function showManualOddsEntry(){
   const loaded = _fdOdds ? Object.keys(_fdOdds).length : 0;
   const modal = document.createElement('div');
   modal.id = 'odds-entry-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);';
   modal.innerHTML = `
     <div style="width:100%;max-width:400px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="font-size:.88rem;font-weight:800;color:var(--t1);margin-bottom:4px">📋 Enter HR Prop Odds</div>
@@ -5888,7 +5900,7 @@ function showTagDetail(key){
   const modal = document.createElement('div');
   modal.id = 'tag-detail-modal';
   modal.style.cssText = `position:fixed;inset:0;z-index:9999;display:flex;align-items:center;
-    justify-content:center;padding:20px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)`;
+    justify-content:center;padding:20px;background:rgba(0,0,0,.65);`;
   modal.onclick = (e) => { if(e.target===modal) modal.remove(); };
   modal.innerHTML = `
     <div style="width:100%;max-width:420px;background:var(--bg2);border-radius:16px;
@@ -6004,6 +6016,17 @@ function voidBet(id, date){
   if(idx>=0){ stored[idx].actual='void'; stored[idx].resolvedManual=true; }
   localStorage.setItem('hr_hub_results', JSON.stringify(stored));
   renderResultsTab();
+}
+
+function saveClosingLine(id, date, value){
+  const odds = parseInt(value);
+  if(!value || isNaN(odds) || Math.abs(odds) < 100) return;
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  const idx = stored.findIndex(r=>String(r.id)===String(id)&&r.date===date&&r.manualBet);
+  if(idx>=0){
+    stored[idx].closingOdds = odds;
+    localStorage.setItem('hr_hub_results', JSON.stringify(stored));
+  }
 }
 
 function resolveResult(id, date, actual){
@@ -6410,6 +6433,13 @@ async function renderResultsTab(){
             </div>
             <div style="font-size:.60rem;color:var(--t4);margin-top:1px">${r.date} · ${oddsStr}${wag?` · <b style="color:var(--t2)">$${wag}</b>`:''}${payout?` · win: <b style="color:var(--green)">+$${payout.profit.toFixed(2)}</b>`:''}</div>
             ${isPar&&r.parlayLegs?`<div style="font-size:.58rem;color:var(--t4);margin-top:2px">${r.parlayLegs.map(l=>l.name.split(' ')[1]||l.name).join(' + ')}</div>`:''}
+            <div style="display:flex;align-items:center;gap:5px;margin-top:5px">
+              <span style="font-size:.57rem;color:var(--blue);white-space:nowrap">📈 Close:</span>
+              <input type="text" placeholder="closing odds e.g. +280"
+                value="${r.closingOdds!=null?(r.closingOdds>0?'+':'')+r.closingOdds:''}"
+                onchange="saveClosingLine('${r.id}','${r.date}',this.value)"
+                style="flex:1;padding:3px 7px;border-radius:6px;border:1px solid rgba(61,142,240,.25);background:var(--bg3);color:var(--t1);font-size:.68rem;font-family:monospace;min-width:0">
+            </div>
           </div>
           <div style="display:flex;gap:4px;flex-shrink:0">
             <button onclick="resolveResult('${r.id}','${r.date}',1)" style="padding:5px 8px;
@@ -8315,7 +8345,7 @@ function renderKelly(){
 
     <!-- Add Pick Modal -->
     <div id="kelly-add-modal" style="display:none;position:fixed;inset:0;z-index:100;
-      background:rgba(0,0,0,.7);backdrop-filter:blur(4px);padding:20px;
+      background:rgba(0,0,0,.7);;padding:20px;
       display:none;align-items:flex-end">
       <div style="width:100%;background:#1a2332;border-radius:20px 20px 0 0;
         padding:20px;border:1px solid var(--bdr)">
@@ -10901,7 +10931,7 @@ function renderSlate(){
           ✏️ Edit
         </div>
       </div>
-      <div style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+      <div style="display:flex;gap:8px;overflow-x:auto;
         scrollbar-width:none;padding-bottom:4px">
         ${items}
       </div>
@@ -11039,7 +11069,7 @@ function renderHitterCard(r,showGame){
       ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)}xw</span></div>`:''}
       <div class="stat-chip"><span>xHR</span><span class="val" style="color:${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return r.prob*e>=0.35?'var(--green)':r.prob*e>=0.20?'var(--amber)':'var(--t3)'})()}">${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return(r.prob*e).toFixed(2)})()}</span></div>
     </div>
-    ${(()=>{const g=r._recentGames||[];const g14=g.slice(0,14);const pa=g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);if(pa<8)return'';const hr=g14.reduce((s,x)=>s+(x.hr||0),0),ab=g14.reduce((s,x)=>s+(x.ab||0),0),tb=g14.reduce((s,x)=>s+(x.tb||0),0),h=g14.reduce((s,x)=>s+(x.h||0),0);const slg=ab>0?tb/ab:null,avg=ab>0?h/ab:null,iso=slg&&avg?slg-avg:null;const vs=(r.anchor||.035)>0?(hr/pa)/(r.anchor||.035):1;const arr=vs>=1.25?'<span style="color:var(--green)">↑</span>':vs<=0.60?'<span style="color:var(--red)">↓</span>':'<span style="color:var(--t4)">→</span>';const f=v=>v?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'—';return`<div style="display:flex;gap:4px;padding:6px 0;border-top:1px solid var(--bg3);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;align-items:center"><span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;opacity:.55;flex-shrink:0;margin-right:2px">L14</span><div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">HR</div><div style="font-size:.75rem;font-weight:800;color:${hr>=3?'var(--green)':hr===0&&pa>=30?'var(--red)':'var(--t2)'}">${hr}${arr}</div></div>${iso?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">ISO</div><div style="font-size:.75rem;font-weight:800;color:${iso>=.250?'var(--green)':iso<=.100?'var(--red)':'var(--t2)'}">${f(iso)}</div></div>`:''} ${slg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">SLG</div><div style="font-size:.75rem;font-weight:800;color:${slg>=.500?'var(--green)':slg<=.280?'var(--red)':'var(--t2)'}">${f(slg)}</div></div>`:''} ${avg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">AVG</div><div style="font-size:.75rem;font-weight:800;color:${avg>=.300?'var(--green)':avg<=.160?'var(--red)':'var(--t2)'}">${f(avg)}</div></div>`:''} <span style="font-size:.58rem;color:var(--t4);flex-shrink:0;padding:0 2px">${pa}PA</span></div>`;})()}
+    ${(()=>{const g=r._recentGames||[];const g14=g.slice(0,14);const pa=g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);if(pa<8)return'';const hr=g14.reduce((s,x)=>s+(x.hr||0),0),ab=g14.reduce((s,x)=>s+(x.ab||0),0),tb=g14.reduce((s,x)=>s+(x.tb||0),0),h=g14.reduce((s,x)=>s+(x.h||0),0);const slg=ab>0?tb/ab:null,avg=ab>0?h/ab:null,iso=slg&&avg?slg-avg:null;const vs=(r.anchor||.035)>0?(hr/pa)/(r.anchor||.035):1;const arr=vs>=1.25?'<span style="color:var(--green)">↑</span>':vs<=0.60?'<span style="color:var(--red)">↓</span>':'<span style="color:var(--t4)">→</span>';const f=v=>v?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'—';return`<div style="display:flex;gap:4px;padding:6px 0;border-top:1px solid var(--bg3);overflow-x:auto;scrollbar-width:none;align-items:center"><span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;opacity:.55;flex-shrink:0;margin-right:2px">L14</span><div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">HR</div><div style="font-size:.75rem;font-weight:800;color:${hr>=3?'var(--green)':hr===0&&pa>=30?'var(--red)':'var(--t2)'}">${hr}${arr}</div></div>${iso?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">ISO</div><div style="font-size:.75rem;font-weight:800;color:${iso>=.250?'var(--green)':iso<=.100?'var(--red)':'var(--t2)'}">${f(iso)}</div></div>`:''} ${slg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">SLG</div><div style="font-size:.75rem;font-weight:800;color:${slg>=.500?'var(--green)':slg<=.280?'var(--red)':'var(--t2)'}">${f(slg)}</div></div>`:''} ${avg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center;min-width:32px"><div style="font-size:.52rem;color:var(--t4)">AVG</div><div style="font-size:.75rem;font-weight:800;color:${avg>=.300?'var(--green)':avg<=.160?'var(--red)':'var(--t2)'}">${f(avg)}</div></div>`:''} <span style="font-size:.58rem;color:var(--t4);flex-shrink:0;padding:0 2px">${pa}PA</span></div>`;})()}
     ${(()=>{const fdO=getFDOdds(r.name);if(!fdO)return'';const tier=getEdgeTier(r.prob,fdO);const kelly=kellySize(r.prob,fdO);if(!tier||tier.tier==='F')return'';const tc=tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':tier.tier==='B'?'var(--amber)':'var(--t4)';return`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:8px;background:${tc}12;border:1px solid ${tc}30;margin-top:5px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.1rem;font-weight:900;color:${tc};line-height:1">${tier.tier}</span><div><div style="font-size:.68rem;font-weight:700;color:${tc}">${tier.label}</div><div style="font-size:.60rem;color:var(--t4)">FD ${fdO>0?'+':''}${fdO} · ${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge</div></div></div>${kelly&&kelly.units>0?`<div style="text-align:center;padding:3px 8px;border-radius:6px;background:${tc}20;border:1px solid ${tc}40"><div style="font-size:.52rem;color:var(--t4)">Kelly</div><div style="font-size:.82rem;font-weight:900;color:${tc}">${kelly.units}u</div></div>`:''} <button onclick="event.stopPropagation();generateShareCard('${r.id}')" style="font-size:.60rem;padding:4px 8px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);cursor:pointer">📤</button></div>`;})()}
   </div>`;
 }
@@ -11092,7 +11122,7 @@ function _newRenderHitterCard(r,showGame){
       ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)}xw</span></div>`:''}
       <div class="stat-chip"><span>xHR</span><span class="val" style="color:${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return r.prob*e>=0.35?'var(--green)':r.prob*e>=0.20?'var(--amber)':'var(--t3)'})()}">${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return(r.prob*e).toFixed(2)})()}</span></div>
     </div>
-    ${(()=>{const g=r._recentGames||[];const g14=g.slice(0,14);const pa=g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);if(pa<8)return'';const hr=g14.reduce((s,x)=>s+(x.hr||0),0),ab=g14.reduce((s,x)=>s+(x.ab||0),0),tb=g14.reduce((s,x)=>s+(x.tb||0),0),h=g14.reduce((s,x)=>s+(x.h||0),0);const slg=ab>0?tb/ab:null,avg=ab>0?h/ab:null,iso=slg&&avg?slg-avg:null;const vs=(r.anchor||.035)>0?(hr/pa)/(r.anchor||.035):1;const arr=vs>=1.25?'<span style="color:var(--green)">↑</span>':vs<=0.60?'<span style="color:var(--red)">↓</span>':'<span style="color:var(--t4)">→</span>';const f=v=>v?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'—';return`<div style="display:flex;gap:4px;padding:6px 0;border-top:1px solid var(--bg3);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;align-items:center"><span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;opacity:.55;flex-shrink:0;margin-right:2px">L14</span><div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">HR</div><div style="font-size:.75rem;font-weight:800;color:${hr>=3?'var(--green)':hr===0&&pa>=30?'var(--red)':'var(--t2)'}">${hr}${arr}</div></div>${iso?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">ISO</div><div style="font-size:.75rem;font-weight:800;color:${iso>=.250?'var(--green)':iso<=.100?'var(--red)':'var(--t2)'}">${f(iso)}</div></div>`:''} ${slg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">SLG</div><div style="font-size:.75rem;font-weight:800;color:${slg>=.500?'var(--green)':slg<=.280?'var(--red)':'var(--t2)'}">${f(slg)}</div></div>`:''} ${avg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">AVG</div><div style="font-size:.75rem;font-weight:800;color:${avg>=.300?'var(--green)':avg<=.160?'var(--red)':'var(--t2)'}">${f(avg)}</div></div>`:''} <span style="font-size:.58rem;color:var(--t4);flex-shrink:0;padding:0 2px">${pa}PA</span></div>`;})()}
+    ${(()=>{const g=r._recentGames||[];const g14=g.slice(0,14);const pa=g14.reduce((s,x)=>s+(x.pa||x.ab||0),0);if(pa<8)return'';const hr=g14.reduce((s,x)=>s+(x.hr||0),0),ab=g14.reduce((s,x)=>s+(x.ab||0),0),tb=g14.reduce((s,x)=>s+(x.tb||0),0),h=g14.reduce((s,x)=>s+(x.h||0),0);const slg=ab>0?tb/ab:null,avg=ab>0?h/ab:null,iso=slg&&avg?slg-avg:null;const vs=(r.anchor||.035)>0?(hr/pa)/(r.anchor||.035):1;const arr=vs>=1.25?'<span style="color:var(--green)">↑</span>':vs<=0.60?'<span style="color:var(--red)">↓</span>':'<span style="color:var(--t4)">→</span>';const f=v=>v?'.'+Math.round(v*1000).toString().padStart(3,'0').slice(-3):'—';return`<div style="display:flex;gap:4px;padding:6px 0;border-top:1px solid var(--bg3);overflow-x:auto;scrollbar-width:none;align-items:center"><span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;opacity:.55;flex-shrink:0;margin-right:2px">L14</span><div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">HR</div><div style="font-size:.75rem;font-weight:800;color:${hr>=3?'var(--green)':hr===0&&pa>=30?'var(--red)':'var(--t2)'}">${hr}${arr}</div></div>${iso?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">ISO</div><div style="font-size:.75rem;font-weight:800;color:${iso>=.250?'var(--green)':iso<=.100?'var(--red)':'var(--t2)'}">${f(iso)}</div></div>`:''} ${slg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">SLG</div><div style="font-size:.75rem;font-weight:800;color:${slg>=.500?'var(--green)':slg<=.280?'var(--red)':'var(--t2)'}">${f(slg)}</div></div>`:''} ${avg?`<div style="flex:1;background:var(--bg3);border-radius:7px;padding:4px 5px;text-align:center"><div style="font-size:.52rem;color:var(--t4)">AVG</div><div style="font-size:.75rem;font-weight:800;color:${avg>=.300?'var(--green)':avg<=.160?'var(--red)':'var(--t2)'}">${f(avg)}</div></div>`:''} <span style="font-size:.58rem;color:var(--t4);flex-shrink:0;padding:0 2px">${pa}PA</span></div>`;})()}
     ${(()=>{const fdO=getFDOdds(r.name);if(!fdO)return'';const tier=getEdgeTier(r.prob,fdO);const kelly=kellySize(r.prob,fdO);if(!tier||tier.tier==='F')return'';const tc=tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':tier.tier==='B'?'var(--amber)':'var(--t4)';return`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:8px;background:${tc}12;border:1px solid ${tc}30;margin-top:5px"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.1rem;font-weight:900;color:${tc};line-height:1">${tier.tier}</span><div><div style="font-size:.68rem;font-weight:700;color:${tc}">${tier.label}</div><div style="font-size:.60rem;color:var(--t4)">FD ${fdO>0?'+':''}${fdO} · ${tier.edge>=0?'+':''}${tier.edge.toFixed(1)}% edge</div></div></div>${kelly&&kelly.units>0?`<div style="text-align:center;padding:3px 8px;border-radius:6px;background:${tc}20;border:1px solid ${tc}40"><div style="font-size:.52rem;color:var(--t4)">Kelly</div><div style="font-size:.82rem;font-weight:900;color:${tc}">${kelly.units}u</div></div>`:''}<button onclick="event.stopPropagation();generateShareCard('${r.id}')" style="font-size:.60rem;padding:4px 8px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);cursor:pointer">📤</button></div>`;})()}
   </div>`;
 }
@@ -13185,7 +13215,7 @@ function renderPitcherLog(rows){
         <div style="font-size:.60rem;color:var(--t4)">${l}</div></div>`).join('')}
   </div>`;
 
-  listEl.innerHTML=`<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+  listEl.innerHTML=`<div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:.72rem">
       <thead><tr style="border-bottom:2px solid var(--bg3);color:var(--t4);font-size:.60rem;text-transform:uppercase;letter-spacing:.04em">
         <th style="padding:8px 6px;text-align:left;font-weight:600">DATE</th>
@@ -13768,6 +13798,7 @@ if(document.readyState==='loading'){
 </script>
 <!-- Scroll-to-top: lives at body level, not inside #content -->
 <button id="scroll-top-btn"
+  style="transform:translateZ(0);-webkit-transform:translateZ(0)"
   onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'})"
   style="position:fixed;bottom:78px;right:14px;z-index:200;width:38px;height:38px;
     border-radius:50%;border:1px solid var(--bdr);background:var(--bg2);
