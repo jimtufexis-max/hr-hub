@@ -356,7 +356,6 @@ input:focus,textarea:focus{border-color:var(--amber)}
 </head>
 <body>
 
-<div id="loading-bar"><div class="ld-ring"></div><div class="ld-txt">Loading…</div></div>
 <div id="app">
 
   <div id="sidebar"></div>
@@ -415,6 +414,12 @@ input:focus,textarea:focus{border-color:var(--amber)}
         </div>
         <div id="game-chips"></div>
         <div id="filter-row"></div>
+
+        <!-- Loading bar — appears under filters while fetching players -->
+        <div id="loading-bar" style="display:none;height:3px;margin:4px 0 2px;border-radius:2px;overflow:hidden;background:rgba(255,255,255,.06)">
+          <div class="ld-fill" style="height:3px;width:0%;background:linear-gradient(90deg,#f0a500 0%,#22c95e 50%,#3d8ef0 100%);border-radius:2px;transition:width .4s ease"></div>
+        </div>
+
         <div id="odds-entry-panel" style="display:none;border:1px solid rgba(240,165,0,.3);border-radius:14px;padding:16px;margin-bottom:12px;background:var(--bg2)">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
             <div style="font-size:.82rem;font-weight:800;color:var(--t1)">📋 Enter HR Prop Odds</div>
@@ -13689,17 +13694,27 @@ function showLoading(msg){
   clearTimeout(_loadingTimer);
   const bar = document.getElementById('loading-bar');
   if(!bar) return;
-  const txt = bar.querySelector('.ld-txt');
-  if(txt) txt.textContent = msg || 'Loading…';
-  bar.classList.add('running');
+  bar.style.display = 'block';
+  const fill = bar.querySelector('.ld-fill');
+  if(fill){
+    fill.style.transition = 'none';
+    fill.style.width = '0%';
+    requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
+      fill.style.transition = 'width 1.4s ease';
+      fill.style.width = '75%';
+    }); });
+  }
 }
 function hideLoading(){
   _loadingCount = Math.max(0, _loadingCount - 1);
   if(_loadingCount > 0) return;
+  const bar = document.getElementById('loading-bar');
+  const fill = bar?.querySelector('.ld-fill');
+  if(fill){ fill.style.transition = 'width .15s ease'; fill.style.width = '100%'; }
   _loadingTimer = setTimeout(()=>{
-    const bar = document.getElementById('loading-bar');
-    if(bar) bar.classList.remove('running');
-  }, 150);
+    if(bar) bar.style.display = 'none';
+    if(fill){ fill.style.transition = 'none'; fill.style.width = '0%'; }
+  }, 250);
 }
 
 function initApp(){
