@@ -301,14 +301,48 @@ input:focus,textarea:focus{border-color:var(--amber)}
   }
 }
 
-/* ── Loading Bar ─────────────────────────────────────────────── */
+/* ── Loading Overlay ─────────────────────────────────────────── */
 #loading-bar{
-  position:fixed;top:0;left:0;height:3px;width:0%;
-  background:linear-gradient(90deg,var(--amber),#f59e0b,var(--green));
-  z-index:9999;transition:width .3s ease,opacity .4s ease;
-  pointer-events:none;opacity:0
+  position:fixed;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  z-index:9999;
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+  background:rgba(15,17,23,.85);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:16px;
+  padding:28px 36px;
+  pointer-events:none;
+  min-width:140px
 }
-#loading-bar.running{opacity:1}
+#loading-bar.running{display:flex}
+#loading-bar .ld-ring{
+  width:40px;height:40px;position:relative
+}
+#loading-bar .ld-ring::before{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  border:3px solid rgba(240,165,0,.15);
+  border-top-color:#f0a500;border-right-color:#22c95e;
+  animation:ld-spin .9s cubic-bezier(.4,0,.2,1) infinite
+}
+#loading-bar .ld-ring::after{
+  content:'';position:absolute;inset:7px;border-radius:50%;
+  border:3px solid transparent;
+  border-bottom-color:#3d8ef0;border-left-color:#e0504a;
+  animation:ld-spin .7s cubic-bezier(.4,0,.2,1) infinite reverse
+}
+@keyframes ld-spin{to{transform:rotate(360deg)}}
+#loading-bar .ld-txt{
+  font-size:.72rem;color:rgba(255,255,255,.7);
+  font-weight:500;letter-spacing:.03em;
+  white-space:nowrap
+}
 
 #scroll-top-btn{
   position:fixed;bottom:80px;right:14px;
@@ -322,7 +356,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
 </head>
 <body>
 
-<div id="loading-bar"></div>
+<div id="loading-bar"><div class="ld-ring"></div><div class="ld-txt">Loading…</div></div>
 <div id="app">
 
   <div id="sidebar"></div>
@@ -1093,7 +1127,7 @@ async function getSavantBatters(){
     if(!r.ok)throw new Error(`savant batters ${r.status}`);
     const txt=await r.text();
     const rows=parseCSVText(txt); const out={};
-    if(rows.length) console.log('[Savant batters] cols sample:', Object.keys(rows[0]).slice(0,20).join(', '));
+    if(rows.length) console.log('[Savant statcast] cols:', Object.keys(rows[0]).slice(0,20).join(', '));
     for(const row of rows){
       const pid=(row.player_id||row.batter||'').replace(/\.0$/,'');
       if(!pid)continue;
@@ -1102,20 +1136,39 @@ async function getSavantBatters(){
         hard_hit_pct:   parseF(row.ev95percent ?? row.hard_hit_percent),
         avg_ev:         parseF(row.avg_hit_speed ?? row.avg_exit_velocity ?? row.launch_speed),
         avg_la:         parseF(row.avg_hit_angle ?? row.avg_launch_angle),
-        xwoba:          parseF(row.xwoba ?? row.est_woba),
-        xba:            parseF(row.xba ?? row.est_ba),
-        xslg:           parseF(row.xslg ?? row.est_slg),
         sweet_spot_pct: parseF(row.sweet_spot_percent ?? row.sweet_spot),
-        k_pct:          parseF(row.k_percent ?? row['k%'] ?? row['K%']),
-        bb_pct:         parseF(row.bb_percent ?? row['bb%'] ?? row['BB%']),
         whiff_pct:      parseF(row.whiff_percent ?? row.whiff_rate),
         chase_pct:      parseF(row.oz_swing_percent ?? row.o_swing_percent ?? row.chase_rate),
+        k_pct:          parseF(row.k_percent ?? row['K%']),
+        bb_pct:         parseF(row.bb_percent ?? row['BB%']),
         sprint_speed:   parseF(row.sprint_speed),
       };
     }
-    console.log(`Savant batters (statcast): ${Object.keys(out).length} players`);
+    console.log(`[Savant statcast] ${Object.keys(out).length} players`);
 
-    // Batted-ball leaderboard — pull_air_rate, fb_rate, pull_rate (all 0-1 decimals)
+    // ── Expected stats (xwOBA, xBA, xSLG) — separate endpoint ──────────────
+    try{
+      const xUrl=`https://baseballsavant.mlb.com/leaderboard/expected_statistics?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
+      const xr=await fetch(PROXY+encodeURIComponent(xUrl));
+      if(xr.ok){
+        const xRows=parseCSVText(await xr.text());
+        if(xRows.length) console.log('[Savant xStats] cols:', Object.keys(xRows[0]).slice(0,15).join(', '));
+        for(const row of xRows){
+          const pid=(row.player_id||row.batter||'').replace(/\.0$/,'');
+          if(!pid)continue;
+          if(!out[pid]) out[pid]={};
+          out[pid].xwoba = parseF(row.xwoba ?? row.est_woba);
+          out[pid].xba   = parseF(row.xba   ?? row.est_ba);
+          out[pid].xslg  = parseF(row.xslg  ?? row.est_slg);
+          // Also grab EV/barrel if missing
+          if(!out[pid].avg_ev)   out[pid].avg_ev   = parseF(row.avg_exit_velocity ?? row.avg_hit_speed);
+          if(!out[pid].barrel_pct) out[pid].barrel_pct = parseF(row.barrel_batted_rate ?? row.brl_percent);
+        }
+        console.log(`[Savant xStats] merged into ${Object.keys(out).length} players`);
+      }
+    }catch(e2){console.warn('[xStats]:', e2.message);}
+
+    // ── Batted-ball (pull_air, fb_rate, etc.) ────────────────────────────────
     try{
       const url2=`https://baseballsavant.mlb.com/leaderboard/batted-ball?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
       const r2=await fetch(PROXY+encodeURIComponent(url2));
@@ -1124,11 +1177,10 @@ async function getSavantBatters(){
         const toP=v=>{const f=parseFloat(v);return isNaN(f)?null:Math.round(f*1000)/10;};
         let enriched=0;
         for(const row of rows2){
-          const pid=String(row.id||'').replace(/\.0$/,'');
+          const pid=String(row.id||row.player_id||'').replace(/\.0$/,'');
           if(!pid)continue;
           if(!out[pid])out[pid]={};
           const pa=toP(row.pull_air_rate),fb=toP(row.fb_rate),pull=toP(row.pull_rate),air=toP(row.air_rate);
-          // hr_fb_pct from home_run_per_flyball column (if present)
           const hrfb=toP(row.home_run_per_flyball??row.hr_flyball??row.hr_per_fb);
           if(pa!=null)   out[pid].pull_air_pct=pa;
           if(fb!=null)   out[pid].fb_pct=fb;
@@ -11071,7 +11123,7 @@ function filterStatsGrid(statsId, pitchType, playerId){
   });
 }
 function showDetail(id){
-  showLoading();
+  showLoading('Loading player…');
   const r=S.allRows.find(x=>x.id===id);
   if(!r){ hideLoading(); return; }
 
@@ -13576,36 +13628,26 @@ function renderPercentilePanel(el, playerId){
 
 
 // ==================================================================
-//  LOADING BAR
+//  LOADING OVERLAY — centered spinner shown during async operations
 // ==================================================================
 let _loadingTimer = null;
 let _loadingCount = 0;
-function showLoading(){
+function showLoading(msg){
   _loadingCount++;
+  clearTimeout(_loadingTimer);
   const bar = document.getElementById('loading-bar');
   if(!bar) return;
-  clearTimeout(_loadingTimer);
+  const txt = bar.querySelector('.ld-txt');
+  if(txt) txt.textContent = msg || 'Loading…';
   bar.classList.add('running');
-  bar.style.opacity = '1';
-  bar.style.transition = 'width .8s ease, opacity .4s ease';
-  bar.style.width = '0%';
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>{
-      bar.style.width = '60%';
-    });
-  });
 }
 function hideLoading(){
   _loadingCount = Math.max(0, _loadingCount - 1);
   if(_loadingCount > 0) return;
-  const bar = document.getElementById('loading-bar');
-  if(!bar) return;
-  bar.style.transition = 'width .2s ease, opacity .6s ease .2s';
-  bar.style.width = '100%';
   _loadingTimer = setTimeout(()=>{
-    bar.style.opacity = '0';
-    setTimeout(()=>{ bar.style.width = '0%'; bar.classList.remove('running'); }, 400);
-  }, 200);
+    const bar = document.getElementById('loading-bar');
+    if(bar) bar.classList.remove('running');
+  }, 150);
 }
 
 function initApp(){
