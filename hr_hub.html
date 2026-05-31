@@ -225,33 +225,6 @@ input:focus,textarea:focus{border-color:var(--amber)}
 .stat-chip.warn .val{color:var(--amber)}
 .stat-chip.bad  .val{color:var(--red)}
 
-/* ── Loading Spinner — colorful segmented wheel ──────────────── */
-.spinner{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:16px;padding:60px 20px;min-height:200px;width:100%;text-align:center
-}
-.spin{
-  position:relative;width:44px;height:44px;
-  background:none;border:none
-}
-.spin::before{
-  content:'';position:absolute;inset:0;border-radius:50%;
-  border:4px solid transparent;
-  border-top-color:#f0a500;
-  border-right-color:#22c95e;
-  animation:spin-seg .9s cubic-bezier(.4,0,.2,1) infinite
-}
-.spin::after{
-  content:'';position:absolute;inset:7px;border-radius:50%;
-  border:4px solid transparent;
-  border-bottom-color:#3d8ef0;
-  border-left-color:#e0504a;
-  animation:spin-seg .7s cubic-bezier(.4,0,.2,1) infinite reverse
-}
-@keyframes spin-seg{to{transform:rotate(360deg)}}
-.spinner-label{
-  font-size:.72rem;color:var(--t4);font-weight:500;letter-spacing:.03em
-}
 
 
 /* ── Detail Card ─────────────────────────────────────────────── */
@@ -262,6 +235,24 @@ input:focus,textarea:focus{border-color:var(--amber)}
 .fi-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
 .fi-name{font-size:.68rem;color:var(--t3);font-weight:600}
 .fi-val{font-size:.72rem;font-weight:800}
+
+
+/* ── AB Tab ──────────────────────────────────────────────────── */
+.ab-metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:4px}
+@media(min-width:400px){.ab-metric-grid{grid-template-columns:repeat(5,1fr)}}
+.ab-metric{background:var(--bg3);border-radius:8px;padding:6px 4px;text-align:center}
+.ab-metric .lbl{font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.ab-metric .val{font-size:.80rem;font-weight:800;color:var(--t2)}
+.ab-metric .val.good{color:var(--green)}
+.ab-table-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--bdr);margin-top:4px}
+.ab-table{width:100%;border-collapse:collapse;font-size:.68rem;min-width:520px}
+.ab-table thead tr{background:var(--bg3);border-bottom:1px solid var(--bdr)}
+.ab-table th{padding:8px 8px;text-align:left;font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.ab-table td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--t2);white-space:nowrap}
+.ab-table tr:last-child td{border-bottom:none}
+.ab-table tr.hr-row td{background:rgba(34,201,94,.06)}
+.ab-table tr:active td{background:rgba(255,255,255,.04)}
+.empty{font-size:.78rem;color:var(--t4);text-align:center;padding:30px 20px}
 
 .zone-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:110px;flex-shrink:0}
 .zone-cell{height:34px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700}
@@ -429,7 +420,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
           </div>
         </div>
         <div id="ab-sp-info" style="margin-bottom:8px"></div>
-        <div id="ab-summary" class="card" style="margin-bottom:8px;display:none"></div>
+        <div id="ab-summary" style="margin-bottom:8px"></div>
         <div id="ab-list"></div>
       </div>
 
@@ -2317,7 +2308,7 @@ async function ensureLeaderboards(){
   console.log('Loading leaderboards via proxy...');
   // Show loading status
   const el=document.getElementById('hitter-list');
-  if(el) el.innerHTML='<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading Statcast leaderboards… (30-60s first load)</div></div>';
+  if(el) el.innerHTML='';
   const [savB, fgB, savP, fgP] = await Promise.all([
     getSavantBatters(), getFGBatters(), getSavantPitchers(), getFGPitchers()
   ]);
@@ -2628,7 +2619,7 @@ async function loadSlate(){
   if(headerDate) headerDate.textContent=ds();
   // Show loading state immediately so user knows it's working
   if(gameChips) gameChips.innerHTML='<div style="font-size:.72rem;color:var(--t4);padding:8px 0;white-space:nowrap">Loading games…</div>';
-  if(hitterList) hitterList.innerHTML='<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading schedule…</div></div>';
+  if(hitterList) hitterList.innerHTML='';
   if(wxArea) wxArea.innerHTML='';
 
   gamesCache=[];
@@ -2750,7 +2741,7 @@ async function toggleGame(pk){
 let _savB=null,_fgB=null,_savP=null,_fgP=null;
 async function loadSelectedGames(){
   const el=document.getElementById('hitter-list');
-  el.innerHTML='<div class="spinner" style="min-height:calc(100vh - 220px)"><div class="spin"></div><div class="spinner-label">Loading games…</div></div>';
+  el.innerHTML='';
   loadFanDuelOdds(); // fire and forget
 
   // Ensure core leaderboards are ready before loading game data
@@ -2784,7 +2775,7 @@ async function loadSelectedGames(){
 
   let loaded=0;
   for(const g of toLoad){
-    el.innerHTML=`<div class="spinner" style="min-height:calc(100vh - 220px)"><div class="spin"></div><div class="spinner-label">Loading ${g.away}@${g.home}… (${loaded+1}/${toLoad.length})</div></div>`;
+    el.innerHTML=`<div style="padding:20px 14px;color:var(--t4);font-size:.75rem">Loading ${g.away} @ ${g.home}${toLoad.length>1?' ('+( loaded+1)+'/'+toLoad.length+')':''}…</div>`;
     try{
       await loadGame(g);
       console.log(`[loadSelectedGames] loadGame done for ${g.away}@${g.home}`);
@@ -5431,7 +5422,7 @@ async function loadDayResults(){
 async function renderResultsTab(){
   const el = document.getElementById('results-content');
   if(!el) return;
-  el.innerHTML = '<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading results…</div></div>';
+  el.innerHTML = '';
 
   try{
     const today     = ds();
@@ -9313,7 +9304,7 @@ async function loadGame(g){
   const lap = (label) => console.log(`[loadGame ${g.away}@${g.home}] ${label}: +${Date.now()-t0}ms`);
   console.log(`[loadGame] START ${g.away}@${g.home} pk=${pk}`);
   const el = document.getElementById('hitter-list');
-  const status = (msg) => { el.innerHTML=`<div class="spinner"><div class="spin"></div><div class="spinner-label">${msg}</div></div>`; };
+  const status = (msg) => { el.innerHTML=``; };
 
   try{
 
@@ -12368,7 +12359,7 @@ async function loadPitcherLog(){
   const pt=document.getElementById('pl-pitch-type')?.value||'';
   const listEl=document.getElementById('pl-list');
   if(!pid||!listEl) return;
-  listEl.innerHTML='<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading pitcher data…</div></div>';
+  listEl.innerHTML='';
   try{
     const rows=await fetchPitcherLog(pid,n,hand,pt);
     renderPitcherLog(rows);
@@ -12538,7 +12529,7 @@ async function loadABLog(){
     return;
   }
 
-  listEl.innerHTML='<div class="spinner"><div class="spin"></div><div class="spinner-label">Loading Statcast batted balls…</div></div>';
+  listEl.innerHTML='';
   sumEl.innerHTML='';
 
   try{
