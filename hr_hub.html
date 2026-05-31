@@ -62,7 +62,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);overscroll-behavior:n
 .nav-btn svg{width:20px;height:20px;stroke-width:1.8}
 
 /* ── Pages ────────────────────────────────────────────────────── */
-.page{display:none;padding:12px 14px}
+.page{display:none;padding:12px 14px;background:var(--bg);min-height:100%;contain:layout style}
 .page.active{display:block}
 
 /* ── Section labels ───────────────────────────────────────────── */
@@ -1535,23 +1535,26 @@ function showPage(name){
   document.getElementById(`nav-${name}`)?.classList.add('active');
   if(name==='ab') populateABSelect();
   if(name==='pl') populatePitcherSelect();
-  if(name==='results') renderResultsTab();
-  if(name==='kelly') renderKelly();
-  if(name==='parlay') renderParlay();
-  if(name==='picks') renderBestBets();
-  if(name==='discover') renderDiscover();
+  // Defer heavy renders to next frame so browser paints background first
+  // This prevents the black flash in PWA mode where there's no browser chrome
+  requestAnimationFrame(()=>{
+    if(name==='results') renderResultsTab();
+    if(name==='kelly') renderKelly();
+    if(name==='parlay') renderParlay();
+    if(name==='picks') renderBestBets();
+    if(name==='discover') renderDiscover();
+    if(name==='info'){
+      renderTagGuide();
+      const calEl = document.getElementById('auto-cal-card');
+      if(calEl) renderAutoCalCard(calEl);
+    }
+  });
   // Restore slate scroll position when returning from detail card
   if(name==='slate' && S._slateScrollPos){
     requestAnimationFrame(()=>{
       const content = document.getElementById('content');
       if(content) content.scrollTop = S._slateScrollPos;
     });
-  }
-  if(name==='info'){
-    renderTagGuide();
-    // Show auto-calibration status
-    const calEl = document.getElementById('auto-cal-card');
-    if(calEl) renderAutoCalCard(calEl);
   }
 }
 //  DATA FETCHING
