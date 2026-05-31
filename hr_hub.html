@@ -775,12 +775,27 @@ function showPage(name){
     }
   } catch(e){ console.error('[showPage]', e); }
 
-  // Restore slate scroll
-  if(name==='slate' && S._slateScrollPos){
-    requestAnimationFrame(()=>{
-      const c = document.getElementById('content');
-      if(c) c.scrollTop = S._slateScrollPos;
-    });
+  // Restore slate scroll position — only when coming back from detail card
+  if(name==='slate'){
+    const c = document.getElementById('content');
+    if(c){
+      const fromDetail = (cur === 'detail');
+      const pos = fromDetail ? (S._slateScrollPos || 0) : 0;
+      requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+          c.scrollTop = pos;
+          if(pos > 0){
+            setTimeout(()=>{ if(c.scrollTop === 0) c.scrollTop = pos; }, 50);
+          }
+        });
+      });
+    }
+  }
+
+  // When leaving slate, always save scroll position
+  if(name !== 'slate'){
+    const c = document.getElementById('content');
+    if(c) S._slateScrollPos = c.scrollTop;
   }
 }
 
@@ -11920,8 +11935,6 @@ function renderDetail(r){
               +'<div style="font-size:.54rem;color:var(--t4);margin-top:6px;opacity:.6">Baseball Savant · '+SEASON+' season · bar = MLB percentile · ↓ lower is better</div>'
               +'</div>';
           })()}
-        </div>
-
         </div>
 
       </div>`;
