@@ -1,1431 +1,465 @@
 <!DOCTYPE html>
-<!-- DingerIQ v2.9 — cache bust -->
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="DingerIQ">
-<meta name="application-name" content="DingerIQ">
-<meta name="theme-color" content="#0f1117">
-<meta name="description" content="Calibrated MLB home run probability analyzer">
-<link rel="manifest" href="manifest.json">
-<!-- PWA icons (add actual icon files to your repo) -->
-<link rel="apple-touch-icon" href="data:image/png;base64,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">
-<link rel="icon" type="image/png" href="data:image/png;base64,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">
-<title>DingerIQ</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DingerIQ">
+  <meta name="application-name" content="DingerIQ">
+  <meta name="theme-color" content="#0f1117">
+  <meta name="description" content="Calibrated MLB home run probability analyzer">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  <title>DingerIQ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-/* ── Reset & Tokens ───────────────────────────────────────────── */
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+/* ── Reset ───────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+input,textarea,select,button{font-family:inherit;font-size:inherit}
+
+/* ── Variables ───────────────────────────────────────────────── */
 :root{
-  --bg:#0f1117;--bg2:#161b27;--bg3:#1c2333;--bdr:#2d3d52;
-  --t1:#f0f4f8;--t2:#c8d8e8;--t3:#90a0b0;--t4:#607080;
-  --amber:#f0a500;--blue:#3d8ef0;--green:#22c95e;--red:#e0504a;
+  --bg:#0f1117;--bg2:#161b22;--bg3:#1c2333;
+  --t1:#f0f6fc;--t2:#c9d1d9;--t3:#8b949e;--t4:#484f58;
+  --bdr:rgba(255,255,255,.08);
+  --amber:#f0a500;--green:#22c95e;--red:#e0504a;--blue:#3d8ef0;
   --safe-top:env(safe-area-inset-top,0px);
-  --safe-bot:env(safe-area-inset-bottom,0px);
+  --safe-bot:env(safe-area-inset-bottom,0px)
 }
-:root.light{
-  --bg:#f2f5f9;--bg2:#ffffff;--bg3:#e8edf4;--bdr:#c8d4e0;
-  --t1:#0d1520;--t2:#253545;--t3:#506070;--t4:#7a90a0;
-  --amber:#c07800;--blue:#1a6ad0;--green:#0a8040;--red:#c03030;
+.light{
+  --bg:#ffffff;--bg2:#f6f8fa;--bg3:#eaeef2;
+  --t1:#1c2128;--t2:#24292f;--t3:#57606a;--t4:#8c959f;
+  --bdr:rgba(0,0,0,.12)
 }
-html,body{height:100%;background:#0f1117;color:var(--t2);
-  font-family:'Inter',system-ui,sans-serif;font-size:15px;overflow:hidden}
 
-/* ── Layout shell ─────────────────────────────────────────────── */
-#app{display:flex;flex-direction:column;height:100vh;height:100dvh;background:var(--bg)}
+/* ── Root — solid dark background everywhere, no transparency ── */
+html{height:100%;background:#0f1117}
+body{
+  height:100%;background:#0f1117;color:var(--t2);
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;
+  font-size:14px;-webkit-text-size-adjust:100%;
+  overscroll-behavior:none
+}
+#app{
+  display:flex;flex-direction:column;
+  height:100vh;height:100dvh;
+  background:#0f1117;overflow:hidden
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
 #header{
-  background:var(--bg2);border-bottom:1px solid var(--bdr);
-  padding:calc(var(--safe-top) + 10px) 16px 10px;
-  display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:20}
-#header-title{display:flex;align-items:center;flex-shrink:0}
-#header-title span{color:var(--amber)}
+  display:flex;align-items:center;gap:10px;flex-shrink:0;
+  padding:12px 14px 8px;
+  padding-top:calc(var(--safe-top) + 10px);
+  background:#0f1117;border-bottom:1px solid var(--bdr);z-index:20
+}
+#header-title{font-size:1.05rem;font-weight:800;color:var(--t1);letter-spacing:-.02em}
 #header-date{font-size:.72rem;color:var(--t4);margin-left:auto}
-#content{flex:1;overflow-y:auto;padding-bottom:calc(var(--safe-bot) + 60px);-webkit-transform:translateZ(0);transform:translateZ(0);overscroll-behavior:none;-webkit-overflow-scrolling:touch;background:#0f1117}
-#nav{
-  position:fixed;bottom:0;left:0;right:0;
-  background:var(--bg2);border-top:1px solid var(--bdr);
-  display:flex;padding-bottom:var(--safe-bot);z-index:20}
-.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;padding:8px 4px 6px;gap:3px;
-  font-size:.6rem;font-weight:600;color:var(--t4);
-  text-transform:uppercase;letter-spacing:.06em;cursor:pointer;
-  border:none;background:none;}
-.nav-btn.active{color:var(--amber)}
-.nav-btn svg{width:20px;height:20px;stroke-width:1.8}
 
-/* ── Pages ────────────────────────────────────────────────────── */
-.page{display:none;padding:12px 14px;background:#0f1117}
-.page.active{display:block}
-
-/* ── Section labels ───────────────────────────────────────────── */
-.slbl{font-size:.62rem;font-weight:700;letter-spacing:.1em;color:var(--t4);
-  text-transform:uppercase;padding:10px 0 6px;
-  display:flex;align-items:center;gap:8px}
-.slbl::after{content:'';flex:1;height:1px;background:var(--bdr)}
-
-/* ── Cards ────────────────────────────────────────────────────── */
-.card{background:var(--bg2);border:1px solid var(--bdr);border-radius:12px;
-  padding:12px 14px;margin-bottom:8px}
-
-/* ── Chips ────────────────────────────────────────────────────── */
-.chip-scroll{display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;
-  scrollbar-width:none}
-.chip-scroll::-webkit-scrollbar{display:none}
-.chip{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;
-  padding:6px 10px;font-size:.74rem;font-weight:600;color:var(--t2);
-  white-space:nowrap;cursor:pointer;;flex-shrink:0}
-.chip.active{background:#0e2448;border-color:var(--blue);color:var(--blue)}
-.chip.loaded{border-color:#22c95e33;color:var(--green)}
-
-/* ═══════════════════════════════════════════════════════
-   DESKTOP RESPONSIVE LAYOUT  (≥900px)
-   ═══════════════════════════════════════════════════════ */
-@media(min-width:900px){
-  /* Allow scaling on desktop */
-  html { font-size: 15px; }
-
-  /* Header — wider, better padding */
-  #header {
-    padding: 0 24px;
-    height: 52px;
-  }
-  #header-title svg { width: 120px !important; height: 28px !important; }
-
-  /* Root layout — sidebar + main */
-  body {
-    display: grid;
-    grid-template-rows: 52px 1fr;
-    grid-template-columns: 300px 1fr;
-    grid-template-areas:
-      "header  header"
-      "sidebar main";
-    height: 100vh;
-    overflow: hidden;
-  }
-  #header { grid-area: header; }
-
-  /* Sidebar — game chips, filters, weather */
-  #sidebar-desktop {
-    grid-area: sidebar;
-    display: flex !important;
-    flex-direction: column;
-    background: var(--bg2);
-    border-right: 1px solid var(--bdr);
-    overflow-y: auto;
-    padding: 16px;
-    gap: 12px;
-  }
-  .sd-section-label {
-    font-size: .60rem;
-    font-weight: 700;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--t4);
-    margin-bottom: 4px;
-  }
-
-  /* Main content area */
-  #content {
-    grid-area: main;
-    height: calc(100vh - 52px) !important;
-    overflow-y: scroll;
-    padding: 20px 24px;
-    
-  }
-
-  /* Remove mobile nav — desktop uses sidebar */
-  #nav { display: none !important; }
-
-  /* Scroll top btn — adjust for no mobile nav */
-  #scroll-top-btn { bottom: 20px !important; right: 20px !important; }
-
-  /* Pages — remove mobile padding, use full width */
-  .page { padding: 0; max-width: 100%; }
-
-  /* Slate page — 2 or 3 col card grid */
-  #page-slate .page-inner {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 10px;
-    align-items: start;
-  }
-  #page-slate .page-inner > #daily-summary { grid-column: 1 / -1; }
-  #page-slate .page-inner > #best-bets-band { grid-column: 1 / -1; }
-
-  /* Hitter cards — slightly wider feel */
-  .hitter-card { margin-bottom: 0; }
-
-  /* Filter pills — wrap nicely */
-  #filter-row { flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-
-  /* Search bar — wider */
-  #search-input { width: 100%; max-width: 280px; }
-
-  /* Game chips — move to sidebar, wrap */
-  #game-chips {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-  #game-chips .chip {
-    width: 100%;
-    text-align: left;
-    justify-content: flex-start;
-    border-radius: 9px;
-    padding: 8px 10px;
-    font-size: .75rem;
-  }
-
-  /* Date nav — in sidebar */
-  #date-nav { margin-bottom: 0; }
-
-  /* Lineup status — in sidebar */
-  #lineup-status { font-size: .65rem; color: var(--t4); margin-top: 4px; }
-
-  /* Wx area — in sidebar */
-  #wx-area { font-size: .80rem; }
-
-  /* Detail page — 2-col layout */
-  #page-detail .page-inner {
-    display: grid;
-    grid-template-columns: 340px 1fr;
-    gap: 16px;
-    align-items: start;
-  }
-  #page-detail .page-inner .detail-left { /* player header + prob breakdown + tags */ }
-  #page-detail .page-inner .detail-right { /* arsenal, zone, splits */ }
-
-  /* Results / Discover / Kelly — centered max width */
-  #page-results .page-inner,
-  #page-discover .page-inner,
-  #page-kelly .page-inner,
-  #page-info .page-inner {
-    max-width: 800px;
-    margin: 0 auto;
-  }
-
-  /* Cards — more padding on desktop */
-  .card { padding: 16px 18px; }
-
-  /* Back button — cleaner on desktop */
-  .back-btn {
-    font-size: .80rem;
-    padding: 7px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--bdr);
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 16px;
-    cursor: pointer;
-    color: var(--t3);
-    background: var(--bg2);
-    
-  }
-  .back-btn:hover { color: var(--t1); border-color: var(--t3); }
-
-  /* Tabs — horizontal, full width on desktop */
-  .tab-row { gap: 4px; }
-  .tab-btn { padding: 7px 16px; font-size: .78rem; }
-
-  /* Prob bar on detail — wider */
-  .prob-bar-wrap { max-width: 500px; }
-
-  /* Desktop nav — shown as top tabs inside content */
-  #desktop-nav {
-    display: flex !important;
-    gap: 4px;
-    margin-bottom: 16px;
-  }
-  #desktop-nav .dnav-btn {
-    padding: 8px 18px;
-    border-radius: 8px;
-    border: 1px solid var(--bdr);
-    background: var(--bg2);
-    color: var(--t3);
-    font-size: .78rem;
-    font-weight: 600;
-    cursor: pointer;
-    
-  }
-  #desktop-nav .dnav-btn:hover { color: var(--t1); border-color: var(--t3); }
-  #desktop-nav .dnav-btn.active {
-    background: var(--amber);
-    color: #000;
-    border-color: var(--amber);
-    font-weight: 800;
-  }
-
-  /* Lineup refresh btn — in sidebar */
-  #lineup-refresh-btn {
-    width: 100%;
-    padding: 8px;
-    border-radius: 8px;
-    border: 1px solid var(--bdr);
-    background: var(--bg3);
-    color: var(--t3);
-    font-size: .72rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-  #lineup-refresh-btn:hover { border-color: var(--amber); color: var(--amber); }
+/* ── Content scroll container ────────────────────────────────── */
+#content{
+  flex:1;overflow-y:auto;background:#0f1117;
+  padding-bottom:calc(var(--safe-bot) + 64px);
+  position:relative
 }
 
-@media(min-width:1200px){
-  body { grid-template-columns: 280px 1fr; }
-  #page-slate .page-inner {
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  }
+/* ── PAGE SWITCHING — THE FIX FOR PWA BLACK SCREENS ─────────── */
+/*
+  KEY ARCHITECTURE: pages use visibility:hidden/visible + height:0/auto
+  NOT display:none/block.
+  
+  With display:none: iOS removes page from compositor tree. When page
+  becomes display:block, iOS must CREATE a new compositor layer. During
+  that creation (1-2 frames), the area shows black.
+  
+  With visibility:hidden + position:absolute + height:0: page stays IN
+  the compositor tree always. Switching to visibility:visible just makes
+  it visible — no layer creation needed — zero black frames.
+*/
+.page{
+  visibility:hidden;
+  position:absolute;
+  top:0;left:0;right:0;
+  height:0;overflow:hidden;
+  pointer-events:none;
+  background:#0f1117;
+  padding:0
 }
-
-@media(min-width:1600px){
-  #page-slate .page-inner {
-    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  }
+.light .page{background:#ffffff}
+.page.active{
+  visibility:visible;
+  position:relative;
+  height:auto;overflow:visible;
+  pointer-events:auto;
+  padding:12px 14px 20px;
+  animation:fadeIn .1s ease-out
 }
-#date-nav{display:flex;align-items:center;gap:6px;margin-bottom:10px}
-#date-nav button{background:var(--bg2);border:1px solid var(--bdr);
-  border-radius:8px;color:var(--t2);font-size:.8rem;padding:7px 12px;
-  cursor:pointer;font-weight:600}
-#date-nav button:active{background:var(--bg3)}
-#date-lbl{flex:1;text-align:center;font-size:.85rem;font-weight:700;color:var(--t1)}
-#today-btn{font-size:.72rem;padding:7px 10px;color:var(--amber);
-  border-color:rgba(240,165,0,.3)}
-
-/* ── Hitter cards ─────────────────────────────────────────────── */
-.hitter-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:14px;
-  padding:12px 14px;margin-bottom:8px;cursor:pointer;
-  border-left:4px solid var(--bdr)}
-.hitter-card:active{opacity:.8}
-.hitter-card.grade-a{border-left-color:var(--green)}
-.hitter-card.grade-b{border-left-color:var(--amber)}
-.hitter-card.grade-c{border-left-color:var(--red)}
-
-/* ── Pulse glow for elite plays ───────────────────────────────── */
+@keyframes fadeIn{from{opacity:.6}to{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse-glow{
-  0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,.0)}
+  0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,0)}
   50%{box-shadow:0 0 12px 3px rgba(255,215,0,.25)}
 }
 @keyframes pulse-glow-green{
-  0%,100%{box-shadow:0 0 0 0 rgba(34,201,94,.0)}
+  0%,100%{box-shadow:0 0 0 0 rgba(34,201,94,0)}
   50%{box-shadow:0 0 10px 2px rgba(34,201,94,.20)}
 }
-.hitter-card.pulse-gold{animation:pulse-glow 2.4s ease-in-out infinite;border-color:rgba(255,215,0,.4)}
+
+/* ── Nav ─────────────────────────────────────────────────────── */
+#nav{
+  position:fixed;bottom:0;left:0;right:0;
+  background:var(--bg2);border-top:1px solid var(--bdr);
+  display:flex;padding-bottom:var(--safe-bot);z-index:20
+}
+.nav-btn{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;padding:8px 4px 6px;gap:3px;
+  border:none;background:none;color:var(--t4);
+  font-size:.60rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
+  cursor:pointer
+}
+.nav-btn svg{width:20px;height:20px;stroke-width:1.8}
+.nav-btn.active{color:var(--amber)}
+
+/* ── Cards ───────────────────────────────────────────────────── */
+.card{
+  background:var(--bg2);border-radius:10px;border:1px solid var(--bdr);
+  padding:12px 14px;margin-bottom:8px
+}
+.slbl{
+  font-size:.62rem;font-weight:700;color:var(--t4);
+  text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px
+}
+
+/* ── Hitter Cards ────────────────────────────────────────────── */
+.hitter-card{
+  background:var(--bg2);border-radius:10px;border:1px solid var(--bdr);
+  padding:12px 14px;margin-bottom:6px;cursor:pointer
+}
+.hitter-card.pulse-gold{border-color:rgba(255,215,0,.5);animation:pulse-glow 2.4s ease-in-out infinite}
 .hitter-card.pulse-green{animation:pulse-glow-green 2.8s ease-in-out infinite}
 
+/* ── Headshot ────────────────────────────────────────────────── */
+.hc-headshot{width:38px;height:38px;border-radius:50%;object-fit:cover;background:var(--bg3);flex-shrink:0}
+.hc-headshot-lg{width:54px;height:54px;border-radius:50%;object-fit:cover;background:var(--bg3);flex-shrink:0}
 
-/* ── Headshot ─────────────────────────────────────────────────── */
-.hc-headshot{width:38px;height:38px;border-radius:50%;object-fit:cover;
-  border:2px solid var(--bdr);flex-shrink:0;background:var(--bg3)}
-.hc-headshot-wrap{position:relative;flex-shrink:0}
+/* ── Prob Circle ─────────────────────────────────────────────── */
+.prob-circle{
+  width:44px;height:44px;border-radius:50%;border:2px solid var(--bdr);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  flex-shrink:0;font-weight:800
+}
+.prob-circle .val{font-size:.80rem;line-height:1}
+.prob-circle .lbl{font-size:.5rem;font-weight:700;text-transform:uppercase;color:var(--t4);letter-spacing:.04em}
 
-/* ── Kelly Calculator ─────────────────────────────────────────── */
-.kelly-fraction-btn{flex:1;padding:12px 0;border:none;border-radius:10px;
-  font-size:.75rem;font-weight:700;cursor:pointer;letter-spacing:.04em;
-  text-transform:uppercase;;background:transparent;
-  color:rgba(255,255,255,.3)}
-.kelly-fraction-btn.active{background:var(--amber);color:#000}
-.spray-popup{position:absolute;z-index:50;pointer-events:none;
-  animation:fadeIn .15s ease-out}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.pitch-row-btn{width:100%;background:none;border:none;cursor:pointer;
-  padding:0;text-align:left;border-radius:8px;}
-.pitch-row-btn:active{background:rgba(255,255,255,.04)}
-.pitch-drill{display:none;padding:12px 0 4px}
-.pitch-drill.open{display:block}
-.zone-grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:2px}
-.zone-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}
-.zc{border-radius:3px;display:flex;align-items:center;justify-content:center;
-  font-size:.58rem;font-weight:700;color:#fff}
-#ptr-indicator{display:none;align-items:center;justify-content:center;gap:8px;
-  padding:12px;font-size:.72rem;color:var(--t4);background:var(--bg2)}
-#ptr-indicator.visible{display:flex}
-#ptr-spinner{width:16px;height:16px;border:2px solid var(--bdr);border-top-color:var(--amber);
-  border-radius:50%;animation:spin .6s linear infinite}
+/* ── Tier Badge ──────────────────────────────────────────────── */
+.tier-badge{font-size:.58rem;font-weight:800;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:.06em}
 
-/* ── Lineup lock banner ───────────────────────────────────────── */
-#lineup-lock-banner{display:none;background:rgba(34,201,94,.12);border-bottom:1px solid rgba(34,201,94,.3);
-  padding:8px 16px;font-size:.72rem;color:var(--green);align-items:center;gap:8px;flex-shrink:0}
-#lineup-lock-banner.visible{display:flex}
-
-/* ── Daily summary card ───────────────────────────────────────── */
-#daily-summary{margin:0 0 10px 0}
-.hc-row1{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.hc-name{font-weight:700;font-size:.95rem;color:var(--t1);flex:1}
-.hc-prob{font-family:'JetBrains Mono',monospace;font-size:1.15rem;font-weight:800}
-.hc-grade{font-size:.72rem;font-weight:800;padding:2px 7px;border-radius:5px}
-.hc-row2{display:flex;gap:6px;flex-wrap:wrap}
-.stat-chip{background:var(--bg3);border:1px solid var(--bdr);border-radius:6px;
-  padding:3px 7px;font-size:.68rem;font-weight:600;color:var(--t3)}
-.stat-chip .val{color:var(--t1);margin-left:3px}
-.stat-chip.good .val{color:var(--green)}
-.stat-chip.warn .val{color:var(--amber)}
-.stat-chip.bad  .val{color:var(--red)}
-.mult-row{display:flex;gap:4px;margin-top:6px;font-size:.67rem}
-.mult-item{flex:1;background:var(--bg3);border-radius:5px;padding:4px 6px;text-align:center}
-.mult-label{color:var(--t4);display:block;font-size:.58rem;text-transform:uppercase;
-  letter-spacing:.05em;margin-bottom:2px}
-.mult-val{font-family:'JetBrains Mono',monospace;font-weight:700}
-.mult-val.up{color:var(--green)}
-.mult-val.flat{color:var(--t3)}
-.mult-val.dn{color:var(--red)}
-
-/* ── Prob circle ──────────────────────────────────────────────── */
-.prob-circle{width:60px;height:60px;border-radius:50%;display:flex;
-  flex-direction:column;align-items:center;justify-content:center;
-  border:2.5px solid;flex-shrink:0}
-.prob-circle .pct{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:800;line-height:1}
-.prob-circle .lbl{font-size:.5rem;font-weight:700;text-transform:uppercase;
-  letter-spacing:.06em;margin-top:2px;color:var(--t4)}
-
-/* ── Weather strip ────────────────────────────────────────────── */
-.wx-strip{display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px;
-  scrollbar-width:none}
-.wx-strip::-webkit-scrollbar{display:none}
-.wx-item{background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;
-  padding:7px 10px;text-align:center;flex-shrink:0;min-width:68px}
-.wx-val{font-size:.88rem;font-weight:700;color:var(--t1);display:block}
-.wx-lbl{font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em}
-
-/* ── Filters ──────────────────────────────────────────────────── */
-.filter-row{display:flex;gap:6px;margin-bottom:10px;overflow-x:auto;
-  scrollbar-width:none}
-.filter-row::-webkit-scrollbar{display:none}
-.filter-pill{background:var(--bg2);border:1px solid var(--bdr);border-radius:99px;
-  padding:5px 12px;font-size:.72rem;font-weight:600;color:var(--t3);
-  cursor:pointer;white-space:nowrap;}
-.filter-pill.active{background:#0e2448;border-color:var(--blue);color:var(--blue)}
-
-/* ── Player detail ────────────────────────────────────────────── */
-.detail-header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-.detail-prob-big{font-family:'JetBrains Mono',monospace;font-size:2.2rem;
-  font-weight:800;line-height:1}
-.detail-meta{font-size:.72rem;color:var(--t4);margin-top:2px}
-.factor-item{padding:8px 0;border-bottom:1px solid var(--bg3)}
-.factor-item:last-child{border-bottom:none}
-.fi-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
-.fi-name{font-size:.78rem;font-weight:600;color:var(--t2)}
-.fi-val{font-family:'JetBrains Mono',monospace;font-size:.78rem;font-weight:700}
-.fi-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
-.fi-fill{height:6px;border-radius:3px;}
-.fi-note{font-size:.62rem;color:var(--t4);margin-top:2px}
-
-/* ── Bet input ────────────────────────────────────────────────── */
-.bet-input{width:100%;background:var(--bg3);border:1px solid var(--bdr);
-  border-radius:8px;padding:10px 12px;font-size:1rem;color:var(--t1);
-  font-family:'JetBrains Mono',monospace;outline:none;}
-.bet-input:focus{border-color:var(--blue)}
-.bet-result{background:var(--bg3);border-radius:10px;padding:12px 14px;margin-top:10px}
-.bet-row{display:flex;justify-content:space-between;padding:5px 0;
-  border-bottom:1px solid var(--bdr);font-size:.8rem}
-.bet-row:last-child{border-bottom:none}
-.bet-row .lbl{color:var(--t4)}
-.bet-row .val{font-weight:700;font-family:'JetBrains Mono',monospace}
-
-/* ── AB Explorer ──────────────────────────────────────────────── */
-.ab-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;
-  padding:10px 12px;margin-bottom:6px}
-.ab-card.ab-hr{border-left:3px solid var(--amber);background:rgba(240,165,0,.05)}
-.ab-card.ab-brl{border-left:3px solid var(--green);background:rgba(34,201,94,.04)}
-.ab-row1{display:flex;align-items:center;gap:8px;margin-bottom:4px}
-.ab-date{font-size:.7rem;color:var(--t4);min-width:36px}
-.ab-pitcher{font-size:.78rem;color:var(--t2);flex:1}
-.ab-result{font-size:.72rem;font-weight:700;padding:2px 7px;border-radius:99px}
-.ab-row2{display:flex;gap:6px;flex-wrap:wrap}
-.ab-stat{font-size:.68rem;padding:2px 7px;border-radius:5px;
-  background:var(--bg3);border:1px solid var(--bdr);color:var(--t3)}
-.ab-stat .v{font-weight:700}
-.ab-stat.ev-hot .v{color:var(--green)}
-.ab-stat.ev-warm .v{color:var(--amber)}
-.ab-stat.ev-cold .v{color:var(--red)}
-.ab-stat.la-good .v{color:var(--green)}
-.ab-stat.brl-yes .v{color:var(--green)}
-
-/* ── Parlay builder ───────────────────────────────────────────── */
-.parlay-leg{background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;
-  padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px;
-  cursor:pointer;}
-.parlay-leg.selected{border-color:var(--amber);background:rgba(240,165,0,.06)}
-.pl-name{flex:1;font-weight:700;font-size:.88rem;color:var(--t1)}
-.pl-prob{font-family:'JetBrains Mono',monospace;font-size:1rem;font-weight:800}
-.parlay-result{background:linear-gradient(135deg,var(--bg2),var(--bg));
-  border:1.5px solid rgba(240,165,0,.4);border-radius:12px;padding:14px 16px;margin-top:10px}
-.pr-title{font-size:.62rem;font-weight:700;color:var(--amber);
-  text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px}
-.pr-stats{display:flex;gap:16px;flex-wrap:wrap}
-.pr-stat .lbl{font-size:.6rem;color:var(--t4);margin-bottom:3px}
-.pr-stat .val{font-family:'JetBrains Mono',monospace;font-size:1.6rem;font-weight:800}
-.pr-legs{font-size:.68rem;color:var(--t4);margin-top:10px;padding-top:8px;
-  border-top:1px solid var(--bdr);line-height:1.8}
-
-/* ── Spinners & empty states ──────────────────────────────────── */
-.spinner{display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:10px;padding:40px 20px;color:var(--t4)}
-.spin{width:28px;height:28px;border:2.5px solid var(--bdr);
-  border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.empty{text-align:center;padding:40px 20px;color:var(--t4);font-size:.88rem}
-
-/* ── Select & Input ───────────────────────────────────────────── */
-select,input[type=text],input[type=number]{
-  width:100%;background:var(--bg3);border:1px solid var(--bdr);border-radius:8px;
-  color:var(--t1);padding:9px 12px;font-size:.88rem;font-family:inherit;outline:none}
-select:focus,input:focus{border-color:var(--blue)}
-label{font-size:.62rem;font-weight:700;text-transform:uppercase;
-  letter-spacing:.07em;color:var(--t4);display:block;margin-bottom:4px}
-.form-group{margin-bottom:12px}
-
-/* ── Toggle ───────────────────────────────────────────────────── */
-.toggle-row{display:flex;gap:4px;background:var(--bg3);
-  border-radius:8px;padding:3px;margin-bottom:10px}
-.toggle-btn{flex:1;padding:6px 8px;border-radius:6px;font-size:.72rem;
-  font-weight:600;text-align:center;cursor:pointer;color:var(--t3);}
-.toggle-btn.active{background:var(--bg2);color:var(--t1);
-  box-shadow:0 1px 4px rgba(0,0,0,.4)}
-
-/* ── Scrollable stat row ──────────────────────────────────────── */
-.stat-scroll{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;
-  scrollbar-width:none;-webkit-overflow-scrolling:touch}
+/* ── Stats Row ───────────────────────────────────────────────── */
+.stat-scroll{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .stat-scroll::-webkit-scrollbar{display:none}
-.stat-box{background:var(--bg3);border:1px solid var(--bdr);border-radius:8px;
-  padding:8px 10px;text-align:center;flex-shrink:0;min-width:70px}
-.sb-val{font-family:'JetBrains Mono',monospace;font-size:.92rem;
-  font-weight:700;display:block;color:var(--t1)}
-.sb-lbl{font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em}
+.stat-box{flex-shrink:0;background:var(--bg3);border-radius:8px;padding:6px 10px;text-align:center;min-width:52px}
+.sb-val{display:block;font-size:.82rem;font-weight:800;color:var(--t1)}
+.sb-lbl{display:block;font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
 
-/* ── Search bar ───────────────────────────────────────────────── */
-#search-wrap{position:relative;margin-bottom:8px}
-#search-input{width:100%;background:var(--bg2);border:1px solid var(--bdr);
-  border-radius:10px;padding:9px 12px 9px 36px;font-size:.88rem;
-  color:var(--t1);font-family:inherit;outline:none}
-#search-input:focus{border-color:var(--blue)}
-#search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);
-  color:var(--t4);pointer-events:none}
+/* ── Progress Bar ────────────────────────────────────────────── */
+.fi-bar{height:6px;border-radius:3px;background:var(--bg3);overflow:hidden;margin:4px 0}
+.fi-fill{height:6px;border-radius:3px}
 
-/* ── Back button ──────────────────────────────────────────────── */
-.back-btn{display:flex;align-items:center;gap:6px;font-size:.78rem;
-  font-weight:600;color:var(--blue);padding:8px 0 4px;cursor:pointer}
+/* ── Chips / Filters ─────────────────────────────────────────── */
+.chip{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:5px 10px;border-radius:99px;font-size:.68rem;font-weight:600;
+  border:1px solid var(--bdr);background:var(--bg3);color:var(--t3);cursor:pointer;white-space:nowrap
+}
+.chip.active{border-color:var(--amber);background:rgba(240,165,0,.12);color:var(--amber)}
+#filter-row{display:flex;gap:6px;overflow-x:auto;padding:0 14px 8px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+#filter-row::-webkit-scrollbar{display:none}
 
-/* ── EV badge ─────────────────────────────────────────────────── */
-.ev-badge{display:inline-block;padding:3px 8px;border-radius:6px;
-  font-size:.72rem;font-weight:700;font-family:'JetBrains Mono',monospace}
-.ev-pos{background:#0d3320;color:var(--green);border:1px solid var(--green)}
-.ev-neg{background:#3d1110;color:var(--red);border:1px solid var(--red)}
-.ev-neu{background:var(--bg3);color:var(--t3);border:1px solid var(--bdr)}
+/* ── Date Nav ────────────────────────────────────────────────── */
+#date-nav{display:flex;align-items:center;gap:6px;padding:6px 14px;background:var(--bg2);border-bottom:1px solid var(--bdr)}
+.date-nav-btn{width:28px;height:28px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t3);font-size:.80rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#date-label{flex:1;text-align:center;font-size:.75rem;font-weight:700;color:var(--t2)}
+#today-btn{font-size:.62rem;padding:4px 10px;border-radius:6px;border:1px solid rgba(240,165,0,.4);background:rgba(240,165,0,.08);color:var(--amber);cursor:pointer;font-weight:700}
 
-/* ── AB Explorer Statcast Table ───────────────────────────────── */
-.ab-metric-grid{display:grid;grid-template-columns:repeat(8,1fr);border:1px solid var(--bdr);border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#11101a,#0d0d14);margin:10px 0 12px}
-.ab-metric{padding:14px 8px;text-align:center;border-right:1px solid rgba(45,61,82,.7)}
-.ab-metric:last-child{border-right:none}
-.ab-metric .lbl{font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
-.ab-metric .val{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:800;color:var(--t1)}
-.ab-metric .good{color:var(--green)}
-.ab-table-wrap{overflow-x:auto;border:1px solid var(--bdr);border-radius:12px;background:var(--bg2)}
-.ab-table{width:100%;border-collapse:collapse;min-width:980px;font-size:.74rem}
-.ab-table th{background:#14101c;color:var(--t4);text-align:left;padding:10px;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--bdr)}
-.ab-table td{padding:9px 10px;border-bottom:1px solid rgba(45,61,82,.45);color:var(--t1)}
-.ab-table tr.hr-row{background:rgba(34,201,94,.10)}
-.ab-table tr:last-child td{border-bottom:none}
-@media(max-width:900px){.ab-metric-grid{grid-template-columns:repeat(4,1fr)}.ab-metric{border-bottom:1px solid rgba(45,61,82,.7)}}
+/* ── Game Chips ──────────────────────────────────────────────── */
+#game-chips{display:flex;gap:5px;overflow-x:auto;padding:6px 14px 4px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+#game-chips::-webkit-scrollbar{display:none}
+.game-chip{flex-shrink:0;padding:5px 10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);font-size:.68rem;font-weight:600;color:var(--t3);cursor:pointer}
+.game-chip.active{border-color:var(--amber);background:rgba(240,165,0,.12);color:var(--amber)}
 
+/* ── Value Band ──────────────────────────────────────────────── */
+#value-band{background:linear-gradient(135deg,rgba(240,165,0,.12),rgba(240,165,0,.04));border:1px solid rgba(240,165,0,.3);border-radius:10px;margin:0 0 8px;padding:10px 12px}
+
+/* ── Spinner ─────────────────────────────────────────────────── */
+.spinner{width:18px;height:18px;border:2px solid var(--bdr);border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+
+/* ── Inputs ──────────────────────────────────────────────────── */
+input[type=text],input[type=number],textarea{background:var(--bg3);color:var(--t1);border:1px solid var(--bdr);border-radius:8px;padding:10px 12px;width:100%;outline:none}
+input:focus,textarea:focus{border-color:var(--amber)}
+
+/* ── Misc ────────────────────────────────────────────────────── */
+.mult-label{color:var(--t4);display:block;font-size:.58rem;text-transform:uppercase;letter-spacing:.08em;margin-top:1px}
+.wx-lbl{font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em}
+.tag{font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:4px;margin-right:3px;display:inline-block}
+
+/* ── Tab Row ─────────────────────────────────────────────────── */
+.tab-row{display:flex;gap:4px;overflow-x:auto;margin-bottom:10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.tab-row::-webkit-scrollbar{display:none}
+.tab-btn{flex-shrink:0;padding:6px 12px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);font-size:.68rem;font-weight:600;color:var(--t4);cursor:pointer}
+.tab-btn.active{border-color:var(--amber);background:rgba(240,165,0,.12);color:var(--amber)}
+
+/* ── Zone Grid ───────────────────────────────────────────────── */
+.zone-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:110px;flex-shrink:0}
+.zone-cell{height:34px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700}
+
+/* ── Desktop ─────────────────────────────────────────────────── */
+@media(min-width:900px){
+  body{font-size:15px}
+  #app{flex-direction:row}
+  #sidebar{width:300px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--bdr);background:var(--bg2);display:flex;flex-direction:column}
+  #nav{position:relative;flex-direction:column;border-top:none;border-right:1px solid var(--bdr);width:60px;padding-bottom:0}
+  #main-area{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  #content{flex:1;overflow-y:auto;padding-bottom:20px}
+  #desktop-nav{display:flex;gap:4px;padding:8px 14px;border-bottom:1px solid var(--bdr)}
+  .dnav-btn{padding:6px 14px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);font-size:.72rem;font-weight:600;cursor:pointer}
+  .dnav-btn.active{border-color:var(--amber);background:rgba(240,165,0,.12);color:var(--amber)}
+  .hitter-card:hover{border-color:rgba(255,255,255,.15)}
+}
+@media(max-width:899px){
+  #sidebar{display:none}
+  #desktop-nav{display:none}
+  #main-area{display:contents}
+}
+
+/* ── Scroll to top ───────────────────────────────────────────── */
+#scroll-top-btn{
+  position:fixed;bottom:calc(var(--safe-bot) + 70px);right:14px;
+  width:36px;height:36px;border-radius:50%;
+  background:var(--bg2);border:1px solid var(--bdr);
+  color:var(--t3);font-size:.80rem;cursor:pointer;
+  display:none;align-items:center;justify-content:center;
+  z-index:15;box-shadow:0 2px 12px rgba(0,0,0,.3)
+}
 </style>
 </head>
 <body>
+
 <div id="app">
 
-<!-- ── HEADER ──────────────────────────────────────────────────── -->
-<div id="lineup-lock-banner">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
-  <span id="lineup-lock-msg">⚾ Lineups confirmed — check your plays</span>
-  <button onclick="this.parentElement.classList.remove('visible')"
-    style="margin-left:auto;background:none;border:none;color:var(--green);cursor:pointer;font-size:.9rem">✕</button>
-</div>
-<div id="header">
-  <div id="header-title">
-    <svg width="95" height="22" viewBox="0 0 148 32" xmlns="http://www.w3.org/2000/svg">
-      <line x1="2"  y1="13" x2="18" y2="13" stroke="#f0a500" stroke-width="1.5" stroke-linecap="round" opacity=".25"/>
-      <line x1="5"  y1="17" x2="19" y2="17" stroke="#f0a500" stroke-width="2"   stroke-linecap="round" opacity=".45"/>
-      <line x1="2"  y1="21" x2="16" y2="21" stroke="#f0a500" stroke-width="1.5" stroke-linecap="round" opacity=".25"/>
-      <circle cx="28" cy="17" r="10" fill="white"/>
-      <path d="M23 11 Q21 17 23 23" stroke="#cc2222" stroke-width="1.3" fill="none"/>
-      <path d="M22.2 12.5 L23.8 12.5 M22 17 L24 17 M22.2 21.5 L23.8 21.5" stroke="#cc2222" stroke-width="1" fill="none" stroke-linecap="round"/>
-      <path d="M33 11 Q35 17 33 23" stroke="#cc2222" stroke-width="1.3" fill="none"/>
-      <path d="M32.2 12.5 L33.8 12.5 M32 17 L34 17 M32.2 21.5 L33.8 21.5" stroke="#cc2222" stroke-width="1" fill="none" stroke-linecap="round"/>
-      <text x="44" y="22" font-family="'Inter',system-ui,sans-serif" font-size="17" font-weight="900" letter-spacing="-0.5" fill="#f0f4f8">DINGER</text>
-      <text x="44" y="31" font-family="'Inter',system-ui,sans-serif" font-size="9" font-weight="700" letter-spacing="3.5" fill="#f0a500">IQ</text>
-    </svg>
-  </div>
-  <div id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer"
-    onclick="showManualOddsEntry()">📋 Enter Odds</div>
-  <div id="header-date"></div>
-  <button onclick="toggleTheme()" id="theme-btn"
-    style="background:none;border:none;color:var(--t4);font-size:1rem;cursor:pointer;
-    padding:4px 8px;border:1px solid var(--bdr);border-radius:6px;line-height:1">🌙</button>
-  <button onclick="refreshData()" style="background:none;border:none;color:var(--t4);font-size:.8rem;cursor:pointer;padding:4px 8px;border:1px solid var(--bdr);border-radius:6px">↺</button>
-  <button onclick="document.querySelector('.page.active')?.id==='page-info'?showPage(_prevPage):showPage('info')" id="nav-info-header"
-    style="background:none;border:1px solid var(--bdr);border-radius:6px;
-    color:var(--t4);font-size:.80rem;cursor:pointer;padding:4px 9px;
-    display:flex;align-items:center;gap:4px;font-weight:600">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    Info
-  </button>
-</div>
+  <div id="sidebar"></div>
 
-<!-- ── CONTENT ─────────────────────────────────────────────────── -->
-<div id="content">
-<!-- Desktop sidebar — hidden on mobile via CSS -->
-<div id="sidebar-desktop" style="display:none">
-  <!-- Date nav -->
-  <div>
-    <div class="sd-section-label">Date</div>
-    <div id="date-nav">
-      <button onclick="changeDate(-1)">◀</button>
-      <div id="date-lbl"></div>
-      <button onclick="changeDate(1)">▶</button>
-      <button id="today-btn" onclick="goToday()">Today</button>
-    </div>
-  </div>
-  <!-- Games -->
-  <div>
-    <div class="sd-section-label">Games</div>
-    <div id="game-chips-desktop"></div>
-  </div>
-  <!-- Lineup -->
-  <div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <div class="sd-section-label" style="margin:0">Lineups</div>
-      <span id="lineup-status" style="font-size:.60rem;color:var(--t4)"></span>
-    </div>
-    <button id="lineup-refresh-btn" onclick="refreshLineups()">↺ Refresh Lineups</button>
-  </div>
-  <!-- Weather -->
-  <div>
-    <div class="sd-section-label">Weather</div>
-    <div id="wx-area-desktop" style="font-size:.78rem;color:var(--t3)"></div>
-  </div>
-  <!-- Filters -->
-  <div>
-    <div class="sd-section-label">Filters</div>
-    <div id="filter-row-desktop" style="display:flex;flex-direction:column;gap:5px"></div>
-  </div>
-</div>
+  <div id="main-area">
 
-  <!-- SLATE PAGE -->
-  <div id="page-slate" class="page active">
-    <div id="date-nav">
-      <button onclick="shiftDate(-1)">◀</button>
-      <div id="date-lbl">Today</div>
-      <button id="today-btn" onclick="goToday()">Today</button>
-      <button id="lineup-refresh-btn" onclick="var b=this;b.textContent='⏳';b.disabled=true;refreshLineups().then(()=>{b.textContent='↺ Lineups';b.disabled=false;checkLineupLockAlert();})">↺ Lineups</button>
-      <button onclick="shiftDate(1)">▶</button>
-    </div>
-    <div id="game-chips" class="chip-scroll"></div>
-    <div id="wx-area"></div>
-    <div id="filters-area">
-      <div class="filter-row">
-        <div class="filter-pill active" onclick="setSort('prob',this)">HR Prob</div>
-        <div class="filter-pill" id="pill-noise" onclick="S.noiseFilter=!S.noiseFilter;this.classList.toggle('active');renderSlate()">🎯 Sharp</div>
-        <div class="filter-pill" onclick="setSort('anchor',this)">Anchor</div>
-        <div class="filter-pill" onclick="setSort('platoon',this)">Platoon</div>
-        <div class="filter-pill" onclick="setSort('momentum',this)">L15 Hot</div>
-        <div class="filter-pill" onclick="setSort('edge',this)">💰 Value</div>
-      </div>
-      <div id="lineup-status" style="font-size:.60rem;color:var(--green);margin-bottom:4px;min-height:14px"></div>
-      <div id="search-wrap">
-        <span id="search-icon">🔍</span>
-        <input id="search-input" type="text" placeholder="Search player..." oninput="renderSlate()">
-      </div>
-    </div>
-    <div id="hr-projection-strip"></div>
-    <div id="ptr-indicator"><div id="ptr-spinner"></div>Refreshing…</div>
-    <div id="daily-summary"></div>
-
-    <!-- Copy Picks Button — only shown when plays are loaded -->
-    <div id="copy-picks-bar" style="display:none;margin-bottom:10px">
-      <button onclick="copyPicksToClipboard()"
-        style="width:100%;padding:11px;border-radius:10px;border:1px solid rgba(255,215,0,.4);
-        background:rgba(255,215,0,.08);color:#ffd700;cursor:pointer;font-size:.75rem;
-        font-weight:700;letter-spacing:.04em;display:flex;align-items:center;
-        justify-content:center;gap:8px">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-        </svg>
-        📋 Copy Today's Picks for Discord
+    <header id="header">
+      <div id="header-title">⚾ DingerIQ</div>
+      <button id="nav-info-header" onclick="showPage('info')"
+        style="background:none;border:none;color:var(--t4);font-size:1.1rem;cursor:pointer;margin-left:4px;padding:4px"
+        title="Info">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg> Info
       </button>
-      <div id="copy-confirm" style="display:none;text-align:center;font-size:.65rem;
-        color:var(--green);margin-top:5px">✅ Copied to clipboard!</div>
-    </div>
+      <button id="theme-btn" onclick="toggleTheme()"
+        style="background:none;border:none;color:var(--t4);font-size:1.1rem;cursor:pointer;padding:4px;margin-left:2px">🌙</button>
+      <div id="header-date"></div>
+    </header>
 
-    <div id="hitter-list"></div>
+    <div id="desktop-nav"></div>
 
-    <!-- Odds entry panel — always in DOM, shown/hidden by JS -->
-    <div id="odds-entry-panel" style="display:none;border:1px solid rgba(240,165,0,.3);border-radius:14px;padding:16px;margin-bottom:12px;background:var(--bg2)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-        <div style="font-size:.82rem;font-weight:800;color:var(--t1)">📋 Enter HR Prop Odds</div>
-        <button onclick="document.getElementById('odds-entry-panel').style.display='none'" style="background:none;border:none;color:var(--t4);font-size:1.3rem;cursor:pointer;padding:4px 8px">✕</button>
-      </div>
-      <div style="font-size:.62rem;color:var(--t3);padding:8px 10px;border-radius:8px;background:rgba(240,165,0,.06);border:1px solid rgba(240,165,0,.15);margin-bottom:10px;line-height:1.65">
-        💡 FanDuel app blocks text copy. Use <b style="color:var(--t2)">Safari → fanduel.com</b> or type below:<br>
-        <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>
-      </div>
-      <textarea id="odds-panel-input" rows="6"
-        placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400"
-        style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.85rem;font-family:monospace;line-height:1.9;box-sizing:border-box;display:block;margin-bottom:8px"
-        oninput="(function(t){var p=t.value,r=parseOddsText(p),el=document.getElementById('odds-panel-preview');if(!el)return;if(!p.trim()){el.textContent='';return;}el.innerHTML=r.length?'<span style=color:var(--green)>✓ '+r.length+' found: '+r.slice(0,3).map(function(x){return x.name.split(' ').pop()+(x.odds>0?'+':'')+x.odds}).join(' · ')+(r.length>3?' +'+(r.length-3)+' more':'')+'</span>':'<span style=color:var(--red)>No valid odds found</span>';})(this)"></textarea>
-      <div id="odds-panel-preview" style="font-size:.64rem;min-height:16px;margin-bottom:8px;color:var(--t4)"></div>
-      <button onclick="loadOddsFromPanel()" style="width:100%;padding:14px;border-radius:10px;border:none;background:var(--amber);color:#000;font-weight:800;font-size:.86rem;cursor:pointer;display:block">✓ Load Odds</button>
-      <div id="odds-panel-clear-wrap" style="margin-top:8px"></div>
-    </div>
-  </div>
+    <main id="content" role="main">
 
-  <!-- DISCOVER PAGE — Sleepers & Due -->
-  <div id="page-discover" class="page" style="padding:12px;overflow-y:auto">
-    <div id="discover-content">
-      <div class="empty">Load games on the Slate tab first</div>
-    </div>
-  </div>
-
-  <!-- BEST BETS PAGE -->
-  <div id="page-picks" class="page" style="padding:12px;overflow-y:auto">
-    <div id="picks-content">
-      <div class="empty">Load games on the Slate tab first</div>
-    </div>
-  </div>
-
-  <!-- DETAIL PAGE -->
-  <div id="page-detail" class="page">
-    <div class="back-btn" onclick="showPage('slate')">← All Players</div>
-    <div id="detail-content"></div>
-  </div>
-
-  <!-- PARLAY PAGE -->
-
-  <!-- Kelly Calculator page -->
-  <div id="page-kelly" class="page" style="overflow-y:auto">
-    <div id="kelly-content" style="padding:16px 14px 20px"></div>
-  </div>
-
-  <div id="page-parlay" class="page">
-    <div class="slbl">🎰 Parlay Builder</div>
-    <div class="card" style="margin-bottom:10px">
-      <label>Min Probability %</label>
-      <input type="range" id="par-min-prob" min="0" max="15" step="0.5" value="4"
-        oninput="document.getElementById('par-min-prob-val').textContent=this.value+'%';renderParlay()"
-        style="width:100%;accent-color:var(--amber)">
-      <div style="font-size:.72rem;color:var(--amber);margin-top:4px">Min: <span id="par-min-prob-val">4%</span></div>
-    </div>
-    <div class="slbl">Select Legs</div>
-    <div id="parlay-legs"></div>
-    <div id="parlay-result"></div>
-    <div id="parlay-book-section" style="display:none">
-      <div class="slbl">Sportsbook Line</div>
-      <div class="card">
-        <label>Enter book's parlay odds (e.g. +2500)</label>
-        <input type="text" id="par-book-line" placeholder="+2500" oninput="calcParlayEV()">
-        <div id="par-ev-result" style="margin-top:10px"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- AB EXPLORER PAGE -->
-  <div id="page-ab" class="page">
-    <div class="slbl">📋 AB Explorer</div>
-    <div class="card" style="margin-bottom:10px">
-      <div class="form-group">
-        <label>Batter</label>
-        <select id="ab-batter" onchange="loadABLog()"></select>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div class="form-group" style="margin-bottom:0">
-          <label>Last N ABs</label>
-          <select id="ab-count" onchange="loadABLog()">
-            <option value="10">10</option>
-            <option value="15" selected>15</option>
-            <option value="20">20</option>
-            <option value="30">30</option>
-          </select>
+      <!-- SLATE -->
+      <div id="page-slate" class="page active">
+        <div id="date-nav">
+          <button class="date-nav-btn" onclick="shiftDate(-1)">◀</button>
+          <div id="date-label">Today</div>
+          <button id="today-btn" onclick="goToday()">Today</button>
+          <button class="date-nav-btn" onclick="shiftDate(1)">▶</button>
         </div>
-        <div class="form-group" style="margin-bottom:0">
-          <label>Arm</label>
-          <select id="ab-arm" onchange="loadABLog()">
-            <option value="">Both</option>
-            <option value="R">RHP</option>
-            <option value="L">LHP</option>
-          </select>
-        </div>
-      </div>
-    </div>
-    <div id="ab-sp-info" style="margin-bottom:8px"></div>
-    <div id="ab-summary" style="margin-bottom:10px"></div>
-    <div id="ab-list"></div>
-  </div>
-
-
-  <!-- PITCHER LOG PAGE -->
-  <div id="page-pl" class="page">
-    <div class="slbl">⚾ Pitcher Log</div>
-    <div class="card" style="margin-bottom:10px">
-      <div class="form-group">
-        <label>Pitcher</label>
-        <select id="pl-pitcher" onchange="loadPitcherLog()"></select>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <div class="form-group" style="margin-bottom:0">
-          <label>Last N BFs</label>
-          <select id="pl-count" onchange="loadPitcherLog()">
-            <option value="15">15</option>
-            <option value="30" selected>30</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <label>Batter Hand</label>
-          <select id="pl-hand" onchange="loadPitcherLog()">
-            <option value="">Both</option>
-            <option value="R">RHB</option>
-            <option value="L">LHB</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-group" style="margin-bottom:0;margin-top:8px">
-        <label>Pitch Type</label>
-        <select id="pl-pitch-type" onchange="loadPitcherLog()">
-          <option value="">All Pitches</option>
-        </select>
-      </div>
-    </div>
-    <div id="pl-summary" style="margin-bottom:10px"></div>
-    <div id="pl-list"></div>
-  </div>
-
-  <!-- RESULTS PAGE -->
-  <div id="page-results" class="page" style="padding:12px;overflow-y:auto">
-    <div id="results-content">
-      <div class="empty">Loading results…</div>
-    </div>
-  </div>
-
-  <!-- INFO / METHODOLOGY PAGE -->
-  <div id="page-info" class="page" style="padding:12px;overflow-y:auto">
-
-    <!-- Model Formula -->
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">⚡ Probability Model v7 — Recalibrated</div>
-
-      <!-- Core formula -->
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
-        padding:10px 12px;background:var(--bg3);border-radius:8px;margin-bottom:12px;line-height:1.9">
-        <span style="color:var(--t4)">// Step 1: Statcast anchor (per-plate-appearance)</span><br>
-        anchor = 0.010 + barrel% × 0.042 + pull_air% × 0.018<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ hard_hit% × 0.003 + sweet_spot% × 0.001<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;− gb% × 0.002 + (barrel% × pull_air%) × 0.25 + ISO_adj<br>
-        <span style="color:var(--t4)">// Step 2: Signal adjustment in log-odds space</span><br>
-        lo = logit(anchor) + Σ(signal × weight)<br>
-        perPA = sigmoid(lo) &nbsp;<span style="color:var(--t4)">// capped 7% per PA (was 10%)</span><br>
-        <span style="color:var(--t4)">// Step 3: Per-game conversion</span><br>
-        perGame = 1 − (1 − perPA)^expPA &nbsp;<span style="color:var(--t4)">// expected PAs from lineup pos</span>
-      </div>
-
-      <!-- Calibration note -->
-      <div style="font-size:.63rem;color:var(--blue);padding:8px 10px;background:rgba(61,142,240,.08);
-        border-radius:8px;margin-bottom:12px;border-left:3px solid var(--blue)">
-        <b>v7 Recalibration:</b> All signal weights reduced ~35% to fix over-prediction.
-        Per-PA cap lowered 10% → 7%. Expected per-game range: 5–22% (was 8–35%).
-        Elite matchups now show 14–20% instead of 25–35%.
-      </div>
-
-      <!-- Signal weights table -->
-      <div style="display:flex;flex-direction:column">
-
-        <div style="display:flex;gap:10px;padding:8px 0">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:var(--amber);font-family:'JetBrains Mono',monospace">Anchor</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Statcast linear weights + ISO trim. Blended with HR/PA outcome rate
-            as sample grows (max 60% outcome trust at 350+ PA).
-            Interaction term captures barrel×pull_air synergy.
-            Away-park deflation for Colorado hitters playing away from Coors.
+        <div id="game-chips"></div>
+        <div id="filter-row"></div>
+        <div id="odds-entry-panel" style="display:none;border:1px solid rgba(240,165,0,.3);border-radius:14px;padding:16px;margin-bottom:12px;background:var(--bg2)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:.82rem;font-weight:800;color:var(--t1)">📋 Enter HR Prop Odds</div>
+            <button onclick="document.getElementById('odds-entry-panel').style.display='none'"
+              style="background:none;border:none;color:var(--t4);font-size:1.3rem;cursor:pointer;padding:4px 8px">✕</button>
           </div>
-        </div>
-
-        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Pitcher ×0.38</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Reduced from ×0.55. xFIP 35% · Barrel% allowed 30% · HR/FB 20% · HR/9 recent 15%.
-            BvP arsenal: batter ISO vs each pitch type × SP usage mix.
+          <div style="font-size:.62rem;color:var(--t3);padding:8px 10px;border-radius:8px;background:rgba(240,165,0,.06);border:1px solid rgba(240,165,0,.15);margin-bottom:10px;line-height:1.65">
+            💡 FanDuel app blocks text copy. Use <b style="color:var(--t2)">Safari → fanduel.com</b> or type below:<br>
+            <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>
           </div>
+          <textarea id="odds-panel-input" rows="6"
+            placeholder="Aaron Judge +350&#10;Rafael Devers +280&#10;Juan Soto +400"
+            style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t1);font-size:.85rem;font-family:monospace;line-height:1.9;box-sizing:border-box;display:block;margin-bottom:8px"></textarea>
+          <div id="odds-panel-preview" style="font-size:.64rem;min-height:16px;margin-bottom:8px;color:var(--t4)"></div>
+          <button onclick="loadOddsFromPanel()"
+            style="width:100%;padding:14px;border-radius:10px;border:none;background:var(--amber);color:#000;font-weight:800;font-size:.86rem;cursor:pointer;display:block">✓ Load Odds</button>
         </div>
-
-        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#f97316;font-family:'JetBrains Mono',monospace">TTO ×0.28</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Times Through Order. Reduced from ×0.40.
-            TTO1: −12% · TTO2: neutral · TTO3+: +15%.
-            Estimated from lineup position + projected SP innings.
-          </div>
-        </div>
-
-        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Platoon ×0.22</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Reduced from ×0.35. Handedness + actual split rate (50+ PA gate) + arsenal modifier.
-            LHB vs RHP ~+18% · RHB vs LHP ~+22% at population level.
-          </div>
-        </div>
-
-        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#90c0ff;font-family:'JetBrains Mono',monospace">Park/Wx ×0.25</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Reduced from ×0.35. Handedness-adjusted park factor + wind + temperature + altitude.
-            Dome teams bypass weather entirely.
-          </div>
-        </div>
-
-        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#f472b6;font-family:'JetBrains Mono',monospace">Interaction</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Platoon × Pitcher when both agree — more than additive.
-            Coefficient 0.6× (halved from 1.2×). Cap reduced to ±0.05.
-          </div>
-        </div>
-
-        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:var(--t4);font-family:'JetBrains Mono',monospace">Minor signals</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Home/away ×0.15 · Career vs SP ×0.22 (sample-weighted) ·
-            Umpire ×0.18 · Stadium dims ×0.15 · Plate discipline ×0.12 ·
-            Bullpen ×0.10 (only when SP projects ≤5 IP)
-          </div>
-        </div>
-
-        <div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--bg3)">
-          <div style="min-width:110px;font-size:.67rem;font-weight:700;
-            color:#ef4444;font-family:'JetBrains Mono',monospace">Momentum ✗</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.5">
-            Removed. L15 HR rate explains &lt;3% of next-game variance.
-            Hot/cold streaks are noise — now tracked separately via Heating Up / Due tags.
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- Per-game conversion explained -->
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">📐 Per-Game Probability</div>
-      <div style="font-size:.65rem;color:var(--t4);line-height:1.7;margin-bottom:10px">
-        Books price HR props per-game. The model computes per-PA, then converts:
-      </div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
-        padding:10px 12px;background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.8">
-        expPA = 4.8 − (lineupPos − 1) × 0.15 &nbsp;<span style="color:var(--t4)">// leadoff=4.8, 9-hole=3.2</span><br>
-        perGame = 1 − (1 − perPA)^expPA
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
-        <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
-          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~10%/game</div>
-          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">MLB avg</div>
-          <div style="font-size:.53rem;color:var(--t4)">neutral signals</div>
-        </div>
-        <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
-          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~17%/game</div>
-          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">Good slugger</div>
-          <div style="font-size:.53rem;color:var(--t4)">avg pitcher</div>
-        </div>
-        <div style="padding:7px 8px;background:var(--bg3);border-radius:8px;text-align:center">
-          <div style="font-size:.60rem;color:var(--amber);font-weight:700">~25%/game</div>
-          <div style="font-size:.55rem;color:var(--t4);margin-top:1px">Judge tier</div>
-          <div style="font-size:.53rem;color:var(--t4)">favorable matchup</div>
-        </div>
-      </div>
-      <div style="font-size:.62rem;color:var(--t4);line-height:1.6;padding:8px 10px;
-        background:rgba(90,160,255,.06);border-radius:8px;border:1px solid rgba(90,160,255,.15)">
-        <b style="color:#60a5fa">No market shrinkage applied.</b> The model outputs raw true-talent probability.
-        Edge = modelProb − bookNoVigImplied. This is the number that matters,
-        not whether modelProb matches the book's implied %.
-      </div>
-    </div>
-
-    <!-- Edge & EV explained -->
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">💰 Edge &amp; EV Explained</div>
-      <div style="font-family:'JetBrains Mono',monospace;font-size:.64rem;color:var(--amber);
-        padding:10px 12px;background:var(--bg3);border-radius:8px;margin-bottom:10px;line-height:1.9">
-        bookImplied = 100 / (odds + 100) &nbsp;<span style="color:var(--t4)">// e.g. +440 → 18.5%</span><br>
-        noVig &nbsp;&nbsp;&nbsp;&nbsp; = bookImplied / 1.08 &nbsp;<span style="color:var(--t4)">// strip ~8% vig</span><br>
-        edge &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; = modelProb − noVig &nbsp;&nbsp;<span style="color:var(--t4)">// percentage points</span><br>
-        EV% &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= (modelProb × decimalOdds − 1) × 100
-      </div>
-      <div style="display:flex;flex-direction:column;gap:0">
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
-          <div style="font-size:.70rem;font-weight:800;color:#ffd700;min-width:42px">S tier</div>
-          <div style="font-size:.62rem;font-weight:700;color:#ffd700;min-width:72px">+8%+ edge</div>
-          <div style="font-size:.62rem;color:var(--t4)">Max Bet — ¼ Kelly sizing</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
-          <div style="font-size:.70rem;font-weight:800;color:var(--green);min-width:42px">A tier</div>
-          <div style="font-size:.62rem;font-weight:700;color:var(--green);min-width:72px">+5–8% edge</div>
-          <div style="font-size:.62rem;color:var(--t4)">Strong bet</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
-          <div style="font-size:.70rem;font-weight:800;color:var(--amber);min-width:42px">B tier</div>
-          <div style="font-size:.62rem;font-weight:700;color:var(--amber);min-width:72px">+2–5% edge</div>
-          <div style="font-size:.62rem;color:var(--t4)">Lean — small unit only</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--bg3)">
-          <div style="font-size:.70rem;font-weight:800;color:var(--t4);min-width:42px">C tier</div>
-          <div style="font-size:.62rem;font-weight:700;color:var(--t4);min-width:72px">0–2% edge</div>
-          <div style="font-size:.62rem;color:var(--t4)">Pass — near fair value</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0">
-          <div style="font-size:.70rem;font-weight:800;color:var(--red);min-width:42px">F tier</div>
-          <div style="font-size:.62rem;font-weight:700;color:var(--red);min-width:72px">Negative edge</div>
-          <div style="font-size:.62rem;color:var(--t4)">Fade — book has the edge</div>
-        </div>
-      </div>
-      <div style="margin-top:10px;padding:8px 10px;background:var(--bg3);
-        border-radius:8px;display:flex;flex-direction:column;gap:5px">
-        <div style="font-size:.63rem;color:var(--t4)">⏰ Wait for lineup confirmation before betting</div>
-        <div style="font-size:.63rem;color:var(--t4)">📋 Max 3 HR props per day to avoid overexposure</div>
-        <div style="font-size:.63rem;color:var(--t4)">☔ Skip games with &gt;45% postponement risk</div>
-        <div style="font-size:.63rem;color:var(--t4)">📈 Track CLV — beating closing line = proven long-term edge</div>
-        <div style="font-size:.63rem;color:var(--t4)">🎯 Need 300+ tracked bets for calibration significance</div>
-      </div>
-    </div>
-
-    <!-- Signal reliability -->
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">📶 Signal Reliability</div>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px">
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;
-            background:rgba(34,201,94,.15);border:1px solid rgba(34,201,94,.4);
-            display:flex;align-items:center;justify-content:center;
-            font-size:.70rem;font-weight:900;color:var(--green)">A</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
-            Barrel% · Pull-air% · xFIP · Barrel% allowed · Park factor · Times Through Order (TTO) · Platoon splits (50+ PA) · Wind
-          </div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;
-            background:rgba(240,165,0,.15);border:1px solid rgba(240,165,0,.4);
-            display:flex;align-items:center;justify-content:center;
-            font-size:.70rem;font-weight:900;color:var(--amber)">B</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
-            ISO trim · Arsenal platoon mod · HR/FB rate · Home/away split · Lineup position · Temperature · Stadium dimensions · Career vs SP (40+ PA)
-          </div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;
-            background:rgba(96,112,128,.15);border:1px solid rgba(96,112,128,.4);
-            display:flex;align-items:center;justify-content:center;
-            font-size:.70rem;font-weight:900;color:var(--t4)">C</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
-            Umpire · Plate discipline · Bullpen quality · Recent HR/9
-          </div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:10px">
-          <div style="width:24px;height:24px;border-radius:6px;flex-shrink:0;
-            background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);
-            display:flex;align-items:center;justify-content:center;
-            font-size:.70rem;font-weight:900;color:#ef4444">✗</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.6;padding-top:3px">
-            <b style="color:#ef4444">Removed:</b> Momentum / hot-cold streaks. &lt;3% predictive value, causes recency bias.
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Calibration guide -->
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">🎯 Calibration Guide</div>
-      <div style="font-size:.63rem;color:var(--t4);line-height:1.7;margin-bottom:8px">
-        A well-calibrated model's 22% plays should hit ~22% of the time across many bets.
-        Track every bet using <b style="color:var(--amber)">📌 Track Bet</b> on player cards.
-      </div>
-      <div style="display:flex;flex-direction:column;gap:5px">
-        <div style="padding:7px 10px;border-radius:8px;background:rgba(34,201,94,.08);border:1px solid rgba(34,201,94,.2)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-            <span style="font-size:.68rem;font-weight:800;color:var(--green);font-family:'JetBrains Mono',monospace">90–115%</span>
-            <span style="font-size:.63rem;font-weight:700;color:var(--green)">Well calibrated</span>
-          </div>
-          <div style="font-size:.59rem;color:var(--t4)">Bet full ¼ Kelly sizing with confidence</div>
-        </div>
-        <div style="padding:7px 10px;border-radius:8px;background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.2)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-            <span style="font-size:.68rem;font-weight:800;color:var(--amber);font-family:'JetBrains Mono',monospace">75–89%</span>
-            <span style="font-size:.63rem;font-weight:700;color:var(--amber)">Slight over-prediction</span>
-          </div>
-          <div style="font-size:.59rem;color:var(--t4)">Reduce sizing to 75% of Kelly temporarily</div>
-        </div>
-        <div style="padding:7px 10px;border-radius:8px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-            <span style="font-size:.68rem;font-weight:800;color:var(--red);font-family:'JetBrains Mono',monospace">&lt;75%</span>
-            <span style="font-size:.63rem;font-weight:700;color:var(--red)">Significant over-prediction</span>
-          </div>
-          <div style="font-size:.59rem;color:var(--t4)">Reduce to 50% Kelly. Model needs recalibration.</div>
-        </div>
-        <div style="padding:7px 10px;border-radius:8px;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.2)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-            <span style="font-size:.68rem;font-weight:800;color:#60a5fa;font-family:'JetBrains Mono',monospace">&gt;130%</span>
-            <span style="font-size:.63rem;font-weight:700;color:#60a5fa">Under-predicting</span>
-          </div>
-          <div style="font-size:.59rem;color:var(--t4)">You have more edge than shown. Consider increasing sizing.</div>
-        </div>
-      </div>
-      <div style="margin-top:8px;font-size:.60rem;color:var(--t4);
-        padding:6px 8px;background:var(--bg3);border-radius:6px">
-        ⚠️ Need <b style="color:var(--t2)">300+ tracked bets</b> for statistical significance.
-        Under 100 bets, calibration ratio is directional only.
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">💰 Value Finder — Odds API Key</div>
-      <div style="font-size:.65rem;color:var(--t4);line-height:1.6;margin-bottom:12px">
-        Enter your <a href="https://the-odds-api.com" target="_blank" style="color:var(--amber)">The Odds API</a>
-        key to unlock the Value Finder. Free tier: 500 requests/month — enough for ~2 months of daily use.
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input id="odds-key-input" type="password"
-          placeholder="Paste API key here…"
-          value="${ODDS_API_KEY||''}"
-          style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid var(--bdr);
-          background:var(--bg3);color:var(--t1);font-size:.80rem;font-family:monospace">
-        <button onclick="(()=>{
-          const k=document.getElementById('odds-key-input').value.trim();
-          if(!k){showToast('Paste your Odds API key first.','amber');return;}
-          localStorage.setItem('dingeriq_odds_key',k);
-          window.ODDS_API_KEY=k;
-          loadFanDuelOdds(true).then(()=>{
-            document.getElementById('odds-key-status').textContent='✅ Key saved & odds loading…';
-          });
-        })()"
-          style="padding:10px 16px;border-radius:8px;border:none;background:var(--amber);
-          color:#000;font-weight:800;font-size:.75rem;cursor:pointer;white-space:nowrap">
-          Save Key
-        </button>
-      </div>
-      <div id="odds-key-status" style="font-size:.62rem;color:var(--t4);margin-top:8px"></div>
-    </div>
-
-    <div id="auto-cal-card"></div>
-
-    <!-- Tag Guide -->
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl" style="margin-bottom:6px">🏷️ Tag Guide</div>
-      <div style="font-size:.60rem;color:var(--t4);margin-bottom:10px">
-        <span style="color:var(--green)">●</span> positive &nbsp;&nbsp;
-        <span style="color:var(--red)">●</span> fade &nbsp;&nbsp;
-        tap any tag for detail
-      </div>
-      <div id="tag-guide-grid"></div>
-    </div>
-
-    <!-- Pitch Key -->
-    <div class="card" style="margin-bottom:10px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <span style="font-size:1.1rem">⚾</span>
-        <span style="font-size:.80rem;font-weight:800;color:var(--t1)">Pitch Type Key</span>
+        <div id="hitter-list"></div>
       </div>
 
-      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-        <span>Fastballs</span>
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
+      <!-- RESULTS -->
+      <div id="page-results" class="page">
+        <div id="results-content"></div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-        <div style="background:#ef444410;border:1px solid #ef444428;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#ef4444;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#ef4444;
-                  font-family:'JetBrains Mono',monospace">FF</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">4-Seam Fastball</span>
-              </div>
-              <span style="font-size:.52rem;color:#ef4444;background:#ef444420;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">⚡ Power</span>
+
+      <!-- KELLY -->
+      <div id="page-kelly" class="page">
+        <div id="kelly-content"></div>
+      </div>
+
+      <!-- A/B -->
+      <div id="page-ab" class="page">
+        <div id="ab-content"></div>
+      </div>
+
+      <!-- PITCHER -->
+      <div id="page-pl" class="page">
+        <div id="pl-content"></div>
+      </div>
+
+      <!-- PICKS / BEST BETS -->
+      <div id="page-picks" class="page">
+        <div id="picks-content"></div>
+      </div>
+
+      <!-- DISCOVER -->
+      <div id="page-discover" class="page">
+        <div id="discover-content"></div>
+      </div>
+
+      <!-- INFO -->
+      <div id="page-info" class="page">
+        <!-- FD Odds status row -->
+        <div class="card" style="margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <div>
+              <div class="slbl" style="margin-bottom:2px">📊 FanDuel HR Props</div>
+              <div style="font-size:.62rem;color:var(--t4)">Enter odds to see value edge on each player</div>
             </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Straight, high velocity. Most common pitch. Elevated = HR risk.</div>
-          </div>
-        <div style="background:#f9731610;border:1px solid #f9731628;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#f97316;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#f97316;
-                  font-family:'JetBrains Mono',monospace">SI</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Sinker</span>
-              </div>
-              <span style="font-size:.52rem;color:#f97316;background:#f9731620;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">↘ GB machine</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span id="odds-status" style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="showManualOddsEntry()">📋 Enter Odds</span>
+              <button onclick="showManualOddsEntry()" style="padding:6px 12px;border-radius:8px;border:1px solid rgba(240,165,0,.4);background:rgba(240,165,0,.08);color:var(--amber);font-size:.68rem;font-weight:700;cursor:pointer">📋 Enter Odds</button>
             </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Sinking action, induces ground balls. Low HR risk.</div>
           </div>
-        <div style="background:#eab30810;border:1px solid #eab30828;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#eab308;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#eab308;
-                  font-family:'JetBrains Mono',monospace">FC</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Cutter</span>
-              </div>
-              <span style="font-size:.52rem;color:#eab308;background:#eab30820;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">✂ Cuts late</span>
-            </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Hard cut away from opposite-hand hitters. Cuts late.</div>
+          <div style="margin-top:8px;font-size:.62rem;color:var(--t4);line-height:1.6">
+            💡 FanDuel app blocks copy — use <b>Safari → fanduel.com</b> instead. Enter format: <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>
           </div>
-        <div style="background:#84cc1610;border:1px solid #84cc1628;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#84cc16;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#84cc16;
-                  font-family:'JetBrains Mono',monospace">FS</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Splitter</span>
-              </div>
-              <span style="font-size:.52rem;color:#84cc16;background:#84cc1620;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">↓ K pitch</span>
-            </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Drops sharply out of zone. High swing-and-miss.</div>
+        </div>
+
+        <!-- Odds API Key -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">🔑 Odds API Key (optional)</div>
+          <div style="font-size:.62rem;color:var(--t4);margin-bottom:8px">For automatic FanDuel odds loading. Get a free key at the-odds-api.com</div>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="odds-api-key-input" placeholder="Paste API key here"
+              style="flex:1;padding:8px 10px;font-size:.75rem"
+              value="">
+            <button onclick="(()=>{const v=document.getElementById('odds-api-key-input').value.trim();if(v){localStorage.setItem('dingeriq_odds_key',v);showToast('API key saved','green');}else{showToast('Enter a key first','amber');}})()"
+              style="padding:8px 14px;border-radius:8px;border:none;background:var(--amber);color:#000;font-weight:700;font-size:.72rem;cursor:pointer">Save</button>
           </div>
-      
+        </div>
+
+        <!-- Auto-calibration -->
+        <div id="auto-cal-card" style="margin-bottom:8px"></div>
+
+        <!-- How the model works -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">🧮 How the Model Works</div>
+          <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
+            DingerIQ uses a <b style="color:var(--t2)">Bayesian log-odds model</b> combining 12 weighted signals:<br><br>
+            <b style="color:var(--amber)">Core (heaviest weight)</b><br>
+            • Barrel% × Pull-Air% interaction — best HR predictor<br>
+            • Season HR/PA anchor — career context<br>
+            • Platoon matchup — handed advantage<br><br>
+            <b style="color:var(--amber)">Context</b><br>
+            • Park factor × weather multiplier<br>
+            • Pitcher HR/9 (recent + season blend)<br>
+            • Arsenal matchup — batter vs pitch-type data<br><br>
+            <b style="color:var(--amber)">Situational</b><br>
+            • Recent momentum (L7, L14, L30 rates)<br>
+            • Lineup position (leadoff = +10% PA estimate)<br>
+            • Umpire historical HR rate<br>
+            • Career BvP vs today's starter<br>
+            • Day/night splits<br><br>
+            Expected range: <b style="color:var(--green)">5–22%</b> per game. League average ~9%.
+          </div>
+        </div>
+
+        <!-- Tag Guide -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">🏷️ Tag Guide</div>
+          <div style="font-size:.62rem;color:var(--t4);margin-bottom:10px">Tap any tag on a player card to see what it means</div>
+          <div id="tag-guide-grid" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+
+        <!-- Install PWA -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">📱 Install as App</div>
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.6">
+            👆 Tap <b style="color:var(--blue)">Share ↑</b> then <b style="color:var(--blue)">"Add to Home Screen"</b><br>
+            for full-screen app experience
+          </div>
+          <button id="install-btn" onclick="installApp()" style="margin-top:8px;width:100%;padding:10px;border-radius:8px;border:none;background:var(--blue);color:#fff;font-weight:700;font-size:.75rem;cursor:pointer;display:none">⬇ Install App</button>
+        </div>
+
+        <!-- Version -->
+        <div style="text-align:center;padding:12px;font-size:.60rem;color:var(--t4)">
+          DingerIQ v7 · 2026 Season · Model weights v7
+        </div>
       </div>
 
-      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-        <span>Breaking Balls</span>
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-        <div style="background:#3b82f610;border:1px solid #3b82f628;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#3b82f6;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#3b82f6;
-                  font-family:'JetBrains Mono',monospace">SL</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Slider</span>
-              </div>
-              <span style="font-size:.52rem;color:#3b82f6;background:#3b82f620;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">↔ Side break</span>
-            </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Lateral break. Effective vs same-hand batters.</div>
-          </div>
-        <div style="background:#1d4ed810;border:1px solid #1d4ed828;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#1d4ed8;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#1d4ed8;
-                  font-family:'JetBrains Mono',monospace">ST</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Sweeper</span>
-              </div>
-              <span style="font-size:.52rem;color:#1d4ed8;background:#1d4ed820;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">🌀 Wide break</span>
-            </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Wide horizontal sweep. Modern slider variant.</div>
-          </div>
-        <div style="background:#7c3aed10;border:1px solid #7c3aed28;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#7c3aed;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#7c3aed;
-                  font-family:'JetBrains Mono',monospace">CU</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Curveball</span>
-              </div>
-              <span style="font-size:.52rem;color:#7c3aed;background:#7c3aed20;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">↓ 12-6 drop</span>
-            </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">12-6 downward drop. Hard to elevate for HRs.</div>
-          </div>
-        <div style="background:#6d28d910;border:1px solid #6d28d928;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#6d28d9;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#6d28d9;
-                  font-family:'JetBrains Mono',monospace">KC</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Knuckle-Curve</span>
-              </div>
-              <span style="font-size:.52rem;color:#6d28d9;background:#6d28d920;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">↓ Biting</span>
-            </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Sharper curve variant. Less common.</div>
-          </div>
-      
-      </div>
+    </main>
 
-      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-        <span>Offspeed</span>
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">
-        <div style="background:#16a34a10;border:1px solid #16a34a28;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#16a34a;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#16a34a;
-                  font-family:'JetBrains Mono',monospace">CH</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Changeup</span>
-              </div>
-              <span style="font-size:.52rem;color:#16a34a;background:#16a34a20;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">🐌 Slow drop</span>
-            </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Fastball look, 8-12mph slower. Cross-hand matchup = elevated HR risk.</div>
-          </div>
-        <div style="background:#0d948810;border:1px solid #0d948828;border-radius:10px;
-            padding:9px 10px;position:relative;overflow:hidden">
-            <div style="position:absolute;top:0;left:0;width:3px;height:100%;
-              background:#0d9488;border-radius:2px 0 0 2px"></div>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <div style="display:flex;align-items:center;gap:7px">
-                <span style="font-size:.80rem;font-weight:900;color:#0d9488;
-                  font-family:'JetBrains Mono',monospace">FO</span>
-                <span style="font-size:.68rem;font-weight:700;color:var(--t1)">Forkball</span>
-              </div>
-              <span style="font-size:.52rem;color:#0d9488;background:#0d948820;
-                padding:1px 5px;border-radius:99px;white-space:nowrap">↓ Fork drop</span>
-            </div>
-            <div style="font-size:.60rem;color:var(--t4);line-height:1.4">Rare split-finger variant. Deep drop, mostly Japanese-trained pitchers.</div>
-          </div>
-      
-      </div>
-
-      <!-- HR Risk by pitch -->
-      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
-        letter-spacing:.09em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-        <span>HR Risk by Pitch</span>
-        <div style="flex:1;height:1px;background:var(--bdr)"></div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:4px">
-        <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;
-          background:var(--bg3);border-radius:8px">
-          <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🔴 Highest</span>
-          <div>
-            <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">FF · CH · FC</div>
-            <div style="font-size:.60rem;color:var(--t4)">Elevated, out-front contact drives these out</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;
-          background:var(--bg3);border-radius:8px">
-          <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🟡 Medium</span>
-          <div>
-            <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">SL · ST · CU</div>
-            <div style="font-size:.60rem;color:var(--t4)">Can be lifted but requires elite bat speed</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:flex-start;gap:10px;padding:7px 10px;
-          background:var(--bg3);border-radius:8px">
-          <span style="font-size:.68rem;flex-shrink:0;margin-top:1px">🟢 Lowest</span>
-          <div>
-            <div style="font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:1px">SI · FS · KC</div>
-            <div style="font-size:.60rem;color:var(--t4)">Ground-ball inducers — hard to elevate</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Data Sources -->
-    <div class="card" style="margin-bottom:10px">
-      <div class="slbl">📊 Data Sources</div>
-      <div style="display:flex;flex-direction:column;gap:7px;margin-top:4px">
-          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">MLB Stats API</div>
-          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">Schedule, lineups, rosters, game logs, season stats, pitcher logs, platoon splits, day/night splits</div>
-        </div>
-        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
-          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">Baseball Savant</div>
-          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">Barrel%, hard hit%, EV, pull-air%, sweet spot%, GB%, spray coordinates, pitch arsenal, batter vs pitch type ISO</div>
-        </div>
-        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
-          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">FanGraphs</div>
-          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">xFIP, FIP, BB%, K%, HR/FB%, whiff rate, GB/FB split per pitcher</div>
-        </div>
-        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
-          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">Open-Meteo</div>
-          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">Real-time weather per ballpark: temp, wind speed/direction, rain probability — matched to game start time</div>
-        </div>
-        <div style="padding:7px 10px;background:var(--bg3);border-radius:8px">
-          <div style="font-size:.65rem;font-weight:700;color:var(--t2);margin-bottom:2px">The Odds API</div>
-          <div style="font-size:.59rem;color:var(--t4);line-height:1.5">FanDuel HR props — edge and EV calculated against no-vig implied probability</div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-<!-- ── BOTTOM NAV ──────────────────────────────────────────────── -->
-<nav id="nav">
-  <button class="nav-btn active" onclick="showPage('slate')" id="nav-slate">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
-    Slate
-  </button>
-  <button class="nav-btn" onclick="showPage('kelly')" id="nav-kelly">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-    Kelly
-  </button>
-  <button class="nav-btn" onclick="showPage('ab')" id="nav-ab">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-    AB Log
-  </button>
-  <button class="nav-btn" onclick="showPage('pl')" id="nav-pl">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10"/></svg>
-    Pitch Log
-  </button>
-  <button class="nav-btn" onclick="showPage('discover')" id="nav-discover">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    Discover
-  </button>
-  <button class="nav-btn" onclick="showPage('picks')" id="nav-picks">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
-    Best Bets
-  </button>
-  <button class="nav-btn" onclick="showPage('results')" id="nav-results">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
-    Results
-  </button>
-
-</nav>
+  </div><!-- /main-area -->
 
 </div><!-- /app -->
 
+<nav id="nav" role="navigation" aria-label="Main navigation">
+  <button class="nav-btn active" id="nav-slate" onclick="showPage('slate')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+    Slate
+  </button>
+  <button class="nav-btn" id="nav-results" onclick="showPage('results')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+    Results
+  </button>
+  <button class="nav-btn" id="nav-kelly" onclick="showPage('kelly')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    Kelly
+  </button>
+  <button class="nav-btn" id="nav-ab" onclick="showPage('ab')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    A/B
+  </button>
+  <button class="nav-btn" id="nav-pl" onclick="showPage('pl')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Pitcher
+  </button>
+  <button class="nav-btn" id="nav-picks" onclick="showPage('picks')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
+    Picks
+  </button>
+  <button class="nav-btn" id="nav-discover" onclick="showPage('discover')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+    Discover
+  </button>
+</nav>
+
+<button id="scroll-top-btn" onclick="document.getElementById('content').scrollTop=0" title="Back to top">↑</button>
+
 <script>
+
+
 // ==================================================================
 //  STATE
 // ==================================================================
+let _prevPage = 'slate';
+let _currentPage = 'slate';
 // ── Lazy-loaded data maps (declared here to avoid TDZ errors) ─────
 let _fgPitcherMap    = null;
 let _pitcherWhiffMap = null;
@@ -1509,103 +543,77 @@ function toggleTheme(){
 
 
 function showPage(name){
-  // Track previous page so Info button can return
-  const current = document.querySelector('.page.active')?.id?.replace('page-','');
-  if(current && current !== 'info') _prevPage = current;
+  // Track previous page for back nav
+  const cur = _currentPage;
+  if(cur && cur !== 'info') _prevPage = cur;
+  _currentPage = name;
 
-  // Render content into target page BEFORE switching visibility
-  // This prevents the 1-frame empty page that shows as black in iOS PWA
-  const _targetPage = document.getElementById('page-'+name);
+  // Update nav buttons
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('nav-'+name)?.classList.add('active');
 
-  // Sync desktop nav active state
-  document.querySelectorAll('#desktop-nav .dnav-btn').forEach(btn=>{
-    const matches = name==='slate'?btn.textContent.includes('Slate'):btn.textContent.toLowerCase().includes(name);
+  // Update desktop nav
+  document.querySelectorAll('#desktop-nav .dnav-btn').forEach(btn => {
+    const matches = name==='slate' ? btn.textContent.includes('Slate')
+                  : btn.textContent.toLowerCase().includes(name);
     btn.classList.toggle('active', matches);
   });
-  if(window.innerWidth>=900) syncDesktopSidebar();
+  if(window.innerWidth >= 900) syncDesktopSidebar();
+
   // Update info header button
-  const infoHdr=document.getElementById('nav-info-header');
+  const infoHdr = document.getElementById('nav-info-header');
   if(infoHdr){
     if(name==='info'){
       infoHdr.style.color='var(--amber)';
       infoHdr.title='Back';
-      infoHdr.innerHTML=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg> Back`;
+      infoHdr.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg> Back';
+      infoHdr.onclick = ()=>showPage(_prevPage||'slate');
     } else {
       infoHdr.style.color='var(--t4)';
       infoHdr.title='Info';
-      infoHdr.innerHTML=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Info`;
+      infoHdr.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Info';
+      infoHdr.onclick = ()=>showPage('info');
     }
   }
-  document.getElementById(`page-${name}`)?.classList.add('active');
-  document.getElementById(`nav-${name}`)?.classList.add('active');
-  // Pre-render content into the page while it's still hidden
+
+  // VISIBILITY SWITCH — all pages stay in compositor tree, no GPU layer creation
+  // This is the fix for iOS PWA black screens on tab switch
+  document.querySelectorAll('.page').forEach(p => {
+    const isActive = p.id === 'page-'+name;
+    p.classList.toggle('active', isActive);
+  });
+
+  // Render page content (page is already visible, no flash possible)
   try {
     if(name==='results') renderResultsTab();
     if(name==='kelly') renderKelly();
-    if(name==='parlay') renderParlay();
     if(name==='picks') renderBestBets();
     if(name==='discover') renderDiscover();
     if(name==='ab') populateABSelect();
     if(name==='pl') populatePitcherSelect();
     if(name==='info'){
+      // Pre-fill API key if saved
+      const keyEl = document.getElementById('odds-api-key-input');
+      if(keyEl) keyEl.value = localStorage.getItem('dingeriq_odds_key')||'';
+      // Render tag guide
       renderTagGuide();
+      // Render auto-calibration card
       const calEl = document.getElementById('auto-cal-card');
       if(calEl) renderAutoCalCard(calEl);
     }
-  } catch(e){ console.error('[showPage render]', e); }
-  // NOW switch: content is ready before becoming visible
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  // Restore slate scroll position when returning from detail card
+  } catch(e){ console.error('[showPage]', e); }
+
+  // Restore slate scroll
   if(name==='slate' && S._slateScrollPos){
     requestAnimationFrame(()=>{
-      const content = document.getElementById('content');
-      if(content) content.scrollTop = S._slateScrollPos;
+      const c = document.getElementById('content');
+      if(c) c.scrollTop = S._slateScrollPos;
     });
   }
 }
-//  DATA FETCHING
-// ==================================================================
-const _fetchCache = new Map();
-const _FETCH_TTL = 15 * 60 * 1000; // 15 minutes — reduces re-fetches on same day
 
-async function fetchJSON(url){
-  const cached = _fetchCache.get(url);
-  // Lineup/schedule URLs expire in 2 minutes — all others 15 minutes
-  const ttl = (url.includes('hydrate=lineups') || url.includes('boxscore') || url.includes('feed/live'))
-    ? 2 * 60 * 1000
-    : _FETCH_TTL;
-  if(cached && Date.now() - cached.t < ttl) return cached.d;
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), 8000); // 8s timeout
-  try{
-    const r = await fetch(url, {signal:controller.signal});
-    if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
-    const d = await r.json();
-    _fetchCache.set(url, {d, t:Date.now()});
-    return d;
-  }finally{
-    clearTimeout(timer);
-  }
-}
 
-// Global concurrency limiter — prevents iOS from crashing on too many simultaneous requests
-let _activeRequests = 0;
-const MAX_CONCURRENT = 12;
-const _reqQueue = [];
-async function _withSlot(fn){
-  if(_activeRequests >= MAX_CONCURRENT){
-    await new Promise(res => _reqQueue.push(res));
-  }
-  _activeRequests++;
-  try{ return await fn(); }
-  finally{
-    _activeRequests--;
-    if(_reqQueue.length) _reqQueue.shift()();
-  }
-}
 
-// ── TOAST UTILITY ──
 function showToast(msg, type, duration){
   var t2 = type||'green', d2 = duration||2800;
   var clr2 = t2==='red' ? 'var(--red)' : t2==='amber' ? 'var(--amber)' : 'var(--green)';
@@ -1655,6 +663,47 @@ function computeAutoCalibration(){
 function getCalFactor(){
   if(!_autoCal) computeAutoCalibration();
   return _autoCal?.active ? _autoCal.factor : 1.0;
+}
+
+
+// ── DATA FETCHING ──────────────────────────────────────────────────
+const _fetchCache = new Map();
+const _FETCH_TTL = 15 * 60 * 1000; // 15 minutes — reduces re-fetches on same day
+
+async function fetchJSON(url){
+  const cached = _fetchCache.get(url);
+  // Lineup/schedule URLs expire in 2 minutes — all others 15 minutes
+  const ttl = (url.includes('hydrate=lineups') || url.includes('boxscore') || url.includes('feed/live'))
+    ? 2 * 60 * 1000
+    : _FETCH_TTL;
+  if(cached && Date.now() - cached.t < ttl) return cached.d;
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 8000); // 8s timeout
+  try{
+    const r = await fetch(url, {signal:controller.signal});
+    if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+    const d = await r.json();
+    _fetchCache.set(url, {d, t:Date.now()});
+    return d;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+// Global concurrency limiter — prevents iOS from crashing on too many simultaneous requests
+let _activeRequests = 0;
+const MAX_CONCURRENT = 12;
+const _reqQueue = [];
+async function _withSlot(fn){
+  if(_activeRequests >= MAX_CONCURRENT){
+    await new Promise(res => _reqQueue.push(res));
+  }
+  _activeRequests++;
+  try{ return await fn(); }
+  finally{
+    _activeRequests--;
+    if(_reqQueue.length) _reqQueue.shift()();
+  }
 }
 
 async function getGames(){
@@ -4963,7 +4012,7 @@ async function autoTrackResults(){
     console.log('[autoTrack] done');
 
     // Refresh model performance display if on info tab
-    const infoPage = document.getElementById('page-info');
+    const infoPage = document.getElementById('info-content');
     if(infoPage?.classList.contains('active')){
     }
   }catch(e){ console.warn('[autoTrack] error:', e.message); }
@@ -5179,7 +4228,7 @@ function toggleSlateParlay(id){
     : r.name.split(' ').pop()+' added · '+legs.length+' leg'+(legs.length!==1?'s':'');
   showToast(msg,'green');
   renderSlate();
-  if(document.getElementById('page-results')?.classList.contains('active')) renderResultsTab();
+  if(document.getElementById('results-content')?.classList.contains('active')) renderResultsTab();
 }
 
 function addParlayLeg(wagered, odds){
@@ -8737,35 +7786,39 @@ function showCopyConfirm(){
 
 
 (function setupPTR(){
-  let startY=0, pulling=false, threshold=70;
-  const content = document.getElementById('content');
-  if(!content) return;
+  function init(){
+    let startY=0, pulling=false, threshold=70;
+    const content = document.getElementById('content');
+    if(!content) return;
 
-  content.addEventListener('touchstart', e=>{
-    if(content.scrollTop===0) startY=e.touches[0].clientY;
-  }, {passive:true});
+    content.addEventListener('touchstart', e=>{
+      if(content.scrollTop===0) startY=e.touches[0].clientY;
+    }, {passive:true});
 
-  content.addEventListener('touchmove', e=>{
-    if(!startY) return;
-    const dy = e.touches[0].clientY - startY;
-    if(dy > 20 && content.scrollTop===0){
-      pulling=true;
-      const ind=document.getElementById('ptr-indicator');
-      if(ind) ind.classList.add('visible');
-    }
-  }, {passive:true});
-
-  content.addEventListener('touchend', ()=>{
-    if(pulling){
-      pulling=false; startY=0;
-      refreshData();
-      setTimeout(()=>{
+    content.addEventListener('touchmove', e=>{
+      if(!startY) return;
+      const dy = e.touches[0].clientY - startY;
+      if(dy > 20 && content.scrollTop===0){
+        pulling=true;
         const ind=document.getElementById('ptr-indicator');
-        if(ind) ind.classList.remove('visible');
-      }, 1200);
-    }
-    startY=0;
-  }, {passive:true});
+        if(ind) ind.classList.add('visible');
+      }
+    }, {passive:true});
+
+    content.addEventListener('touchend', ()=>{
+      if(pulling){
+        pulling=false; startY=0;
+        refreshData();
+        setTimeout(()=>{
+          const ind=document.getElementById('ptr-indicator');
+          if(ind) ind.classList.remove('visible');
+        }, 1200);
+      }
+      startY=0;
+    }, {passive:true});
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();
 
 
@@ -13794,6 +12847,12 @@ function initApp(){
   renderDesktopNav();
   syncDesktopSidebar();
 
+  // Pre-render all non-slate tabs so showPage() has zero render work to do
+  // This eliminates the empty-page-flash that causes black screens in iOS PWA
+  try{ renderResultsTab(); }catch(e){ console.warn('[init] renderResultsTab:', e.message); }
+  try{ const calEl=document.getElementById('auto-cal-card'); if(calEl) renderAutoCalCard(calEl); }catch(e){}
+  try{ renderTagGuide?.(); }catch(e){}
+
   loadSlate();
 }
 
@@ -13802,16 +12861,8 @@ if(document.readyState==='loading'){
 } else {
   initApp();
 }
-</script>
-<!-- Scroll-to-top: lives at body level, not inside #content -->
-<button id="scroll-top-btn"
-  style="transform:translateZ(0);-webkit-transform:translateZ(0)"
-  onclick="document.getElementById('content').scrollTo({top:0,behavior:'smooth'})"
-  style="position:fixed;bottom:78px;right:14px;z-index:200;width:38px;height:38px;
-    border-radius:50%;border:1px solid var(--bdr);background:var(--bg2);
-    color:var(--t3);font-size:1.1rem;cursor:pointer;display:none;
-    align-items:center;justify-content:center;
-    box-shadow:0 2px 12px rgba(0,0,0,.4)">↑</button>
 
+
+</script>
 </body>
 </html>
