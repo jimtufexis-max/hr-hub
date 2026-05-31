@@ -4,9 +4,9 @@
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="DingerIQ">
 <meta name="application-name" content="DingerIQ">
 <meta name="theme-color" content="#0f1117">
@@ -33,7 +33,7 @@
   --t1:#0d1520;--t2:#253545;--t3:#506070;--t4:#7a90a0;
   --amber:#c07800;--blue:#1a6ad0;--green:#0a8040;--red:#c03030;
 }
-html,body{height:100%;background:var(--bg);color:var(--t2);overscroll-behavior:none;
+html,body{height:100%;background:var(--bg);color:var(--t2);
   font-family:'Inter',system-ui,sans-serif;font-size:15px;overflow:hidden}
 
 /* ── Layout shell ─────────────────────────────────────────────── */
@@ -41,15 +41,15 @@ html,body{height:100%;background:var(--bg);color:var(--t2);overscroll-behavior:n
 #header{
   background:var(--bg2);border-bottom:1px solid var(--bdr);
   padding:calc(var(--safe-top) + 10px) 16px 10px;
-  display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:20;-webkit-transform:translateZ(0);transform:translateZ(0)}
+  display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:20}
 #header-title{display:flex;align-items:center;flex-shrink:0}
 #header-title span{color:var(--amber)}
 #header-date{font-size:.72rem;color:var(--t4);margin-left:auto}
-#content{flex:1;overflow-y:auto;padding-bottom:calc(var(--safe-bot) + 60px);-webkit-transform:translateZ(0);transform:translateZ(0);overscroll-behavior:none}
+#content{flex:1;overflow-y:auto;padding-bottom:calc(var(--safe-bot) + 60px);-webkit-transform:translateZ(0);transform:translateZ(0);overscroll-behavior:none;-webkit-overflow-scrolling:touch}
 #nav{
   position:fixed;bottom:0;left:0;right:0;
   background:var(--bg2);border-top:1px solid var(--bdr);
-  display:flex;padding-bottom:var(--safe-bot);z-index:20;-webkit-transform:translateZ(0);transform:translateZ(0)}
+  display:flex;padding-bottom:var(--safe-bot);z-index:20}
 .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;
   justify-content:center;padding:8px 4px 6px;gap:3px;
   font-size:.6rem;font-weight:600;color:var(--t4);
@@ -59,7 +59,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);overscroll-behavior:n
 .nav-btn svg{width:20px;height:20px;stroke-width:1.8}
 
 /* ── Pages ────────────────────────────────────────────────────── */
-.page{display:none;padding:12px 14px;background:var(--bg)}
+.page{display:none;padding:12px 14px}
 .page.active{display:block}
 
 /* ── Section labels ───────────────────────────────────────────── */
@@ -310,9 +310,16 @@ html,body{height:100%;background:var(--bg);color:var(--t2);overscroll-behavior:n
 .hitter-card.grade-c{border-left-color:var(--red)}
 
 /* ── Pulse glow for elite plays ───────────────────────────────── */
-/* pulse-glow removed — caused black screen flicker on iOS scroll */
-.hitter-card.pulse-gold{border-color:rgba(255,215,0,.5);border-left-width:3px}
-.hitter-card.pulse-green{border-color:rgba(34,201,94,.4);border-left-width:3px}
+@keyframes pulse-glow{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,.0)}
+  50%{box-shadow:0 0 12px 3px rgba(255,215,0,.25)}
+}
+@keyframes pulse-glow-green{
+  0%,100%{box-shadow:0 0 0 0 rgba(34,201,94,.0)}
+  50%{box-shadow:0 0 10px 2px rgba(34,201,94,.20)}
+}
+.hitter-card.pulse-gold{animation:pulse-glow 2.4s ease-in-out infinite;border-color:rgba(255,215,0,.4)}
+.hitter-card.pulse-green{animation:pulse-glow-green 2.8s ease-in-out infinite}
 
 
 /* ── Headshot ─────────────────────────────────────────────────── */
@@ -486,7 +493,7 @@ label{font-size:.62rem;font-weight:700;text-transform:uppercase;
 
 /* ── Scrollable stat row ──────────────────────────────────────── */
 .stat-scroll{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;
-  scrollbar-width:none}
+  scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .stat-scroll::-webkit-scrollbar{display:none}
 .stat-box{background:var(--bg3);border:1px solid var(--bdr);border-radius:8px;
   padding:8px 10px;text-align:center;flex-shrink:0;min-width:70px}
@@ -1532,20 +1539,16 @@ function showPage(name){
   document.getElementById(`nav-${name}`)?.classList.add('active');
   if(name==='ab') populateABSelect();
   if(name==='pl') populatePitcherSelect();
-  // Defer heavy renders to next frame so browser paints background first
-  // This prevents the black flash in PWA mode where there's no browser chrome
-  requestAnimationFrame(()=>{
-    if(name==='results') renderResultsTab();
-    if(name==='kelly') renderKelly();
-    if(name==='parlay') renderParlay();
-    if(name==='picks') renderBestBets();
-    if(name==='discover') renderDiscover();
-    if(name==='info'){
-      renderTagGuide();
-      const calEl = document.getElementById('auto-cal-card');
-      if(calEl) renderAutoCalCard(calEl);
-    }
-  });
+  if(name==='results') renderResultsTab();
+  if(name==='kelly') renderKelly();
+  if(name==='parlay') renderParlay();
+  if(name==='picks') renderBestBets();
+  if(name==='discover') renderDiscover();
+  if(name==='info'){
+    renderTagGuide();
+    const calEl = document.getElementById('auto-cal-card');
+    if(calEl) renderAutoCalCard(calEl);
+  }
   // Restore slate scroll position when returning from detail card
   if(name==='slate' && S._slateScrollPos){
     requestAnimationFrame(()=>{
@@ -5043,7 +5046,7 @@ function showBetEntryModal(config, onConfirm){
   document.getElementById('bet-entry-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'bet-entry-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.65);';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
   modal.innerHTML = `
     <div style="width:100%;max-width:360px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:20px 18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="font-size:.90rem;font-weight:800;color:var(--t1);margin-bottom:4px">📌 Track Bet</div>
@@ -5411,7 +5414,7 @@ function importBetHistory(){
   document.getElementById('import-modal')?.remove();
   const modal = document.createElement('div');
   modal.id = 'import-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
   modal.innerHTML = `
     <div style="width:100%;max-width:400px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="font-size:.88rem;font-weight:800;color:var(--t1);margin-bottom:4px">⬇️ Import Bets</div>
@@ -5473,7 +5476,7 @@ function showManualOddsEntry(){
   const loaded = _fdOdds ? Object.keys(_fdOdds).length : 0;
   const modal = document.createElement('div');
   modal.id = 'odds-entry-modal';
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
   modal.innerHTML = `
     <div style="width:100%;max-width:400px;background:var(--bg2);border-radius:16px;border:1px solid var(--bdr);padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div style="font-size:.88rem;font-weight:800;color:var(--t1);margin-bottom:4px">📋 Enter HR Prop Odds</div>
@@ -5963,7 +5966,7 @@ function toggleHRSection(id){
   if(!body) return;
   const open = body.style.display !== 'none';
   body.style.display = open ? 'none' : 'block';
-  if(arrow) arrow.textContent = open ? '▼' : '▲';
+  if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
 }
 
 function toggleBetHistory(){
@@ -5973,7 +5976,7 @@ function toggleBetHistory(){
   const open = body.style.display !== 'none';
   body.style.display = open ? 'none' : 'block';
   // Simple text swap instead of transform (no GPU layer needed)
-  if(arrow) arrow.textContent = open ? '▼' : '▲';
+  if(arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
 }
 
 
@@ -6618,7 +6621,7 @@ async function renderResultsTab(){
             <button onclick="clearAllTracking()" style="font-size:.60rem;padding:3px 8px;
               border-radius:6px;border:1px solid rgba(224,80,74,.3);
               background:rgba(224,80,74,.06);color:var(--red);cursor:pointer">🗑️ Clear</button>
-            <span id="bet-history-arrow" style="font-size:.80rem;color:var(--t4);display:inline-block">▼</span>
+            <span id="bet-history-arrow" style="font-size:.80rem;color:var(--t4);transition:transform .2s;display:inline-block">▼</span>
           </div>
         </div>
         <div id="bet-history-body" style="display:none;margin-top:10px;border-top:1px solid var(--bg3);padding-top:10px">`;
