@@ -37,7 +37,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);overscroll-behavior:n
   font-family:'Inter',system-ui,sans-serif;font-size:15px;overflow:hidden}
 
 /* ── Layout shell ─────────────────────────────────────────────── */
-#app{display:flex;flex-direction:column;height:100vh;height:100dvh;background:var(--bg);position:fixed;width:100%;top:0;left:0}
+#app{display:flex;flex-direction:column;height:100vh;height:100dvh;background:var(--bg)}
 #header{
   background:var(--bg2);border-bottom:1px solid var(--bdr);
   padding:calc(var(--safe-top) + 10px) 16px 10px;
@@ -45,10 +45,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);overscroll-behavior:n
 #header-title{display:flex;align-items:center;flex-shrink:0}
 #header-title span{color:var(--amber)}
 #header-date{font-size:.72rem;color:var(--t4);margin-left:auto}
-#content{flex:1;overflow-y:auto;padding-bottom:calc(var(--safe-bot) + 60px);-webkit-transform:translateZ(0);transform:translateZ(0);contain:layout style;overscroll-behavior:none}
-.page{contain:layout style}
-.hitter-card{contain:layout style}
-.card{contain:layout style}
+#content{flex:1;overflow-y:auto;padding-bottom:calc(var(--safe-bot) + 60px);-webkit-transform:translateZ(0);transform:translateZ(0);overscroll-behavior:none}
 #nav{
   position:fixed;bottom:0;left:0;right:0;
   background:var(--bg2);border-top:1px solid var(--bdr);
@@ -62,7 +59,7 @@ html,body{height:100%;background:var(--bg);color:var(--t2);overscroll-behavior:n
 .nav-btn svg{width:20px;height:20px;stroke-width:1.8}
 
 /* ── Pages ────────────────────────────────────────────────────── */
-.page{display:none;padding:12px 14px;background:var(--bg);min-height:100%;contain:layout style}
+.page{display:none;padding:12px 14px;background:var(--bg)}
 .page.active{display:block}
 
 /* ── Section labels ───────────────────────────────────────────── */
