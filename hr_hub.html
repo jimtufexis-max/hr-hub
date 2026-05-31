@@ -301,7 +301,15 @@ input:focus,textarea:focus{border-color:var(--amber)}
   }
 }
 
-/* ── Scroll to top ───────────────────────────────────────────── */
+/* ── Loading Bar ─────────────────────────────────────────────── */
+#loading-bar{
+  position:fixed;top:0;left:0;height:3px;width:0%;
+  background:linear-gradient(90deg,var(--amber),#f59e0b,var(--green));
+  z-index:9999;transition:width .3s ease,opacity .4s ease;
+  pointer-events:none;opacity:0
+}
+#loading-bar.running{opacity:1}
+
 #scroll-top-btn{
   position:fixed;bottom:80px;right:14px;
   width:36px;height:36px;border-radius:50%;
@@ -314,6 +322,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
 </head>
 <body>
 
+<div id="loading-bar"></div>
 <div id="app">
 
   <div id="sidebar"></div>
@@ -1084,14 +1093,24 @@ async function getSavantBatters(){
     if(!r.ok)throw new Error(`savant batters ${r.status}`);
     const txt=await r.text();
     const rows=parseCSVText(txt); const out={};
+    if(rows.length) console.log('[Savant batters] cols sample:', Object.keys(rows[0]).slice(0,20).join(', '));
     for(const row of rows){
       const pid=(row.player_id||row.batter||'').replace(/\.0$/,'');
       if(!pid)continue;
       out[pid]={
-        barrel_pct:  parseF(row.brl_percent ?? row.barrel_batted_rate),
-        hard_hit_pct:parseF(row.ev95percent),
-        avg_ev:      parseF(row.avg_hit_speed ?? row.avg_exit_velocity),
-        avg_la:      parseF(row.avg_hit_angle ?? row.avg_launch_angle),
+        barrel_pct:     parseF(row.brl_percent ?? row.barrel_batted_rate),
+        hard_hit_pct:   parseF(row.ev95percent ?? row.hard_hit_percent),
+        avg_ev:         parseF(row.avg_hit_speed ?? row.avg_exit_velocity ?? row.launch_speed),
+        avg_la:         parseF(row.avg_hit_angle ?? row.avg_launch_angle),
+        xwoba:          parseF(row.xwoba ?? row.est_woba),
+        xba:            parseF(row.xba ?? row.est_ba),
+        xslg:           parseF(row.xslg ?? row.est_slg),
+        sweet_spot_pct: parseF(row.sweet_spot_percent ?? row.sweet_spot),
+        k_pct:          parseF(row.k_percent ?? row['k%'] ?? row['K%']),
+        bb_pct:         parseF(row.bb_percent ?? row['bb%'] ?? row['BB%']),
+        whiff_pct:      parseF(row.whiff_percent ?? row.whiff_rate),
+        chase_pct:      parseF(row.oz_swing_percent ?? row.o_swing_percent ?? row.chase_rate),
+        sprint_speed:   parseF(row.sprint_speed),
       };
     }
     console.log(`Savant batters (statcast): ${Object.keys(out).length} players`);
@@ -2775,6 +2794,7 @@ async function toggleGame(pk){
 // Bulk leaderboard data — load once per session via Worker proxy
 let _savB=null,_fgB=null,_savP=null,_fgP=null;
 async function loadSelectedGames(){
+  showLoading();
   const el=document.getElementById('hitter-list');
   el.innerHTML='';
   loadFanDuelOdds(); // fire and forget
@@ -11051,8 +11071,9 @@ function filterStatsGrid(statsId, pitchType, playerId){
   });
 }
 function showDetail(id){
+  showLoading();
   const r=S.allRows.find(x=>x.id===id);
-  if(!r)return;
+  if(!r){ hideLoading(); return; }
 
   // Store for parlay builder and save scroll position
   window._betEntryPlayer = r;
@@ -11973,6 +11994,19 @@ function renderDetail(r){
                 k_pct:'kPct',bb_pct:'bbPct',whiff:'whiffPct',chase:'chasePct'};
               if(_pm && _pm[pmKeys[key]]!=null) return _pm[pmKeys[key]];
 
+              // Try computing from _savB distribution
+              const savBKeys={xwoba:'xwoba',xba:'xba',xslg:'xslg',avg_ev:'avg_ev',
+                barrel_pct:'barrel_pct',hard_hit_pct:'hard_hit_pct',sweet_spot:'sweet_spot_pct',
+                k_pct:'k_pct',bb_pct:'bb_pct',whiff:'whiff_pct',chase:'chase_pct'};
+              const sbKey=savBKeys[key];
+              if(sbKey&&_savB&&Object.keys(_savB).length>50){
+                const arr=Object.values(_savB).map(p=>p[sbKey]).filter(v=>v!=null&&!isNaN(v)&&v>0).sort((a,b)=>a-b);
+                if(arr.length>=20){
+                  const i=arr.findIndex(v=>v>=val);
+                  const raw=i<0?99:Math.round(i/arr.length*100);
+                  return inv?100-raw:raw;
+                }
+              }
               // Estimate from MLB distribution
               if(val==null) return null;
               const dist=MLB_DIST[key]; if(!dist) return null;
@@ -11987,20 +12021,23 @@ function renderDetail(r){
             }
 
             // ── Build raw value for each stat ──────────────────────────────
+            // Pull from _savB directly since it now has all Statcast fields
+            const _sb = (_savB&&_pid) ? ((_savB[_pid]||_savB[String(r.id)])||{}) : {};
+
             const stats=[
-              {key:'xwoba',      val:_pm?.xwoba??null},
-              {key:'xba',        val:_pm?.xba??null},
-              {key:'xslg',       val:_pm?.xslg??null},
-              {key:'avg_ev',     val:_pm?.ev??r.avg_ev??null},
-              {key:'barrel_pct', val:_pm?.barrelPct??r.barrel_pct??null},
-              {key:'hard_hit_pct',val:_pm?.hardHit??r.hard_hit_pct??null},
-              {key:'sweet_spot', val:_pm?.sweetSpot??null},
-              {key:'bat_speed',  val:_pm?.batSpeed??_sw.swingSpeed??null},
-              {key:'squared_up', val:_pm?.squaredUp??null},
-              {key:'k_pct',      val:_pm?.k??null},
-              {key:'bb_pct',     val:_pm?.bb??null},
-              {key:'whiff',      val:_pm?.whiff??null},
-              {key:'chase',      val:_pm?.chase??null},
+              {key:'xwoba',       val:_pm?.xwoba     ?? _sb.xwoba          ?? null},
+              {key:'xba',         val:_pm?.xba        ?? _sb.xba            ?? null},
+              {key:'xslg',        val:_pm?.xslg       ?? _sb.xslg           ?? null},
+              {key:'avg_ev',      val:_pm?.ev         ?? r.avg_ev ?? _sb.avg_ev ?? null},
+              {key:'barrel_pct',  val:_pm?.barrelPct  ?? r.barrel_pct ?? _sb.barrel_pct ?? null},
+              {key:'hard_hit_pct',val:_pm?.hardHit    ?? r.hard_hit_pct ?? _sb.hard_hit_pct ?? null},
+              {key:'sweet_spot',  val:_pm?.sweetSpot  ?? _sb.sweet_spot_pct ?? null},
+              {key:'bat_speed',   val:_pm?.batSpeed   ?? _sw.swingSpeed ?? null},
+              {key:'squared_up',  val:_pm?.squaredUp  ?? null},
+              {key:'k_pct',       val:_pm?.k          ?? _sb.k_pct ?? null},
+              {key:'bb_pct',      val:_pm?.bb         ?? _sb.bb_pct ?? null},
+              {key:'whiff',       val:_pm?.whiff      ?? _sb.whiff_pct ?? null},
+              {key:'chase',       val:_pm?.chase      ?? _sb.chase_pct ?? null},
             ].filter(s=>s.val!=null);
 
             if(!stats.length) return '<div style="padding:20px;text-align:center;font-size:.70rem;color:var(--t4)">No Statcast data — load a game first</div>';
@@ -13537,6 +13574,39 @@ function renderPercentilePanel(el, playerId){
     +'<div style="font-size:.54rem;color:var(--t4);margin-top:6px;opacity:.6">Baseball Savant · '+SEASON+' · bar = MLB percentile · ↓ lower is better</div>';
 }
 
+
+// ==================================================================
+//  LOADING BAR
+// ==================================================================
+let _loadingTimer = null;
+let _loadingCount = 0;
+function showLoading(){
+  _loadingCount++;
+  const bar = document.getElementById('loading-bar');
+  if(!bar) return;
+  clearTimeout(_loadingTimer);
+  bar.classList.add('running');
+  bar.style.opacity = '1';
+  bar.style.transition = 'width .8s ease, opacity .4s ease';
+  bar.style.width = '0%';
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      bar.style.width = '60%';
+    });
+  });
+}
+function hideLoading(){
+  _loadingCount = Math.max(0, _loadingCount - 1);
+  if(_loadingCount > 0) return;
+  const bar = document.getElementById('loading-bar');
+  if(!bar) return;
+  bar.style.transition = 'width .2s ease, opacity .6s ease .2s';
+  bar.style.width = '100%';
+  _loadingTimer = setTimeout(()=>{
+    bar.style.opacity = '0';
+    setTimeout(()=>{ bar.style.width = '0%'; bar.classList.remove('running'); }, 400);
+  }, 200);
+}
 
 function initApp(){
   // ── PWA full-screen height fix ──────────────────────────────
