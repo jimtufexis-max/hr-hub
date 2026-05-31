@@ -75,11 +75,14 @@ body{
 
 /* ── Content scroll container ────────────────────────────────── */
 #content{
-  flex:1;overflow-y:auto;background:#0f1117;
-  padding-bottom:calc(var(--safe-bot) + 64px);
+  flex:1;
+  overflow-y:auto;
+  background:#0f1117;
+  padding-bottom:calc(var(--safe-bot) + 68px);
   position:relative;
-  /* Ensure content fills all available space */
-  min-height:0
+  min-height:0;
+  /* Fills remaining space between header and nav */
+  -webkit-overflow-scrolling:auto
 }
 
 /* ── PAGE SWITCHING — THE FIX FOR PWA BLACK SCREENS ─────────── */
@@ -128,7 +131,12 @@ body{
 #nav{
   position:fixed;bottom:0;left:0;right:0;
   background:var(--bg2);border-top:1px solid var(--bdr);
-  display:flex;padding-bottom:var(--safe-bot);z-index:20
+  display:flex;
+  padding-bottom:var(--safe-bot);
+  padding-bottom:env(safe-area-inset-bottom);
+  z-index:20;
+  /* Extend background to physical bottom edge */
+  box-shadow:0 34px 0 0 var(--bg2)
 }
 .nav-btn{
   flex:1;display:flex;flex-direction:column;align-items:center;
@@ -288,7 +296,14 @@ input:focus,textarea:focus{border-color:var(--amber)}
 @media(max-width:899px){
   #sidebar{display:none}
   #desktop-nav{display:none}
-  #main-area{display:contents}
+  #main-area{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    min-height:0;
+    width:100%
+  }
 }
 
 /* ── Scroll to top ───────────────────────────────────────────── */
