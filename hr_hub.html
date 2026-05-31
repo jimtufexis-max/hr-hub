@@ -1146,51 +1146,51 @@ async function getSavantBatters(){
     }
     console.log(`[Savant statcast] ${Object.keys(out).length} players`);
 
-    // ── Expected stats (xwOBA, xBA, xSLG) — separate endpoint ──────────────
+    // ── Fetch expected stats + batted-ball IN PARALLEL ─────────────────────
+    const xUrl = `https://baseballsavant.mlb.com/leaderboard/expected_statistics?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
+    const bbUrl= `https://baseballsavant.mlb.com/leaderboard/batted-ball?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
+
+    const [xResp, bbResp] = await Promise.allSettled([
+      fetch(PROXY+encodeURIComponent(xUrl)),
+      fetch(PROXY+encodeURIComponent(bbUrl))
+    ]);
+
+    // xwOBA / xBA / xSLG
     try{
-      const xUrl=`https://baseballsavant.mlb.com/leaderboard/expected_statistics?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
-      const xr=await fetch(PROXY+encodeURIComponent(xUrl));
-      if(xr.ok){
-        const xRows=parseCSVText(await xr.text());
-        if(xRows.length) console.log('[Savant xStats] cols:', Object.keys(xRows[0]).slice(0,15).join(', '));
+      if(xResp.status==='fulfilled' && xResp.value.ok){
+        const xRows=parseCSVText(await xResp.value.text());
         for(const row of xRows){
           const pid=(row.player_id||row.batter||'').replace(/\.0$/,'');
           if(!pid)continue;
           if(!out[pid]) out[pid]={};
-          out[pid].xwoba = parseF(row.xwoba ?? row.est_woba);
-          out[pid].xba   = parseF(row.xba   ?? row.est_ba);
-          out[pid].xslg  = parseF(row.xslg  ?? row.est_slg);
-          // Also grab EV/barrel if missing
-          if(!out[pid].avg_ev)   out[pid].avg_ev   = parseF(row.avg_exit_velocity ?? row.avg_hit_speed);
-          if(!out[pid].barrel_pct) out[pid].barrel_pct = parseF(row.barrel_batted_rate ?? row.brl_percent);
+          const xw=parseF(row.xwoba??row.est_woba), xb=parseF(row.xba??row.est_ba), xs=parseF(row.xslg??row.est_slg);
+          if(xw) out[pid].xwoba=xw;
+          if(xb) out[pid].xba=xb;
+          if(xs) out[pid].xslg=xs;
+          if(!out[pid].avg_ev) out[pid].avg_ev=parseF(row.avg_exit_velocity??row.avg_hit_speed);
+          if(!out[pid].barrel_pct) out[pid].barrel_pct=parseF(row.barrel_batted_rate??row.brl_percent);
         }
-        console.log(`[Savant xStats] merged into ${Object.keys(out).length} players`);
+        console.log(`[xStats] merged`);
       }
-    }catch(e2){console.warn('[xStats]:', e2.message);}
+    }catch(e2){console.warn('[xStats]:',e2.message);}
 
-    // ── Batted-ball (pull_air, fb_rate, etc.) ────────────────────────────────
+    // Batted-ball
     try{
-      const url2=`https://baseballsavant.mlb.com/leaderboard/batted-ball?type=batter&year=${SEASON}&position=&team=&min=10&csv=true`;
-      const r2=await fetch(PROXY+encodeURIComponent(url2));
-      if(r2.ok){
-        const rows2=parseCSVText(await r2.text());
+      if(bbResp.status==='fulfilled' && bbResp.value.ok){
+        const rows2=parseCSVText(await bbResp.value.text());
         const toP=v=>{const f=parseFloat(v);return isNaN(f)?null:Math.round(f*1000)/10;};
-        let enriched=0;
         for(const row of rows2){
           const pid=String(row.id||row.player_id||'').replace(/\.0$/,'');
           if(!pid)continue;
           if(!out[pid])out[pid]={};
-          const pa=toP(row.pull_air_rate),fb=toP(row.fb_rate),pull=toP(row.pull_rate),air=toP(row.air_rate);
+          const pa=toP(row.pull_air_rate),fb=toP(row.fb_rate),pull=toP(row.pull_rate);
           const hrfb=toP(row.home_run_per_flyball??row.hr_flyball??row.hr_per_fb);
-          if(pa!=null)   out[pid].pull_air_pct=pa;
-          if(fb!=null)   out[pid].fb_pct=fb;
+          if(pa!=null) out[pid].pull_air_pct=pa;
+          if(fb!=null) out[pid].fb_pct=fb;
           if(pull!=null) out[pid].pull_pct=pull;
-          if(air!=null)  out[pid].air_pct=air;
           if(hrfb!=null) out[pid].hr_fb_pct=hrfb;
-          enriched++;
         }
-        const withPA=Object.values(out).filter(v=>v.pull_air_pct!=null).length;
-        console.log(`[batted-ball] enriched ${enriched} rows, ${withPA} with pull_air_pct`);
+        console.log(`[batted-ball] merged`);
       }
     }catch(e2){console.warn('[batted-ball]:',e2.message);}
 
@@ -2409,22 +2409,68 @@ function detectNegativeAngles(r){
 //  RENDER SLATE
 // ==================================================================
 
+// ==================================================================
+//  LEADERBOARD CACHE — localStorage with 4hr TTL
+//  Eliminates repeated proxy requests across app sessions
+// ==================================================================
+const LB_CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
+function _lbCacheGet(key){
+  try{
+    const raw = localStorage.getItem('diq_lb_'+key);
+    if(!raw) return null;
+    const {t,d} = JSON.parse(raw);
+    if(Date.now()-t > LB_CACHE_TTL){ localStorage.removeItem('diq_lb_'+key); return null; }
+    return d;
+  }catch{return null;}
+}
+function _lbCacheSet(key, data){
+  try{
+    if(!data || !Object.keys(data).length) return;
+    localStorage.setItem('diq_lb_'+key, JSON.stringify({t:Date.now(), d:data}));
+  }catch(e){ /* quota exceeded — ignore */ }
+}
+function clearLBCache(){
+  ['savB','savPct','savSwing'].forEach(k=>localStorage.removeItem('diq_lb_'+k));
+  _savB=null; _percentileMap=null; _swingSpeedMap=null;
+  showToast('Cache cleared — reloading…','amber');
+  loadSlate();
+}
+
+
 async function ensureLeaderboards(){
-  if(_savB!==null) return; // already loaded
-  console.log('Loading leaderboards via proxy...');
-  // Show loading status
-  const el=document.getElementById('hitter-list');
-  if(el) el.innerHTML='';
+  if(_savB!==null) return; // already loaded this session
+
+  // ── Try localStorage cache first (4hr TTL) ──────────────────────────────
+  const cached = _lbCacheGet('savB');
+  if(cached && Object.keys(cached).length > 50){
+    [_savB,_fgB,_savP,_fgP] = [cached, {}, {}, {}];
+    console.log(`[LB] restored ${Object.keys(_savB).length} players from cache`);
+    // Load percentile+swing in background (they're cached too)
+    setTimeout(()=>{ ensurePercentileMap(); ensureSwingSpeedMap(); }, 500);
+    return;
+  }
+
+  console.log('[LB] fetching fresh leaderboards…');
+  showLoading('Loading stats…');
   const [savB, fgB, savP, fgP] = await Promise.all([
     getSavantBatters(), getFGBatters(), getSavantPitchers(), getFGPitchers()
   ]);
   [_savB,_fgB,_savP,_fgP] = [savB||{}, fgB||{}, savP||{}, fgP||{}];
-  const nSav=Object.keys(_savB||{}).length, nFG=Object.keys(_fgB||{}).length;
-  console.log(`Leaderboards ready — Savant:${nSav} FG:${nFG}`);
-  if(nSav===0 && nFG===0 && el){
-    el.innerHTML='<div class="card" style="color:var(--red);padding:12px;font-size:.78rem">⚠️ Leaderboard load failed — proxy may be down. Game will load with MLB data only.</div>';
-    setTimeout(()=>{ if(el.innerHTML.includes('proxy')) el.innerHTML=''; },3000);
+  hideLoading();
+  const nSav=Object.keys(_savB||{}).length;
+  console.log(`[LB] ready — Savant:${nSav}`);
+
+  // Cache for next session
+  _lbCacheSet('savB', _savB);
+
+  if(nSav===0){
+    const el=document.getElementById('hitter-list');
+    if(el) el.innerHTML='<div class="card" style="color:var(--red);padding:12px;font-size:.78rem">⚠️ Leaderboard load failed — tap ↺ to retry</div>';
+    setTimeout(()=>{ const e=document.getElementById('hitter-list'); if(e&&e.innerHTML.includes('failed')) e.innerHTML=''; },4000);
   }
+
+  // Load percentile + swing speed in background after main data ready
+  setTimeout(()=>{ ensurePercentileMap(); ensureSwingSpeedMap(); }, 200);
 }
 
 // Called AFTER game is loaded — secondary enrichment maps
@@ -3565,6 +3611,8 @@ async function ensureXwobaMap(){
 // ==================================================================
 async function ensureSwingSpeedMap(){
   if(_swingSpeedMap!==null) return;
+  const swCached=_lbCacheGet('savSwing');
+  if(swCached && Object.keys(swCached).length>20){ _swingSpeedMap=swCached; console.log('[SwingSpeed] from cache'); return; }
   _swingSpeedMap={};
   try{
     const url=`https://baseballsavant.mlb.com/leaderboard/bat-tracking?attackZone=&batSide=&contactType=&count=&dateStart=&dateEnd=&gameType=&isOAA=false&minSwings=50&minGroupSwings=1&pitchType=&position=&resultType=&seasonStart=${SEASON}&seasonEnd=${SEASON}&team=&type=batter&csv=true`;
@@ -3582,6 +3630,7 @@ async function ensureSwingSpeedMap(){
       if(spd!=null) _swingSpeedMap[pid]={swingSpeed:spd,blastPct};
     }
     console.log('[SwingSpeed] loaded',Object.keys(_swingSpeedMap).length,'players');
+    _lbCacheSet('savSwing', _swingSpeedMap);
   }catch(e){console.warn('[SwingSpeed]:',e.message);_swingSpeedMap={};}
 }
 
@@ -3735,6 +3784,8 @@ function calcCompositeBetScore(r){
 let _percentileMap = null;
 async function ensurePercentileMap(){
   if(_percentileMap !== null) return;
+  const pmCached=_lbCacheGet('savPct');
+  if(pmCached && Object.keys(pmCached).length>50){ _percentileMap=pmCached; console.log('[Percentile] from cache'); return; }
   _percentileMap = {};
   try{
     const url = `https://baseballsavant.mlb.com/leaderboard/percentile-rankings?type=batter&year=${SEASON}&team=&csv=true`;
@@ -3806,6 +3857,7 @@ async function ensurePercentileMap(){
     }
 
     console.log('[Percentile] loaded',Object.keys(_percentileMap).length,'players');
+    _lbCacheSet('savPct', _percentileMap);
 
     // ── Also load bat tracking (bat speed, squared-up%, blast%) ─────────────
     try{
