@@ -301,47 +301,21 @@ input:focus,textarea:focus{border-color:var(--amber)}
   }
 }
 
-/* ── Loading Overlay ─────────────────────────────────────────── */
+/* ── Loading Bar ─────────────────────────────────────────────── */
 #loading-bar{
-  position:fixed;
-  top:50%;left:50%;
-  transform:translate(-50%,-50%);
-  z-index:9999;
+  height:3px;
+  background:rgba(255,255,255,.07);
+  border-radius:2px;
+  overflow:hidden;
   display:none;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:14px;
-  background:rgba(15,17,23,.85);
-  backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px);
-  border:1px solid rgba(255,255,255,.1);
-  border-radius:16px;
-  padding:28px 36px;
-  pointer-events:none;
-  min-width:140px
+  margin:4px 0 2px;
+  flex-shrink:0
 }
-#loading-bar.running{display:flex}
-#loading-bar .ld-ring{
-  width:40px;height:40px;position:relative
-}
-#loading-bar .ld-ring::before{
-  content:'';position:absolute;inset:0;border-radius:50%;
-  border:3px solid rgba(240,165,0,.15);
-  border-top-color:#f0a500;border-right-color:#22c95e;
-  animation:ld-spin .9s cubic-bezier(.4,0,.2,1) infinite
-}
-#loading-bar .ld-ring::after{
-  content:'';position:absolute;inset:7px;border-radius:50%;
-  border:3px solid transparent;
-  border-bottom-color:#3d8ef0;border-left-color:#e0504a;
-  animation:ld-spin .7s cubic-bezier(.4,0,.2,1) infinite reverse
-}
-@keyframes ld-spin{to{transform:rotate(360deg)}}
-#loading-bar .ld-txt{
-  font-size:.72rem;color:rgba(255,255,255,.7);
-  font-weight:500;letter-spacing:.03em;
-  white-space:nowrap
+#loading-bar .ld-fill{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#f0a500,#22c95e,#3d8ef0);
+  border-radius:2px
 }
 
 #scroll-top-btn{
@@ -2443,39 +2417,51 @@ function clearLBCache(){
 
 
 async function ensureLeaderboards(){
-  if(_savB!==null) return; // already loaded this session
+  if(_savB!==null) return;
 
   // ── Try localStorage cache first (4hr TTL) ──────────────────────────────
   const cached = _lbCacheGet('savB');
   if(cached && Object.keys(cached).length > 50){
     [_savB,_fgB,_savP,_fgP] = [cached, {}, {}, {}];
     console.log(`[LB] restored ${Object.keys(_savB).length} players from cache`);
-    // Load percentile+swing in background (they're cached too)
-    setTimeout(()=>{ ensurePercentileMap(); ensureSwingSpeedMap(); }, 500);
+    setTimeout(()=>{ ensurePercentileMap(); ensureSwingSpeedMap(); }, 200);
     return;
   }
 
-  console.log('[LB] fetching fresh leaderboards…');
-  showLoading('Loading stats…');
-  const [savB, fgB, savP, fgP] = await Promise.all([
-    getSavantBatters(), getFGBatters(), getSavantPitchers(), getFGPitchers()
-  ]);
-  [_savB,_fgB,_savP,_fgP] = [savB||{}, fgB||{}, savP||{}, fgP||{}];
+  console.log('[LB] fetching…');
+  showLoading();
+
+  // ── Only await Savant batter stats (fastest, most important) ────────────
+  // FanGraphs + pitcher data load in background so players appear quickly
+  const savB = await getSavantBatters();
+  [_savB,_fgB,_savP,_fgP] = [savB||{}, {}, {}, {}];
   hideLoading();
-  const nSav=Object.keys(_savB||{}).length;
-  console.log(`[LB] ready — Savant:${nSav}`);
 
-  // Cache for next session
-  _lbCacheSet('savB', _savB);
+  const nSav = Object.keys(_savB).length;
+  console.log(`[LB] Savant: ${nSav} players ready`);
 
-  if(nSav===0){
-    const el=document.getElementById('hitter-list');
-    if(el) el.innerHTML='<div class="card" style="color:var(--red);padding:12px;font-size:.78rem">⚠️ Leaderboard load failed — tap ↺ to retry</div>';
-    setTimeout(()=>{ const e=document.getElementById('hitter-list'); if(e&&e.innerHTML.includes('failed')) e.innerHTML=''; },4000);
+  // Cache immediately so next load is instant
+  if(nSav > 50) _lbCacheSet('savB', _savB);
+
+  if(nSav === 0){
+    const el = document.getElementById('hitter-list');
+    if(el) el.innerHTML='<div class="card" style="color:var(--red);padding:12px;font-size:.78rem">⚠️ Stats load failed — tap ↺ to retry</div>';
+    setTimeout(()=>{ const e=document.getElementById('hitter-list'); if(e?.innerHTML.includes('failed')) e.innerHTML=''; },4000);
   }
 
-  // Load percentile + swing speed in background after main data ready
-  setTimeout(()=>{ ensurePercentileMap(); ensureSwingSpeedMap(); }, 200);
+  // Load everything else in background (doesn't block slate from showing)
+  setTimeout(()=>{
+    Promise.allSettled([
+      getFGBatters(), getSavantPitchers(), getFGPitchers()
+    ]).then(([fgB, savP, fgP])=>{
+      if(fgB.value)  _fgB  = fgB.value  || {};
+      if(savP.value) _savP = savP.value || {};
+      if(fgP.value)  _fgP  = fgP.value  || {};
+      console.log('[LB] background data ready');
+    });
+    ensurePercentileMap();
+    ensureSwingSpeedMap();
+  }, 500);
 }
 
 // Called AFTER game is loaded — secondary enrichment maps
@@ -13689,7 +13675,7 @@ function renderPercentilePanel(el, playerId){
 // ==================================================================
 let _loadingTimer = null;
 let _loadingCount = 0;
-function showLoading(msg){
+function showLoading(){
   _loadingCount++;
   clearTimeout(_loadingTimer);
   const bar = document.getElementById('loading-bar');
@@ -13699,22 +13685,25 @@ function showLoading(msg){
   if(fill){
     fill.style.transition = 'none';
     fill.style.width = '0%';
-    requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
-      fill.style.transition = 'width 1.4s ease';
-      fill.style.width = '75%';
-    }); });
+    requestAnimationFrame(()=>{
+      fill.style.transition = 'width 2s ease-out';
+      fill.style.width = '85%';
+    });
   }
+  // Safety: auto-hide after 8s no matter what
+  _loadingTimer = setTimeout(()=>{ _loadingCount=0; hideLoading(); }, 8000);
 }
 function hideLoading(){
   _loadingCount = Math.max(0, _loadingCount - 1);
   if(_loadingCount > 0) return;
+  clearTimeout(_loadingTimer);
   const bar = document.getElementById('loading-bar');
   const fill = bar?.querySelector('.ld-fill');
   if(fill){ fill.style.transition = 'width .15s ease'; fill.style.width = '100%'; }
-  _loadingTimer = setTimeout(()=>{
+  setTimeout(()=>{
     if(bar) bar.style.display = 'none';
     if(fill){ fill.style.transition = 'none'; fill.style.width = '0%'; }
-  }, 250);
+  }, 200);
 }
 
 function initApp(){
