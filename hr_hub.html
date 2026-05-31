@@ -12990,7 +12990,23 @@ if(isIOS && !isStandalone && !localStorage.getItem('ios-hint-shown')){
 //  INIT — wait for DOM to be fully ready
 // ==================================================================
 function initApp(){
-  // ── PWA full-screen: html/body height:100% fills WebView ──
+  // ── PWA full-screen height fix ──────────────────────────────
+  // In iOS PWA standalone mode, window.innerHeight is sized as if
+  // Safari's bottom toolbar is present — leaving a gap at the bottom.
+  // Fix: use screen.height in standalone mode (full physical screen),
+  // window.innerHeight in Safari (respects browser chrome).
+  function setAppHeight(){
+    const isStandalone = window.navigator.standalone === true;
+    const h = isStandalone ? window.screen.height : window.innerHeight;
+    const app = document.getElementById('app');
+    if(app) app.style.height = h + 'px';
+  }
+  setAppHeight();
+  // Re-run after layout settles
+  setTimeout(setAppHeight, 0);
+  setTimeout(setAppHeight, 300);
+  window.addEventListener('resize', setAppHeight);
+  // ────────────────────────────────────────────────────────────
   populateABSelect();
 
   // Apply saved theme — runs even if SW serves old HTML
