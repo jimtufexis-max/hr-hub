@@ -10258,7 +10258,7 @@ function renderSlate(){
   // ── BUILD FILTER CHIPS ───────────────────────────────────────────────────
   const FILTERS = [
     { key:'all',       icon:'⚾', label:'All',        tip:'All players sorted by HR%' },
-    { key:'sharp',     icon:'🎯', label:'Sharp',      tip:'Strong power profile (Barrel%≥8, PA≥40)' },
+    { key:'sharp',     icon:'🎯', label:'Sharp',      tip:'Elite power profile (Barrel%≥11 or Pull-Air%≥16 or ISO≥.220), PA≥60, HR%≥7%' },
     { key:'value',     icon:'💰', label:'Value',      tip:'Model prob > book implied (edge≥3%)' },
     { key:'elite',     icon:'⭐', label:'Elite Spot', tip:'Elite Spot or Prime Spot tag' },
     { key:'barrel',    icon:'🛢️', label:'Barrel',     tip:'Barrel%≥11% power hitters' },
@@ -10298,12 +10298,12 @@ function renderSlate(){
   // Sharp filter: strong power profile
   if(af==='sharp' || S.noiseFilter){
     rows=rows.filter(r=>{
-      if((r.szPA||0)<40) return false;
-      const hasRealPower=(r.barrel_pct!=null&&r.barrel_pct>=8)
-        ||(r.pull_air_pct!=null&&r.pull_air_pct>=13)
-        ||(r.iso!=null&&r.iso>=0.170);
+      if((r.szPA||0)<60) return false;
+      const hasRealPower=(r.barrel_pct!=null&&r.barrel_pct>=11)
+        ||(r.pull_air_pct!=null&&r.pull_air_pct>=16)
+        ||(r.iso!=null&&r.iso>=0.220);
       if(!hasRealPower) return false;
-      if(r.prob<0.04) return false;
+      if(r.prob<0.07) return false;
       return true;
     });
   }
