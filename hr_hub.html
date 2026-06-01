@@ -2061,9 +2061,9 @@ function getBetRec(r){
   if(odds != null){
     const edge = calcEdgePct(prob, odds);
     if(edge == null) return null;
-    const kel  = calcKelly(prob, odds, 100, true);
-    const kelStr = kel ? kel.toFixed(1)+'u' : '';
-    const oddsStr= odds>0?'+'+odds:String(odds);
+    const kelObj = calcKelly(prob, odds, 100, true);
+    const kelStr = kelObj?.units > 0 ? kelObj.units.toFixed(1)+'u' : '';
+    const oddsStr = odds>0?'+'+odds:String(odds);
 
     if(edge >= 8)  return { action:'MAX BET',     clr:'#ffd700', bg:'rgba(255,215,0,.12)',
       why:`+${edge.toFixed(1)}% edge at ${oddsStr} · ${kelStr} Kelly`, tier:'S' };
