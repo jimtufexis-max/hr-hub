@@ -9029,7 +9029,7 @@ function renderDiscover(){
     //    Different games, different signal drivers = independence
     // ══════════════════════════════════════════════════════════════
     const parlayPool=S.allRows
-      .filter(r=>r.prob>=0.08&&calcBetScore(r)>=MIN_SCORE)
+      .filter(r=>r.prob>=0.08&&calcBetScore(r)>=9.0)
       .sort((a,b)=>b.prob-a.prob);
     // Build 2-3 leg combos from different games
     const combos=[];
@@ -10775,6 +10775,8 @@ function renderBestBets(){
       💡 Load FD odds via the header button to unlock value rankings — shows which picks have real edge vs the book
     </div>`;
   }
+
+  el.innerHTML = html;
 }
 
 
