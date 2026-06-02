@@ -547,31 +547,29 @@ input:focus,textarea:focus{border-color:var(--amber)}
 
       <!-- INFO -->
       <div id="page-info" class="page">
-        <!-- FD Odds status row -->
+
+        <!-- FD Odds entry -->
         <div class="card" style="margin-bottom:8px">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
             <div>
               <div class="slbl" style="margin-bottom:2px">📊 FanDuel HR Props</div>
               <div style="font-size:.62rem;color:var(--t4)">Enter odds to see value edge on each player</div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="font-size:.62rem;color:var(--t4);cursor:pointer" onclick="showManualOddsEntry()">📋 Enter Odds</span>
-              <button onclick="showManualOddsEntry()" style="padding:6px 12px;border-radius:8px;border:1px solid rgba(240,165,0,.4);background:rgba(240,165,0,.08);color:var(--amber);font-size:.68rem;font-weight:700;cursor:pointer">📋 Enter Odds</button>
-            </div>
+            <button onclick="showManualOddsEntry()" style="padding:6px 14px;border-radius:8px;border:1px solid rgba(240,165,0,.4);background:rgba(240,165,0,.08);color:var(--amber);font-size:.68rem;font-weight:700;cursor:pointer">📋 Enter Odds</button>
           </div>
           <div style="margin-top:8px;font-size:.62rem;color:var(--t4);line-height:1.6">
-            💡 FanDuel app blocks copy — use <b>Safari → fanduel.com</b> instead. Enter format: <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span>
+            💡 FanDuel app blocks copy — use <b>Safari → fanduel.com</b> instead.<br>
+            Format: <span style="font-family:monospace;color:var(--amber)">Aaron Judge +350</span> (one per line)
           </div>
         </div>
 
         <!-- Odds API Key -->
         <div class="card" style="margin-bottom:8px">
-          <div class="slbl">🔑 Odds API Key (optional)</div>
-          <div style="font-size:.62rem;color:var(--t4);margin-bottom:8px">For automatic FanDuel odds loading. Get a free key at the-odds-api.com</div>
+          <div class="slbl">🔑 Odds API Key <span style="font-size:.58rem;font-weight:400;color:var(--t4)">(optional — auto-loads odds)</span></div>
+          <div style="font-size:.62rem;color:var(--t4);margin-bottom:8px">Get a free key at <b>the-odds-api.com</b></div>
           <div style="display:flex;gap:8px">
             <input type="text" id="odds-api-key-input" placeholder="Paste API key here"
-              style="flex:1;padding:8px 10px;font-size:.75rem"
-              value="">
+              style="flex:1;padding:8px 10px;font-size:.75rem" value="">
             <button onclick="(()=>{const v=document.getElementById('odds-api-key-input').value.trim();if(v){localStorage.setItem('dingeriq_odds_key',v);showToast('API key saved','green');}else{showToast('Enter a key first','amber');}})()"
               style="padding:8px 14px;border-radius:8px;border:none;background:var(--amber);color:#000;font-weight:700;font-size:.72rem;cursor:pointer">Save</button>
           </div>
@@ -580,107 +578,105 @@ input:focus,textarea:focus{border-color:var(--amber)}
         <!-- Auto-calibration -->
         <div id="auto-cal-card" style="margin-bottom:8px"></div>
 
-        <!-- How the model works -->
+        <!-- jHR Power Score — moved up -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">⚡ jHR Power Score</div>
+          <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
+            A single composite number for a batter's <b style="color:var(--t2)">raw HR-hitting ability</b> from Statcast. Independent of matchup, park, or weather. MLB average = <b style="color:var(--amber)">100</b>. Shown as the second circle on every player card.<br><br>
+            <b style="color:var(--amber)">Formula (weights sum to 100)</b><br>
+            Barrel% ÷ 7.5 × <b>30</b> &nbsp;·&nbsp; Pull-Air% ÷ 13.5 × <b>22</b><br>
+            xSLG ÷ .393 × <b>18</b> <span style="color:var(--blue)">(cap 1.8×)</span> &nbsp;·&nbsp; HardHit% ÷ 38 × <b>14</b><br>
+            ISO ÷ .158 × <b>11</b> <span style="color:var(--blue)">(cap 2.0×)</span> &nbsp;·&nbsp; SweetSpot ÷ 32 × <b>5</b><br><br>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(255,215,0,.15);color:#ffd700;border:1px solid rgba(255,215,0,.3)">185+ Elite</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(34,201,94,.12);color:var(--green);border:1px solid rgba(34,201,94,.3)">145–184 Great</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(74,222,128,.1);color:#4ade80;border:1px solid rgba(74,222,128,.25)">115–144 Above Avg</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(148,163,184,.1);color:#94a3b8;border:1px solid rgba(148,163,184,.25)">85–114 Avg</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.25)">60–84 Below Avg</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(224,80,74,.1);color:var(--red);border:1px solid rgba(224,80,74,.25)">&lt;60 Low</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- CLV + Calibration — moved up -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">📊 CLV &amp; Model Calibration</div>
+          <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
+            <b style="color:var(--t2)">Closing Line Value (CLV)</b> — when you settle a bet in Results, enter the closing odds to measure how far you beat the market. Positive avg CLV over 50+ bets is the best long-term indicator of real edge.<br><br>
+            <b style="color:var(--t2)">Model Calibration</b> — after 10+ settled bets, the Results tab shows model prob vs actual HR rate by bucket. 85–115% = accurate. Below 85% = over-predicting. Above 115% = you have more edge than shown.
+          </div>
+        </div>
+
+        <!-- Bet Recommendation Guide -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">🔍 Bet Recommendation Guide</div>
+          <div style="font-size:.65rem;color:var(--t3);line-height:1.9">
+            <b style="color:var(--t2)">With odds loaded:</b><br>
+            <span style="color:#ffd700;font-size:.9em">■</span> <b style="color:#ffd700">MAX BET</b> — edge ≥8% · full Kelly &nbsp;·&nbsp;
+            <span style="color:#22c95e;font-size:.9em">■</span> <b style="color:#22c95e">BET</b> — edge 4–8%<br>
+            <span style="color:#4ade80;font-size:.9em">■</span> <b style="color:#4ade80">SMALL BET</b> — edge 1–4% &nbsp;·&nbsp;
+            <span style="color:#94a3b8;font-size:.9em">■</span> <b style="color:#94a3b8">PARLAY ONLY</b> — near fair value<br>
+            <span style="color:#f59e0b;font-size:.9em">■</span> <b style="color:#f59e0b">SKIP</b> — overpriced &nbsp;·&nbsp;
+            <span style="color:#e0504a;font-size:.9em">■</span> <b style="color:#e0504a">FADE</b> — significantly overpriced<br><br>
+            <b style="color:var(--t2)">Without odds:</b> Shows model's fair odds + max bet price<br>
+            e.g. <span style="font-family:monospace;color:var(--amber)">Fair +285 · bet ≤ +240</span>
+          </div>
+        </div>
+
+        <!-- How the Model Works -->
         <div class="card" style="margin-bottom:8px">
           <div class="slbl">🧮 How the Model Works</div>
           <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
-            DingerIQ uses a <b style="color:var(--t2)">Bayesian log-odds model v8</b> combining 15 weighted signals:<br><br>
-
-            <b style="color:var(--amber)">Core — Statcast (heaviest weight)</b><br>
+            <b style="color:var(--t2)">Bayesian log-odds model v8</b> · 15 weighted signals<br><br>
+            <b style="color:var(--amber)">Core — Statcast</b><br>
             • Barrel% × Pull-Air% interaction — primary HR predictor<br>
-            • Season HR/PA anchor — career-context baseline<br>
-            • <b style="color:var(--t2)">Rolling L14 Statcast</b> — if recent barrel rate diverges &gt;40% from season, adjusts anchor<br><br>
-
-            <b style="color:var(--amber)">Pitcher (weight: 0.38)</b><br>
-            • HR/9 season + xFIP blend — quality of opposition<br>
-            • Arsenal matchup — batter vs pitcher's specific pitch mix<br>
-            • <b style="color:var(--t2)">Recent form trend</b> — last 3 starts K rate, BB rate, HR rate vs season<br>
-            • <b style="color:var(--t2)">Fatigue flag</b> — 100+ pitches last outing boosts batter probability ~8%<br>
-            • Whiff rate + BB rate modifiers<br><br>
-
-            <b style="color:var(--amber)">Matchup Context</b><br>
-            • Platoon × pitcher interaction — cross-multiplied advantage<br>
-            • Park factor × temperature × wind (direction + speed)<br>
-            • Career BvP vs today's starter (min 20 PA)<br>
-            • Times through order — pitcher fatigue curve<br><br>
-
-            <b style="color:var(--amber)">Situational</b><br>
-            • Confirmed lineup position — exact PA estimate from batting order slot<br>
-            • Umpire historical HR rate<br>
-            • Home/Away splits (min 40 PA)<br>
-            • Plate discipline multiplier<br>
-            • Bullpen exposure (when SP expected out early)<br><br>
-
-            Expected range: <b style="color:var(--green)">5–22%</b> per game. MLB avg ~9%.<br>
-            Calibration ratio 85–115% = well calibrated. Track in Results tab.
+            • Season HR/PA anchor · <b style="color:var(--t2)">Rolling L14 Statcast</b> adjustment<br><br>
+            <b style="color:var(--amber)">Pitcher (weight 0.38)</b><br>
+            • HR/9 + xFIP blend · Arsenal pitch matchup<br>
+            • <b style="color:var(--t2)">Recent form</b> — last 3 starts K/BB/HR trend<br>
+            • <b style="color:var(--t2)">Fatigue flag</b> — 100+ pitches last outing ≈ +8%<br><br>
+            <b style="color:var(--amber)">Context &amp; Situational</b><br>
+            • Platoon × pitcher · Park × temperature × wind<br>
+            • Career BvP · Times through order · Umpire HR rate<br>
+            • Confirmed lineup position · Home/Away splits<br>
+            • Plate discipline · Bullpen exposure<br><br>
+            Range: <b style="color:var(--green)">5–22%</b> per game · MLB avg ~9%
           </div>
         </div>
 
-        <!-- What the filters mean -->
+        <!-- Tag Guide — collapsible -->
         <div class="card" style="margin-bottom:8px">
-          <div class="slbl">🔍 Bet Recommendation Guide</div>
-          <div style="font-size:.65rem;color:var(--t3);line-height:1.8">
-            <b style="color:var(--t2)">With odds loaded:</b><br>
-            <span style="color:#ffd700">■</span> MAX BET — edge ≥8% · full Kelly<br>
-            <span style="color:#22c95e">■</span> BET — edge 4–8%<br>
-            <span style="color:#4ade80">■</span> SMALL BET — edge 1–4%<br>
-            <span style="color:#94a3b8">■</span> PARLAY ONLY — near fair value<br>
-            <span style="color:#f59e0b">■</span> SKIP — overpriced up to 6%<br>
-            <span style="color:#e0504a">■</span> FADE — significantly overpriced<br><br>
-            <b style="color:var(--t2)">Without odds (blind):</b><br>
-            Shows model's fair odds + max price where bet is still +EV<br>
-            e.g. "Fair +285 · bet ≤ +240"
+          <div onclick="(function(){const o=localStorage.getItem('diq_tagguide_open')==='1';localStorage.setItem('diq_tagguide_open',o?'0':'1');const g=document.getElementById('tag-guide-grid');const m=document.getElementById('tag-guide-more');if(g){g.style.display=o?'none':'flex';}if(m) m.style.display=o?'none':'block';})()"
+            style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none">
+            <div class="slbl" style="margin:0">🏷️ Tag Guide</div>
+            <span id="tag-guide-chevron" style="font-size:.60rem;color:var(--t4)">▼ show all</span>
+          </div>
+          <div style="font-size:.62rem;color:var(--t4);margin-top:4px">Tap any tag on a player card to see what it means</div>
+          <div id="tag-guide-preview" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+          <div id="tag-guide-grid" style="display:none;flex-direction:column;gap:6px;margin-top:4px"></div>
+          <div id="tag-guide-more" style="display:block;margin-top:8px">
+            <button onclick="(function(){localStorage.setItem('diq_tagguide_open','1');const g=document.getElementById('tag-guide-grid');const m=document.getElementById('tag-guide-more');const c=document.getElementById('tag-guide-chevron');if(g)g.style.display='flex';if(m)m.style.display='none';if(c)c.textContent='▲ collapse';})()"
+              style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);font-size:.68rem;cursor:pointer">
+              Show all tags ▼
+            </button>
           </div>
         </div>
 
-        <!-- Tag Guide -->
-        <div class="card" style="margin-bottom:8px">
-          <div class="slbl">🏷️ Tag Guide</div>
-          <div style="font-size:.62rem;color:var(--t4);margin-bottom:10px">Tap any tag on a player card to see what it means</div>
-          <div id="tag-guide-grid" style="display:flex;flex-direction:column;gap:6px"></div>
-        </div>
-
-        <!-- Install PWA -->
+        <!-- Install as App — last -->
         <div class="card" style="margin-bottom:8px">
           <div class="slbl">📱 Install as App</div>
-          <div style="font-size:.63rem;color:var(--t4);line-height:1.6">
-            👆 Tap <b style="color:var(--blue)">Share ↑</b> then <b style="color:var(--blue)">"Add to Home Screen"</b><br>
-            for full-screen app experience
+          <div style="font-size:.63rem;color:var(--t4);line-height:1.7">
+            👆 Tap <b style="color:var(--blue)">Share ↑</b> then <b style="color:var(--blue)">"Add to Home Screen"</b> for the full-screen app experience with no browser chrome.
           </div>
           <button id="install-btn" onclick="installApp()" style="margin-top:8px;width:100%;padding:10px;border-radius:8px;border:none;background:var(--blue);color:#fff;font-weight:700;font-size:.75rem;cursor:pointer;display:none">⬇ Install App</button>
         </div>
 
         <!-- Version -->
-
-        <!-- jHR Power Score -->
-        <div class="card" style="margin-bottom:8px">
-          <div class="slbl">⚡ jHR Power Score</div>
-          <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
-            A single composite number for a batter's <b style="color:var(--t2)">raw HR-hitting ability</b> from Statcast. Independent of matchup, park, or weather. MLB average = <b style="color:var(--amber)">100</b>.<br><br>
-            <b style="color:var(--amber)">Formula (weights sum to 100)</b><br>
-            Barrel% ÷ 7.5 × <b>30</b> &nbsp;·&nbsp; Pull-Air% ÷ 13.5 × <b>22</b><br>
-            xSLG ÷ .393 × <b>18</b> <span style="color:var(--blue)">(cap 1.8×)</span> &nbsp;·&nbsp; HardHit% ÷ 38 × <b>14</b><br>
-            ISO ÷ .158 × <b>11</b> <span style="color:var(--blue)">(cap 2.0×)</span> &nbsp;·&nbsp; SweetSpot ÷ 32 × <b>5</b><br><br>
-            <b style="color:var(--amber)">Scale</b><br>
-            🟡 <b style="color:#ffd700">185+</b> Elite &nbsp;·&nbsp; 🟢 <b style="color:var(--green)">145–184</b> Great &nbsp;·&nbsp; 💚 <b style="color:#4ade80">115–144</b> Above Avg<br>
-            ⚫ <b style="color:#94a3b8">85–114</b> Average &nbsp;·&nbsp; 🟠 <b style="color:var(--amber)">60–84</b> Below Avg &nbsp;·&nbsp; 🔴 <b style="color:var(--red)">&lt;60</b> Low<br><br>
-            Shown as a second circle next to HR% on each player card.
-          </div>
-        </div>
-
-        <!-- CLV + Calibration -->
-        <div class="card" style="margin-bottom:8px">
-          <div class="slbl">📊 CLV &amp; Model Calibration</div>
-          <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
-            <b style="color:var(--t2)">Closing Line Value (CLV)</b> — when you settle a bet in Results, enter the closing odds to measure how far you beat the market. Positive avg CLV over 50+ bets is the best long-term indicator of real edge.<br><br>
-            <b style="color:var(--t2)">Model Calibration</b> — after 10+ settled bets, the Results tab shows model prob vs actual HR rate by bucket. Calibration ratio 85–115% = accurate. Below 85% = model is over-predicting. Above 115% = you have more edge than shown.
-          </div>
-        </div>
-
-        <div style="text-align:center;padding:12px;font-size:.60rem;color:var(--t4)">
+        <div style="text-align:center;padding:12px 14px 20px;font-size:.60rem;color:var(--t4);line-height:2">
           DingerIQ v8 · 2026 Season · Model weights v8<br>
-          <span style="font-size:.56rem">jHR Power Score · CLV Tracker · Model Calibration</span>
+          <span style="font-size:.56rem;opacity:.7">jHR Power Score · CLV Tracker · Calibration Dashboard</span>
         </div>
+
       </div>
 
     </main>
@@ -5409,7 +5405,9 @@ function renderAutoCalCard(el){
 
 function renderTagGuide(){
   const el=document.getElementById('tag-guide-grid');
-  if(!el||el.childElementCount>0) return;
+  const preview=document.getElementById('tag-guide-preview');
+  if(!el) return;
+  if(el.childElementCount>0 && preview?.childElementCount>0) return;
 
   // Master tag definitions — [label, color, shortDesc, longDesc]
   const TAGS = {
@@ -5491,6 +5489,27 @@ function renderTagGuide(){
     html += '</div>';
   }
   el.innerHTML = html;
+
+  // Populate preview — show the 4 most important tags so user sees something immediately
+  if(preview && preview.childElementCount===0){
+    const previewKeys = ['elite-spot','platoon-king','barrel-king','dinger-machine'];
+    let pvHtml = '';
+    for(const key of previewKeys){
+      const [label,color,shortDesc] = TAGS[key]||[];
+      if(!label) continue;
+      pvHtml += `<div onclick="showTagDetail('${key}')" style="display:flex;align-items:center;
+        justify-content:space-between;padding:5px 8px;border-radius:8px;
+        background:var(--bg3);cursor:pointer;gap:8px;border:1px solid ${color}22">
+        <span style="font-size:.64rem;font-weight:600;padding:2px 8px;border-radius:99px;
+          background:${color}18;border:1px solid ${color}44;color:${color};
+          white-space:nowrap;flex-shrink:0">${label}</span>
+        <span style="font-size:.60rem;color:var(--t4);text-align:right;flex:1;min-width:0;
+          overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortDesc}</span>
+        <span style="font-size:.60rem;color:var(--t4);flex-shrink:0">›</span>
+      </div>`;
+    }
+    preview.innerHTML = pvHtml;
+  }
 
   // Store tags for detail modal
   window._TAG_DEFS = TAGS;
