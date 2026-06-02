@@ -627,19 +627,35 @@ input:focus,textarea:focus{border-color:var(--amber)}
         <div class="card" style="margin-bottom:8px">
           <div class="slbl">🧮 How the Model Works</div>
           <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
-            <b style="color:var(--t2)">Bayesian log-odds model v8</b> · 15 weighted signals<br><br>
-            <b style="color:var(--amber)">Core — Statcast</b><br>
-            • Barrel% × Pull-Air% interaction — primary HR predictor<br>
-            • Season HR/PA anchor · <b style="color:var(--t2)">Rolling L14 Statcast</b> adjustment<br><br>
-            <b style="color:var(--amber)">Pitcher (weight 0.38)</b><br>
-            • HR/9 + xFIP blend · Arsenal pitch matchup<br>
-            • <b style="color:var(--t2)">Recent form</b> — last 3 starts K/BB/HR trend<br>
-            • <b style="color:var(--t2)">Fatigue flag</b> — 100+ pitches last outing ≈ +8%<br><br>
-            <b style="color:var(--amber)">Context &amp; Situational</b><br>
-            • Platoon × pitcher · Park × temperature × wind<br>
-            • Career BvP · Times through order · Umpire HR rate<br>
+            <b style="color:var(--t2)">Bayesian log-odds model v8</b> · 16 weighted signals<br><br>
+
+            <b style="color:var(--amber)">⚓ Anchor — Statcast baseline</b><br>
+            • Barrel% × Pull-Air% linear weights — primary HR predictor<br>
+            • Season HR/PA · prior season blend (shrinks small samples)<br>
+            • <b style="color:var(--t2)">Rolling L14</b> — barrel rate divergence (&gt;40%) adjusts log-odds<br><br>
+
+            <b style="color:var(--amber)">🔀 Platoon (weight 0.22)</b><br>
+            • Population priors: LHB vs LHP 0.72× · RHB vs LHP 1.22×<br>
+            • Player's actual split if ≥50 PA (60% actual / 40% prior)<br>
+            • <b style="color:var(--t2)">Arsenal platoon mod</b> — adjusts for pitcher's specific pitch mix vs this hand using <b style="color:var(--t2)">xwOBA 55% + ISO 45%</b> with hand-specific league baselines<br><br>
+
+            <b style="color:var(--amber)">⚾ Pitcher (weight 0.38)</b><br>
+            • HR/9 + xFIP blend · Barrel% allowed · HR/FB%<br>
+            • <b style="color:var(--t2)">Arsenal matchup</b> — batter's xwOBA + ISO vs each pitch type vs league avg<br>
+            • <b style="color:var(--t2)">Recent form</b> — last 3 starts K/BB/HR trend → ±15% via formMod<br>
+            • <b style="color:var(--t2)">Fatigue flag</b> — 100+ pitches last outing → +8%<br>
+            • Whiff rate · BB rate · Rest days<br><br>
+
+            <b style="color:var(--amber)">🏟️ Park × Weather (weight 0.25)</b><br>
+            • Park factor (per-ballpark, hand-adjusted) · Temperature<br>
+            • Wind: direction + speed (blowing out ≥15 mph ≈ +18%)<br><br>
+
+            <b style="color:var(--amber)">📋 Situational</b><br>
+            • Career BvP vs today's SP — <b style="color:var(--t2)">recency weighted</b>: this season 1.0× · last season 0.55× · career 0.25×<br>
+            • Times through order · Umpire HR rate<br>
             • Confirmed lineup position · Home/Away splits<br>
             • Plate discipline · Bullpen exposure<br><br>
+
             Range: <b style="color:var(--green)">5–22%</b> per game · MLB avg ~9%
           </div>
         </div>
@@ -1517,12 +1533,26 @@ function calcAnchor(stats){
 
 // ── PLATOON: batter handedness vs pitcher handedness ──────────────
 function calcPlatoonMult(batHand, pitHand, platRate, overallRate, arsenalPlatMod){
+  const popPrior = getPlatoonPrior(batHand, pitHand);
+
+  // Base platoon signal — player's actual split vs population prior
+  let base;
   if(platRate!=null && overallRate!=null && overallRate>0){
     const ratio = platRate / overallRate;
-    const popPrior = getPlatoonPrior(batHand, pitHand);
-    return clamp(ratio*0.60 + popPrior*0.40, 0.40, 1.60);
+    base = ratio*0.60 + popPrior*0.40;
+  } else {
+    base = popPrior;
   }
-  return getPlatoonPrior(batHand, pitHand);
+
+  // Arsenal platoon modifier — nudges base by how this batter actually hits
+  // this pitcher's specific pitch mix vs same-hand league averages.
+  // Weight: 25% — meaningful but can't override a strong personal split.
+  if(arsenalPlatMod!=null && arsenalPlatMod !== 1.0){
+    const arsenalAdj = (arsenalPlatMod - 1.0) * 0.25;
+    base = base + arsenalAdj;
+  }
+
+  return clamp(base, 0.40, 1.60);
 }
 
 function getPlatoonPrior(batHand, pitHand){
@@ -1534,28 +1564,70 @@ function getPlatoonPrior(batHand, pitHand){
   return 1.0;
 }
 
-// Arsenal-weighted platoon modifier
+// Arsenal-weighted platoon modifier — xwOBA (55%) + ISO (45%) blend
+// Uses hand-specific league averages so the comparison is apples-to-apples
 function calcArsenalPlatoonMod(arsenal, batVsPitch, batHand, pitHand){
   if(!arsenal||!batVsPitch) return null;
   const mix=arsenal.mix||{};
-  const LG={
+
+  // Hand-specific league average ISO per pitch type
+  const LG_ISO={
     'L_R_FF':0.195,'L_R_SL':0.175,'L_R_CH':0.160,'L_R_CU':0.145,'L_R_FC':0.155,
     'R_L_FF':0.200,'R_L_SL':0.160,'R_L_CH':0.155,'R_L_CU':0.140,'R_L_FC':0.150,
     'L_L_FF':0.150,'L_L_SL':0.130,'L_L_CH':0.175,
     'R_R_FF':0.165,'R_R_SL':0.140,'R_R_CH':0.135,
   };
-  const LG2={FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130};
-  let wr=0,tw=0;
+  const LG_ISO2={FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130};
+
+  // Hand-specific league average xwOBA per pitch type (2024-2025 Statcast)
+  const LG_XWOBA={
+    'L_R_FF':.355,'L_R_SL':.315,'L_R_CH':.305,'L_R_CU':.290,'L_R_FC':.320,
+    'R_L_FF':.360,'R_L_SL':.310,'R_L_CH':.295,'R_L_CU':.285,'R_L_FC':.315,
+    'L_L_FF':.315,'L_L_SL':.285,'L_L_CH':.320,
+    'R_R_FF':.330,'R_R_SL':.300,'R_R_CH':.290,
+  };
+  const LG_XWOBA2={FF:.345,SI:.295,FC:.310,SL:.305,ST:.300,CU:.285,CH:.295,FS:.275};
+
+  let wScore=0, wT=0;
+
   for(const[pt,pct]of Object.entries(mix)){
-    if(pct<8)continue;
+    if(pct<8) continue;
     const bd=batVsPitch[pt];
-    if(!bd||bd.pa<15||bd.iso==null)continue;
-    const lg=LG[`${batHand}_${pitHand}_${pt}`]||LG2[pt]||0.155;
-    const w=(pct/100)*Math.min(bd.pa/50,1.0);
-    wr+=(bd.iso/lg)*w; tw+=w;
+    if(!bd || bd.pa<12) continue;
+
+    const sampleConf = Math.min(bd.pa/50, 1.0);
+    const w = (pct/100) * sampleConf;
+    const hk = `${batHand}_${pitHand}_${pt}`;
+
+    // ISO ratio
+    let isoRatio = null;
+    if(bd.iso!=null){
+      const lgISO = LG_ISO[hk] || LG_ISO2[pt] || 0.155;
+      isoRatio = bd.iso / lgISO;
+    }
+
+    // xwOBA ratio
+    let xwobaRatio = null;
+    if(bd.xwoba!=null){
+      const lgXW = LG_XWOBA[hk] || LG_XWOBA2[pt] || 0.310;
+      xwobaRatio = bd.xwoba / lgXW;
+    }
+
+    // Blend: 55% xwOBA + 45% ISO (same weights as scoreArsenalMatchup)
+    let ratio;
+    if(xwobaRatio!=null && isoRatio!=null){
+      ratio = xwobaRatio*0.55 + isoRatio*0.45;
+    } else {
+      ratio = xwobaRatio ?? isoRatio;
+    }
+    if(ratio==null) continue;
+
+    wScore += ratio * w;
+    wT     += w;
   }
-  if(tw<0.10)return null;
-  return clamp(wr/tw,0.65,1.50);
+
+  if(wT<0.08) return null;
+  return clamp(wScore/wT, 0.65, 1.50);
 }
 
 // ── PITCHER v2: BvP-integrated, arsenal-aware ─────────────────────
@@ -3318,29 +3390,56 @@ function buildArsenalResult(mix, veloMap){
 function scoreArsenalMatchup(arsenal,batVsPitch){
   if(!arsenal||!batVsPitch) return{mult:1.0,desc:null};
   const mix=arsenal.mix;
-  const LG={FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130,KC:0.130,SV:0.150};
+
+  // League average ISO per pitch type (for ISO signal)
+  const LG_ISO={FF:0.180,SI:0.130,FC:0.145,SL:0.155,ST:0.160,CU:0.140,CH:0.145,FS:0.130,KC:0.130,SV:0.150};
+  // League average xwOBA per pitch type (2024-2025 Statcast)
+  const LG_XWOBA={FF:.345,SI:.295,FC:.310,SL:.305,ST:.300,CU:.285,CH:.295,FS:.275,KC:.270,SV:.290};
   const PF={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Changeup',FS:'Splitter'};
-  let wISO=0,wT=0;const strengths=[],weaknesses=[];
+
+  let wScore=0,wT=0;
+  const strengths=[],weaknesses=[];
 
   for(const[pt,pct]of Object.entries(mix)){
-    if(pct<5)continue; // reduced from 8 — catch secondary pitches used 5%+ of time
+    if(pct<5)continue;
     const bdata=batVsPitch[pt];
-    if(!bdata)continue;
-    if(bdata.pa<8)continue; // reduced from 15 — younger players have less history
-    if(bdata.iso==null)continue;
-    const lgISO=LG[pt]||0.155;
-    const ratio=bdata.iso/lgISO;
-    // Weight by pitch usage × sample confidence (more gentle ramp for small samples)
-    const sampleConf = Math.min(bdata.pa/30, 1.0); // reduced from 40 → 30
-    const w=(pct/100)*sampleConf;
-    wISO+=ratio*w; wT+=w;
-    if(ratio>=1.3&&bdata.pa>=12) strengths.push(pt); // reduced from 1.4/20
-    if(ratio<=0.70&&bdata.pa>=12) weaknesses.push(pt); // reduced from 0.65/20
+    if(!bdata||bdata.pa<8)continue;
+
+    const sampleConf = Math.min(bdata.pa/30, 1.0);
+    const w = (pct/100) * sampleConf;
+
+    // ── ISO signal (power — HR/2B/3B production) ──────────────
+    let isoRatio = null;
+    if(bdata.iso!=null && (LG_ISO[pt]||0.155) > 0){
+      isoRatio = bdata.iso / (LG_ISO[pt]||0.155);
+    }
+
+    // ── xwOBA signal (full contact quality — more comprehensive) ──
+    let xwobaRatio = null;
+    if(bdata.xwoba!=null && (LG_XWOBA[pt]||0.310) > 0){
+      xwobaRatio = bdata.xwoba / (LG_XWOBA[pt]||0.310);
+    }
+
+    // ── Blend: xwOBA 55% + ISO 45%  (xwOBA is more predictive, ISO captures HR specifically) ──
+    let ratio;
+    if(xwobaRatio!=null && isoRatio!=null){
+      ratio = xwobaRatio*0.55 + isoRatio*0.45;
+    } else {
+      ratio = xwobaRatio ?? isoRatio;
+    }
+    if(ratio==null) continue;
+
+    wScore += ratio * w;
+    wT     += w;
+
+    // Tag strengths/weaknesses
+    if(ratio>=1.30 && bdata.pa>=12) strengths.push(pt);
+    if(ratio<=0.72 && bdata.pa>=12) weaknesses.push(pt);
   }
 
-  if(wT<0.05) return{mult:1.0,desc:null}; // reduced from 0.15 — need less coverage
+  if(wT<0.05) return{mult:1.0,desc:null};
 
-  const avg=wISO/wT;
+  const avg=wScore/wT;
   const adj = avg >= 1.0
     ? Math.min((avg-1.0)*0.30, 0.35)
     : Math.max((avg-1.0)*0.25, -0.25);
@@ -3527,7 +3626,16 @@ async function getBatterVsPitches(pid){
           .filter(p=>!isNaN(p.x)&&!isNaN(p.y)&&p.x>0&&p.y>0);
 
         const bip = gb+fb+ld+pu || 1;
-        result[pt]={pa,hr:hrs,avg,slg,iso,avgEV,whiffPct,
+
+        // Overall xwOBA for this pitch type — average across all pitches with a valid estimate
+        const xwobaVals = pitches
+          .map(p=>parseFloat(p.estimated_woba_using_speedangle))
+          .filter(v=>!isNaN(v) && v > 0);
+        const xwoba = xwobaVals.length >= 5
+          ? Math.round(xwobaVals.reduce((a,b)=>a+b,0)/xwobaVals.length*1000)/1000
+          : null;
+
+        result[pt]={pa,hr:hrs,avg,slg,iso,xwoba,avgEV,whiffPct,
           gb,fb,ld,pu,hard,bip,
           gbPct:Math.round(gb/bip*100), fbPct:Math.round(fb/bip*100),
           ldPct:Math.round(ld/bip*100), puPct:Math.round(pu/bip*100),
@@ -3652,23 +3760,70 @@ async function getHomAwaySplits(pid){
 //  CAREER vs THIS SP — MLB head-to-head stats
 // ==================================================================
 async function getCareerVsSP(batId, spId){
-  // Disabled — 26 extra API calls per game for a tiny-sample C-grade signal
-  // Re-enable if performance is acceptable after other fixes
-  return null;
   if(!batId||!spId) return null;
   const key = `hvh_${batId}_${spId}`;
   if(_playerCache[key] !== undefined) return _playerCache[key];
   try{
-    const d = await fetchJSON(
-      `${MLB}/people/${batId}/stats?stats=vsPlayer&group=hitting&opposingPlayerId=${spId}&gameType=R`
-    );
-    const st = d.stats?.[0]?.splits?.[0]?.stat;
-    if(!st){ _playerCache[key]=null; return null; }
-    const pa  = parseInt(st.plateAppearances)||parseInt(st.atBats)||0;
-    const hr  = parseInt(st.homeRuns)||0;
-    const avg = parseFloat(st.avg)||0;
-    const slg = parseFloat(st.slg)||0;
-    const result = { pa, hr, avg, slg, iso: Math.round((slg-avg)*1000)/1000 };
+    // Fetch this season, last season, and career in parallel
+    const [curRaw, prevRaw, careerRaw] = await Promise.allSettled([
+      fetchJSON(`${MLB}/people/${batId}/stats?stats=vsPlayer&group=hitting&opposingPlayerId=${spId}&season=${SEASON}&gameType=R`),
+      fetchJSON(`${MLB}/people/${batId}/stats?stats=vsPlayer&group=hitting&opposingPlayerId=${spId}&season=${SEASON-1}&gameType=R`),
+      fetchJSON(`${MLB}/people/${batId}/stats?stats=vsPlayer&group=hitting&opposingPlayerId=${spId}&gameType=R`),
+    ]);
+
+    const parseSplit = (raw) => {
+      const st = raw?.value?.stats?.[0]?.splits?.[0]?.stat;
+      if(!st) return null;
+      const pa  = parseInt(st.plateAppearances)||parseInt(st.atBats)||0;
+      const hr  = parseInt(st.homeRuns)||0;
+      const avg = parseFloat(st.avg)||0;
+      const slg = parseFloat(st.slg)||0;
+      const obp = parseFloat(st.obp)||0;
+      const xwoba = parseFloat(st.xwoba)||null; // may not be in Stats API
+      return { pa, hr, avg, slg, iso: Math.round((slg-avg)*1000)/1000, obp, xwoba };
+    };
+
+    const cur    = parseSplit(curRaw);    // this season vs this SP
+    const prev   = parseSplit(prevRaw);   // last season vs this SP
+    const career = parseSplit(careerRaw); // career vs this SP
+
+    // Need minimum sample — try current first, fall back to combined
+    const totalPA = (cur?.pa||0) + (prev?.pa||0) + (career?.pa||0);
+    if(totalPA < 5){ _playerCache[key]=null; return null; }
+
+    // Build recency-weighted composite
+    // Weight: current season 1.0, last season 0.55, career 0.25 (anchor only)
+    let wPA=0, wHR=0, wAVG=0, wSLG=0, wISO=0;
+    let totalW=0;
+
+    const addSplit = (s, weight) => {
+      if(!s || s.pa < 2) return;
+      const w = weight * Math.min(s.pa / 20, 1.0); // confidence scales with PA
+      wPA  += s.pa * weight;
+      wHR  += s.hr * weight;
+      wAVG += s.avg * w;
+      wSLG += s.slg * w;
+      wISO += s.iso * w;
+      totalW += w;
+    };
+
+    addSplit(cur,    1.00);
+    addSplit(prev,   0.55);
+    addSplit(career, 0.25);
+
+    if(totalW < 0.01){ _playerCache[key]=null; return null; }
+
+    const result = {
+      pa:  Math.round(wPA),
+      hr:  Math.round(wHR),
+      avg: Math.round(wAVG/totalW*1000)/1000,
+      slg: Math.round(wSLG/totalW*1000)/1000,
+      iso: Math.round(wISO/totalW*1000)/1000,
+      // Keep raw splits for display
+      cur, prev, career,
+      recencyWeighted: true,
+    };
+
     _playerCache[key] = result;
     return result;
   }catch(e){ _playerCache[key]=null; return null; }
