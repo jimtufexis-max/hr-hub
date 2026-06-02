@@ -584,22 +584,52 @@ input:focus,textarea:focus{border-color:var(--amber)}
         <div class="card" style="margin-bottom:8px">
           <div class="slbl">🧮 How the Model Works</div>
           <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
-            DingerIQ uses a <b style="color:var(--t2)">Bayesian log-odds model</b> combining 12 weighted signals:<br><br>
-            <b style="color:var(--amber)">Core (heaviest weight)</b><br>
-            • Barrel% × Pull-Air% interaction — best HR predictor<br>
-            • Season HR/PA anchor — career context<br>
-            • Platoon matchup — handed advantage<br><br>
-            <b style="color:var(--amber)">Context</b><br>
-            • Park factor × weather multiplier<br>
-            • Pitcher HR/9 (recent + season blend)<br>
-            • Arsenal matchup — batter vs pitch-type data<br><br>
+            DingerIQ uses a <b style="color:var(--t2)">Bayesian log-odds model v8</b> combining 15 weighted signals:<br><br>
+
+            <b style="color:var(--amber)">Core — Statcast (heaviest weight)</b><br>
+            • Barrel% × Pull-Air% interaction — primary HR predictor<br>
+            • Season HR/PA anchor — career-context baseline<br>
+            • <b style="color:var(--t2)">Rolling L14 Statcast</b> — if recent barrel rate diverges &gt;40% from season, adjusts anchor<br><br>
+
+            <b style="color:var(--amber)">Pitcher (weight: 0.38)</b><br>
+            • HR/9 season + xFIP blend — quality of opposition<br>
+            • Arsenal matchup — batter vs pitcher's specific pitch mix<br>
+            • <b style="color:var(--t2)">Recent form trend</b> — last 3 starts K rate, BB rate, HR rate vs season<br>
+            • <b style="color:var(--t2)">Fatigue flag</b> — 100+ pitches last outing boosts batter probability ~8%<br>
+            • Whiff rate + BB rate modifiers<br><br>
+
+            <b style="color:var(--amber)">Matchup Context</b><br>
+            • Platoon × pitcher interaction — cross-multiplied advantage<br>
+            • Park factor × temperature × wind (direction + speed)<br>
+            • Career BvP vs today's starter (min 20 PA)<br>
+            • Times through order — pitcher fatigue curve<br><br>
+
             <b style="color:var(--amber)">Situational</b><br>
-            • Recent momentum (L7, L14, L30 rates)<br>
-            • Lineup position (leadoff = +10% PA estimate)<br>
+            • Confirmed lineup position — exact PA estimate from batting order slot<br>
             • Umpire historical HR rate<br>
-            • Career BvP vs today's starter<br>
-            • Day/night splits<br><br>
-            Expected range: <b style="color:var(--green)">5–22%</b> per game. League average ~9%.
+            • Home/Away splits (min 40 PA)<br>
+            • Plate discipline multiplier<br>
+            • Bullpen exposure (when SP expected out early)<br><br>
+
+            Expected range: <b style="color:var(--green)">5–22%</b> per game. MLB avg ~9%.<br>
+            Calibration ratio 85–115% = well calibrated. Track in Results tab.
+          </div>
+        </div>
+
+        <!-- What the filters mean -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">🔍 Bet Recommendation Guide</div>
+          <div style="font-size:.65rem;color:var(--t3);line-height:1.8">
+            <b style="color:var(--t2)">With odds loaded:</b><br>
+            <span style="color:#ffd700">■</span> MAX BET — edge ≥8% · full Kelly<br>
+            <span style="color:#22c95e">■</span> BET — edge 4–8%<br>
+            <span style="color:#4ade80">■</span> SMALL BET — edge 1–4%<br>
+            <span style="color:#94a3b8">■</span> PARLAY ONLY — near fair value<br>
+            <span style="color:#f59e0b">■</span> SKIP — overpriced up to 6%<br>
+            <span style="color:#e0504a">■</span> FADE — significantly overpriced<br><br>
+            <b style="color:var(--t2)">Without odds (blind):</b><br>
+            Shows model's fair odds + max price where bet is still +EV<br>
+            e.g. "Fair +285 · bet ≤ +240"
           </div>
         </div>
 
@@ -622,7 +652,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
 
         <!-- Version -->
         <div style="text-align:center;padding:12px;font-size:.60rem;color:var(--t4)">
-          DingerIQ v7 · 2026 Season · Model weights v7
+          DingerIQ v8 · 2026 Season · Model weights v8
         </div>
       </div>
 
