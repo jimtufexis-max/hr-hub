@@ -6112,9 +6112,19 @@ async function renderResultsTab(){
         totalLost += stake;
       }
     });
-    // Count pending wagered separately
-    let pendingWagered = 0;
-    pending.forEach(r=>{ pendingWagered += parseFloat(r.wagered||r.betAmount)||0; });
+    // Count pending wagered and potential win separately
+    let pendingWagered = 0, pendingToWin = 0;
+    pending.forEach(r=>{
+      const w = parseFloat(r.wagered||r.betAmount)||0;
+      pendingWagered += w;
+      if(w > 0){
+        const odds = r.fdOdds||r.odds||r.entryOdds;
+        if(odds != null){
+          const dec = odds > 0 ? odds/100 : 100/Math.abs(odds);
+          pendingToWin += w * dec;
+        }
+      }
+    });
     const netPnl = totalWon - totalLost;
     const roi = totalWagered>0 ? (netPnl/totalWagered*100) : null;
 
@@ -6285,7 +6295,7 @@ async function renderResultsTab(){
             <span style="font-size:.60rem;color:var(--t4);display:inline-block;transform:rotate(${pendingOpen?'90deg':'0deg'})">▶</span>
             <div class="slbl" style="margin:0">⏳ Pending Results (${pending.length})</div>
           </div>
-          ${pendingWagered>0?`<div style="font-size:.62rem;color:var(--amber);font-weight:700">$${pendingWagered.toFixed(0)} at risk</div>`:''}
+          ${pendingWagered>0?`<div style="font-size:.62rem;color:var(--amber);font-weight:700;text-align:right">$${pendingWagered.toFixed(0)} at risk${pendingToWin>0?` · <span style="color:var(--green)">to win $${pendingToWin.toFixed(0)}</span>`:''}</div>`:''}
         </div>
         ${pendingOpen?'<div style="display:flex;flex-direction:column;gap:6px">':'<div style="display:none">'}`;
 
@@ -9025,62 +9035,115 @@ function renderDiscover(){
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 5. 🎰 PARLAY COMBOS — uncorrelated plays with combined fair odds
-    //    Different games, different signal drivers = independence
+    // 5. 🎰 PARLAY COMBOS — 2, 3, 4, and 5-leg combinations
+    //    All legs from different games for independence
     // ══════════════════════════════════════════════════════════════
     const parlayPool=S.allRows
-      .filter(r=>r.prob>=0.08&&calcBetScore(r)>=9.0)
-      .sort((a,b)=>b.prob-a.prob);
-    // Build 2-3 leg combos from different games
-    const combos=[];
-    const games=new Set(parlayPool.map(r=>r.gamePk||r.game||r.team));
-    if(parlayPool.length>=2){
-      // Find pairs from different games
-      for(let i=0;i<Math.min(parlayPool.length,6);i++){
-        for(let j=i+1;j<Math.min(parlayPool.length,6);j++){
-          const a=parlayPool[i],b=parlayPool[j];
-          if((a.gamePk||a.team)===(b.gamePk||b.team)) continue; // same game
-          const combProb=a.prob*b.prob;
-          const fairOdds=Math.round(((1/combProb)-1)*100);
-          combos.push({legs:[a,b],combProb,fairOdds});
-        }
-      }
-    }
-    const topCombos=combos.sort((a,b)=>b.combProb-a.combProb).slice(0,2);
+      .filter(r=>r.prob>=0.07&&calcBetScore(r)>=8.0)
+      .sort((a,b)=>b.prob-a.prob)
+      .slice(0,10); // top 10 candidates
 
-    if(topCombos.length){
-      html+=`<div style="margin-bottom:18px">${sHdr('🎰','Parlay Combos',
-        'High-conviction plays from different games — statistically independent',topCombos.length)}`;
-      topCombos.forEach(({legs,combProb,fairOdds})=>{
-        const [,gc]=probGrade(combProb);
-        html+=`<div style="border:1px solid rgba(148,163,184,.25);border-radius:12px;
-          padding:11px 12px;background:rgba(148,163,184,.05);margin-bottom:7px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <div style="font-size:.70rem;font-weight:700;color:var(--t2)">2-Leg Parlay</div>
-            <div style="text-align:right">
-              <div style="font-size:.80rem;font-weight:900;color:${gc}">${(combProb*100).toFixed(1)}%</div>
-              <div style="font-size:.58rem;color:var(--t4)">fair +${fairOdds}</div>
+    // Build all combos for a given leg count from different games
+    const buildCombos=(pool,legs)=>{
+      const result=[];
+      const pick=(chosen,start)=>{
+        if(chosen.length===legs){
+          const combProb=chosen.reduce((p,r)=>p*r.prob,1);
+          const fairDecOdds=1/combProb;
+          const fairOdds=fairDecOdds>=2
+            ? Math.round((fairDecOdds-1)*100)
+            : -Math.round(100/(fairDecOdds-1));
+          result.push({legs:[...chosen],combProb,fairOdds});
+          return;
+        }
+        for(let i=start;i<pool.length;i++){
+          // Must be from a different game than all chosen legs
+          const gameKey=pool[i].gamePk||pool[i].game||pool[i].team;
+          if(chosen.some(c=>(c.gamePk||c.game||c.team)===gameKey)) continue;
+          chosen.push(pool[i]);
+          pick(chosen,i+1);
+          chosen.pop();
+        }
+      };
+      pick([],0);
+      return result.sort((a,b)=>b.combProb-a.combProb);
+    };
+
+    const parlayCard=(legs,combProb,fairOdds,accent)=>{
+      const[,gc]=probGrade(combProb);
+      const nLegs=legs.length;
+      // Implied probability of finding this parlay at listed odds
+      const fdOddsArr=legs.map(r=>getFDOdds(r.name)).filter(Boolean);
+      let fdParlayOdds=null;
+      if(fdOddsArr.length===nLegs){
+        const fdCombDec=fdOddsArr.reduce((p,o)=>p*(o>0?o/100+1:100/Math.abs(o)+1),1);
+        fdParlayOdds=fdCombDec>=2
+          ?'+'+Math.round((fdCombDec-1)*100)
+          :('+'+Math.round((fdCombDec-1)*100));
+      }
+      return `<div style="border:1px solid ${accent}30;border-radius:12px;
+        padding:10px 12px;background:${accent}06;margin-bottom:7px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+          <div style="display:flex;align-items:center;gap:7px">
+            <span style="font-size:.64rem;font-weight:800;color:${accent};padding:2px 8px;
+              border-radius:99px;background:${accent}18;border:1px solid ${accent}35">
+              ${nLegs}-Leg</span>
+            <span style="font-size:.62rem;color:var(--t4)">All different games</span>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:.82rem;font-weight:900;color:${gc}">${(combProb*100).toFixed(2)}%</div>
+            <div style="font-size:.58rem;color:var(--t4)">
+              fair ${fairOdds>0?'+':''}${fairOdds}
+              ${fdParlayOdds?` · FD ${fdParlayOdds}`:''}
             </div>
           </div>
-          ${legs.map(r=>{
-            const [,gc2]=probGrade(r.prob);
-            const fdO=getFDOdds(r.name);
-            return `<div style="display:flex;align-items:center;justify-content:space-between;
-              padding:5px 0;border-top:1px solid var(--bg3);cursor:pointer"
-              onclick="showDetail('${r.id}')">
-              <div>
-                <div style="font-size:.72rem;font-weight:700;color:var(--t1)">${r.name}</div>
-                <div style="font-size:.58rem;color:var(--t4)">${r.team} vs ${r.spNm||'SP'}</div>
-              </div>
-              <div style="text-align:right">
-                <div style="font-size:.78rem;font-weight:900;color:${gc2}">${(r.prob*100).toFixed(1)}%</div>
-                ${fdO?`<div style="font-size:.58rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
-              </div>
-            </div>`;
-          }).join('')}
+        </div>
+        ${legs.map(r=>{
+          const[,gc2]=probGrade(r.prob);
+          const fdO=getFDOdds(r.name);
+          return `<div style="display:flex;align-items:center;justify-content:space-between;
+            padding:5px 0;border-top:1px solid var(--bg3);cursor:pointer"
+            onclick="showDetail('${r.id}')">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:.70rem;font-weight:700;color:var(--t1)">${r.name}</div>
+              <div style="font-size:.56rem;color:var(--t4);margin-top:1px">${r.team} · vs ${r.spNm||'SP'}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;margin-left:8px">
+              <div style="font-size:.75rem;font-weight:900;color:${gc2}">${(r.prob*100).toFixed(1)}%</div>
+              ${fdO!=null?`<div style="font-size:.56rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    };
+
+    // Generate best combo for each leg count 2-5
+    const parlaySections=[
+      {n:2,accent:'#94a3b8',label:'2-Leg'},
+      {n:3,accent:'#4ade80',label:'3-Leg'},
+      {n:4,accent:'#22c95e',label:'4-Leg'},
+      {n:5,accent:'#ffd700',label:'5-Leg'},
+    ];
+    const anyParlays=parlayPool.length>=2;
+    if(anyParlays){
+      const allParlayHtml=parlaySections.map(({n,accent,label})=>{
+        if(parlayPool.length<n) return ''; // not enough different-game plays
+        const combos=buildCombos(parlayPool,n);
+        if(!combos.length) return '';
+        // Show top 2 for 2-leg, top 1 for 3+
+        const show=n===2?combos.slice(0,2):combos.slice(0,1);
+        return show.map(({legs,combProb,fairOdds})=>parlayCard(legs,combProb,fairOdds,accent)).join('');
+      }).filter(Boolean).join('');
+
+      if(allParlayHtml){
+        html+=`<div style="margin-bottom:18px">
+          ${sHdr('🎰','Parlay Combos',
+            `${parlayPool.length} qualifying plays · legs from different games only`,
+            parlaySections.filter(({n})=>parlayPool.length>=n&&buildCombos(parlayPool,n).length>0).length+' sizes'
+          )}
+          ${allParlayHtml}
         </div>`;
-      });
-      html+=`</div>`;
+      }
     }
 
     // ══════════════════════════════════════════════════════════════
