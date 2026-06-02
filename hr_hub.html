@@ -5092,7 +5092,7 @@ function showManualOddsEntry(){
         <button onclick="processManualOdds()"
           style="flex:2;padding:10px;border-radius:8px;border:none;background:var(--amber);color:#000;font-weight:800;cursor:pointer;font-size:.75rem">Load Odds</button>
       </div>
-      ${loaded ? `<button onclick="_fdOdds=null;_fdOddsLoaded=false;var s=document.getElementById('odds-status');if(s)s.textContent='📋 Enter Odds';document.getElementById('odds-entry-modal').remove();if(S.allRows.length){renderSlate();renderDailySummary();}" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(224,80,74,.3);background:transparent;color:var(--red);font-size:.68rem;cursor:pointer">🗑 Clear all ${loaded} loaded props</button>` : ''}
+      ${loaded ? `<button onclick="_fdOdds=null;_fdOddsLoaded=false;localStorage.removeItem('diq_fd_odds');var s=document.getElementById('odds-status');if(s)s.textContent='📋 Enter Odds';document.getElementById('odds-entry-modal').remove();if(S.allRows.length){renderSlate();renderDailySummary();}" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid rgba(224,80,74,.3);background:transparent;color:var(--red);font-size:.68rem;cursor:pointer">🗑 Clear all ${loaded} loaded props</button>` : ''}
     </div>`;
   document.body.appendChild(modal);
   modal.onclick = e=>{ if(e.target===modal) modal.remove(); };
@@ -5105,21 +5105,32 @@ function processManualOdds(){
   const parsed = parseOddsText(raw);
   if(!parsed.length){ showToast('No valid odds — format: Aaron Judge +350', 'red'); return; }
   document.getElementById('odds-entry-modal')?.remove();
-  if(!_fdOdds) _fdOdds = {};
-  let added=0, updated=0;
+
+  // If re-entering odds, clear old ones first so stale entries don't linger
+  _fdOdds = {};
+
   for(const {name,odds} of parsed){
     const key = normName(name);
     const dec = odds>0 ? odds/100+1 : 100/Math.abs(odds)+1;
-    _fdOdds[key] ? updated++ : added++;
     _fdOdds[key] = {odds, implied:1/dec, raw:name, manual:true};
   }
   _fdOddsLoaded = true;
   _fdOddsTimestamp = Date.now();
+
+  // Persist to localStorage so odds survive app close/reopen
+  try{
+    localStorage.setItem('diq_fd_odds', JSON.stringify({
+      date: ds(),                    // today's date — stale odds auto-clear next day
+      ts:   _fdOddsTimestamp,
+      odds: _fdOdds
+    }));
+  }catch(e){ console.warn('odds save:', e); }
+
   const total = Object.keys(_fdOdds).length;
   const s = document.getElementById('odds-status');
   if(s) s.textContent = `📊 ${total} props`;
   if(S.allRows.length){ renderSlate(); renderDailySummary(); }
-  showToast(`✓ ${added} added · ${total} total props loaded`, 'green');
+  showToast(`✓ ${total} props saved — odds persist until tomorrow`, 'green');
 }
 
 
@@ -14140,7 +14151,26 @@ function renderCalibrationDashboard(container){
 
 
 function initApp(){
-  // ── PWA full-screen height fix ──────────────────────────────
+  // ── Restore persisted FD odds ────────────────────────────────
+  try{
+    const saved = JSON.parse(localStorage.getItem('diq_fd_odds')||'null');
+    if(saved && saved.date === ds() && saved.odds && Object.keys(saved.odds).length){
+      _fdOdds = saved.odds;
+      _fdOddsLoaded = true;
+      _fdOddsTimestamp = saved.ts || Date.now();
+      const n = Object.keys(_fdOdds).length;
+      console.log(`[Odds] restored ${n} props from localStorage`);
+      // Update status badge after DOM ready
+      setTimeout(()=>{
+        const s = document.getElementById('odds-status');
+        if(s) s.textContent = `📊 ${n} props`;
+      }, 100);
+    } else if(saved && saved.date !== ds()){
+      // Different day — clear stale odds
+      localStorage.removeItem('diq_fd_odds');
+      console.log('[Odds] cleared stale odds from', saved.date);
+    }
+  }catch(e){ console.warn('[Odds restore]', e); }
   // In iOS PWA standalone mode, window.innerHeight is sized as if
   // Safari's bottom toolbar is present — leaving a gap at the bottom.
   // Fix: use screen.height in standalone mode (full physical screen),
