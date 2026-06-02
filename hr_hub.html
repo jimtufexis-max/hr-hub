@@ -651,8 +651,35 @@ input:focus,textarea:focus{border-color:var(--amber)}
         </div>
 
         <!-- Version -->
+
+        <!-- jHR Power Score -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">⚡ jHR Power Score</div>
+          <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
+            A single composite number for a batter's <b style="color:var(--t2)">raw HR-hitting ability</b> from Statcast. Independent of matchup, park, or weather. MLB average = <b style="color:var(--amber)">100</b>.<br><br>
+            <b style="color:var(--amber)">Formula (weights sum to 100)</b><br>
+            Barrel% ÷ 7.5 × <b>30</b> &nbsp;·&nbsp; Pull-Air% ÷ 13.5 × <b>22</b><br>
+            xSLG ÷ .393 × <b>18</b> <span style="color:var(--blue)">(cap 1.8×)</span> &nbsp;·&nbsp; HardHit% ÷ 38 × <b>14</b><br>
+            ISO ÷ .158 × <b>11</b> <span style="color:var(--blue)">(cap 2.0×)</span> &nbsp;·&nbsp; SweetSpot ÷ 32 × <b>5</b><br><br>
+            <b style="color:var(--amber)">Scale</b><br>
+            🟡 <b style="color:#ffd700">185+</b> Elite &nbsp;·&nbsp; 🟢 <b style="color:var(--green)">145–184</b> Great &nbsp;·&nbsp; 💚 <b style="color:#4ade80">115–144</b> Above Avg<br>
+            ⚫ <b style="color:#94a3b8">85–114</b> Average &nbsp;·&nbsp; 🟠 <b style="color:var(--amber)">60–84</b> Below Avg &nbsp;·&nbsp; 🔴 <b style="color:var(--red)">&lt;60</b> Low<br><br>
+            Shown as a second circle next to HR% on each player card.
+          </div>
+        </div>
+
+        <!-- CLV + Calibration -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">📊 CLV &amp; Model Calibration</div>
+          <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
+            <b style="color:var(--t2)">Closing Line Value (CLV)</b> — when you settle a bet in Results, enter the closing odds to measure how far you beat the market. Positive avg CLV over 50+ bets is the best long-term indicator of real edge.<br><br>
+            <b style="color:var(--t2)">Model Calibration</b> — after 10+ settled bets, the Results tab shows model prob vs actual HR rate by bucket. Calibration ratio 85–115% = accurate. Below 85% = model is over-predicting. Above 115% = you have more edge than shown.
+          </div>
+        </div>
+
         <div style="text-align:center;padding:12px;font-size:.60rem;color:var(--t4)">
-          DingerIQ v8 · 2026 Season · Model weights v8
+          DingerIQ v8 · 2026 Season · Model weights v8<br>
+          <span style="font-size:.56rem">jHR Power Score · CLV Tracker · Model Calibration</span>
         </div>
       </div>
 
@@ -5964,14 +5991,19 @@ async function renderResultsTab(){
       html+=`</div></div>`;
     }
 
-    // 3. Pending bets — quick resolve
-    if(pending.length || getParlayLegs().length > 0 || true){  // always show pending/parlay section
+    // 3. Pending bets — collapsible
+    const pendingOpen = localStorage.getItem('diq_pending_open') !== '0';
+    if(pending.length || getParlayLegs().length > 0 || true){
       html+=`<div class="card" style="margin-bottom:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div class="slbl" style="margin:0">⏳ Pending Results (${pending.length})</div>
+        <div onclick="(function(){const o=localStorage.getItem('diq_pending_open')!=='0';localStorage.setItem('diq_pending_open',o?'0':'1');renderResultsTab();})()"
+          style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${pendingOpen?'8px':'0'};cursor:pointer;user-select:none">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:.60rem;color:var(--t4);display:inline-block;transform:rotate(${pendingOpen?'90deg':'0deg'})">▶</span>
+            <div class="slbl" style="margin:0">⏳ Pending Results (${pending.length})</div>
+          </div>
           ${pendingWagered>0?`<div style="font-size:.62rem;color:var(--amber);font-weight:700">$${pendingWagered.toFixed(0)} at risk</div>`:''}
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px">`;
+        ${pendingOpen?'<div style="display:flex;flex-direction:column;gap:6px">':'<div style="display:none">'}`;
 
       pending.forEach(r=>{
         const oddsStr = (r.odds||r.fdOdds)!=null?((r.odds||r.fdOdds)>0?'+':'')+( r.odds||r.fdOdds):'--';
@@ -10646,6 +10678,48 @@ function renderSlate(){
   if(document.getElementById('page-picks')?.classList.contains('active')) renderBestBets();
 }
 
+// ==================================================================
+//  jHR — Statcast Power Score (MLB avg = 100)
+//  6 components, xSLG capped at 1.8× avg, ISO capped at 2.0× avg
+// ==================================================================
+function calcJHR(r){
+  const barrel   = r.barrel_pct    ?? r._savBRow?.barrel_pct    ?? null;
+  const pullAir  = r.pull_air_pct  ?? r._savBRow?.pull_air_pct  ?? null;
+  const hardHit  = r.hard_hit_pct  ?? r._savBRow?.hard_hit_pct  ?? null;
+  const xslg     = r.xslg          ?? r._savBRow?.xslg          ?? (_savB?.[String(r._batPid||r.id)]?.xslg) ?? null;
+  const iso      = r.iso           ?? r._savBRow?.iso            ?? null;
+  const sweetSp  = r.sweet_spot_pct?? r._savBRow?.sweet_spot_pct?? (_savB?.[String(r._batPid||r.id)]?.sweet_spot_pct) ?? null;
+
+  // Need at least 3 components for a meaningful score
+  const components = [barrel, pullAir, hardHit, xslg, iso, sweetSp].filter(v=>v!=null);
+  if(components.length < 3) return null;
+
+  let score = 0;
+  let totalWeight = 0;
+
+  if(barrel   != null){ score += (barrel   / 7.5)                      * 30; totalWeight += 30; }
+  if(pullAir  != null){ score += (pullAir  / 13.5)                     * 22; totalWeight += 22; }
+  if(xslg     != null){ score += Math.min(xslg    / 0.393, 1.8)        * 18; totalWeight += 18; }
+  if(hardHit  != null){ score += (hardHit  / 38.0)                     * 14; totalWeight += 14; }
+  if(iso      != null){ score += Math.min(iso     / 0.158, 2.0)        * 11; totalWeight += 11; }
+  if(sweetSp  != null){ score += (sweetSp  / 32.0)                     *  5; totalWeight +=  5; }
+
+  // Rescale if we're missing components
+  if(totalWeight < 100) score = score / totalWeight * 100;
+
+  return Math.round(score);
+}
+
+function jhrGrade(khr){
+  if(khr == null) return ['–', '#64748b'];
+  if(khr >= 185) return ['Elite',       '#ffd700'];
+  if(khr >= 145) return ['Great',       '#22c95e'];
+  if(khr >= 115) return ['Above Avg',   '#4ade80'];
+  if(khr >=  85) return ['Average',     '#94a3b8'];
+  if(khr >=  60) return ['Below Avg',   '#f59e0b'];
+  return              ['Low',           '#e0504a'];
+}
+
 function renderHitterCard(r,showGame){
   const pct=(r.prob*100).toFixed(1);
   const [grd,gc,gCls]=probGrade(r.prob);
@@ -10773,10 +10847,25 @@ function _newRenderHitterCard(r,showGame){
         <div style="font-size:1.0rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name} ${edgeBadge} ${zoneBadge} ${trackTag}</div>
         <div style="font-size:.63rem;color:var(--t4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <b style="color:var(--amber)">Bat ${r.lineupPos}</b>`:''}${gameTag?` · ${gameTag}`:''}${!r.lineupConfirmed?' <span style="color:var(--red)">⚠ unconfirmed</span>':''}${r.postponeRisk>=0.45?` <span style="color:#60a5fa">🌧${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
       </div>
-      <div style="flex-shrink:0;text-align:center;min-width:56px">
-        <div style="font-size:1.75rem;font-weight:900;line-height:1;color:${gc};letter-spacing:-.02em">${pct}%</div>
-        <div style="font-size:.55rem;font-weight:700;color:${gc};opacity:.8;text-transform:uppercase;letter-spacing:.06em">${grd}</div>
-        ${fdOdds!=null?`<div style="font-size:.63rem;font-weight:700;color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'}">${fdOdds>0?'+':''}${fdOdds}</div>`:''}
+      <div style="flex-shrink:0;display:flex;gap:8px;align-items:center">
+        <!-- HR Probability circle -->
+        <div style="text-align:center;min-width:52px">
+          <div style="font-size:1.75rem;font-weight:900;line-height:1;color:${gc};letter-spacing:-.02em">${pct}%</div>
+          <div style="font-size:.50rem;font-weight:700;color:${gc};opacity:.8;text-transform:uppercase;letter-spacing:.06em">${grd}</div>
+          ${fdOdds!=null?`<div style="font-size:.60rem;font-weight:700;color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'}">${fdOdds>0?'+':''}${fdOdds}</div>`:''}
+        </div>
+        <!-- jHR Power Score circle -->
+        ${(()=>{
+          const khr = calcJHR(r);
+          if(khr == null) return '';
+          const [kGrd, kClr] = jhrGrade(khr);
+          return `<div style="text-align:center;min-width:46px;padding:4px 6px;border-radius:10px;
+            background:${kClr}12;border:1px solid ${kClr}30">
+            <div style="font-size:1.35rem;font-weight:900;line-height:1;color:${kClr};letter-spacing:-.02em">${khr}</div>
+            <div style="font-size:.46rem;font-weight:700;color:${kClr};opacity:.85;text-transform:uppercase;letter-spacing:.05em">jHR</div>
+            <div style="font-size:.46rem;color:var(--t4);margin-top:1px">${kGrd}</div>
+          </div>`;
+        })()}
       </div>
     </div>
     ${cardAngles.length?`<div style="display:flex;gap:4px;margin-bottom:8px;overflow:hidden">${cardAngles.map(a=>`<span style="font-size:.63rem;font-weight:600;padding:2px 9px;border-radius:99px;background:${a.color}20;border:1px solid ${a.color}${a.tier===1?'60':'30'};color:${a.color};white-space:nowrap" title="${a.tip}">${a.icon} ${a.label}</span>`).join('')}${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length>3?`<span style="font-size:.60rem;color:var(--t4);align-self:center"> +${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length-3}</span>`:''}</div>`:''}
