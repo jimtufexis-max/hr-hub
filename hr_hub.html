@@ -387,6 +387,25 @@ input:focus,textarea:focus{border-color:var(--amber)}
           <button class="date-nav-btn" onclick="shiftDate(1)">▶</button>
         </div>
         <div id="game-chips"></div>
+
+        <!-- Search bar -->
+        <div style="padding:0 14px 6px;display:flex;align-items:center;gap:8px">
+          <div style="position:relative;flex:1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--t4);pointer-events:none">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input id="search-input" type="search" placeholder="Search players or teams…"
+              oninput="renderSlate()" autocomplete="off" autocorrect="off" spellcheck="false"
+              style="width:100%;padding:9px 10px 9px 32px;border-radius:10px;
+                border:1px solid var(--bdr);background:var(--bg2);color:var(--t1);
+                font-size:.80rem;box-sizing:border-box;-webkit-appearance:none">
+          </div>
+          <button id="search-clear" onclick="document.getElementById('search-input').value='';renderSlate()"
+            style="display:none;background:none;border:none;color:var(--t4);font-size:1.1rem;
+              cursor:pointer;padding:4px;line-height:1">✕</button>
+        </div>
+
         <div id="filter-row"></div>
 
         <!-- Loading bar — appears under filters while fetching players -->
@@ -711,8 +730,8 @@ function dlbl(d=S.date){
   if(diff===0)return'Today';if(diff===-1)return'Yesterday';if(diff===1)return'Tomorrow';
   return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
 }
-function shiftDate(n){S.date.setDate(S.date.getDate()+n);S.selPks.clear();S.allRows=[];loadSlate()}
-function goToday(){S.date=new Date();S.selPks.clear();S.allRows=[];loadSlate()}
+function shiftDate(n){S.date.setDate(S.date.getDate()+n);S.selPks.clear();S.allRows=[];const si=document.getElementById('search-input');if(si)si.value='';loadSlate()}
+function goToday(){S.date=new Date();S.selPks.clear();S.allRows=[];const si=document.getElementById('search-input');if(si)si.value='';loadSlate()}
 
 // ==================================================================
 //  NAVIGATION
@@ -1531,12 +1550,21 @@ function calcPitcherMult(pitcherStats){
       const qualityWeight = signalStrength>=0.25 ? 0.15 : 0.30;
       const blended = quality*qualityWeight + arsenalAdjQuality*(1-qualityWeight);
       const floor = strongDominance ? 1.0+(signalStrength>=0.25?0.08:0.04) : 0.55;
-      return clamp(Math.max(blended, floor) * restMod * whiffMod * bbMod, 0.55, 1.65);
+      const ft1=pitcherStats.formTrend||0; const fm1=Math.max(0.88,Math.min(1.15,1.0-ft1*0.5)); const fat1=pitcherStats.fatigueMult||1.0;
+      return clamp(Math.max(blended, floor) * restMod * whiffMod * bbMod * fm1 * fat1, 0.55, 1.70);
     }
     const arsenalMod2 = clamp(1.0+rawAdj*0.55, 0.82, 1.22);
-    return clamp(quality * arsenalMod2 * restMod * whiffMod * bbMod, 0.55, 1.65);
+    const ft2=pitcherStats.formTrend||0; const fm2=Math.max(0.88,Math.min(1.15,1.0-ft2*0.5)); const fat2=pitcherStats.fatigueMult||1.0;
+    return clamp(quality * arsenalMod2 * restMod * whiffMod * bbMod * fm2 * fat2, 0.55, 1.70);
   }
-  return clamp(quality * restMod * whiffMod * bbMod, 0.55, 1.65);
+  // Recent form trend — boosts/reduces based on pitcher's last 3 starts
+  const formTrend = pitcherStats.formTrend || 0;
+  const formMod = clamp(1.0 - formTrend * 0.5, 0.88, 1.15);
+
+  // Fatigue — pitcher threw 100+ pitches last outing
+  const fatigueMult = pitcherStats.fatigueMult || 1.0;
+
+  return clamp(quality * restMod * whiffMod * bbMod * formMod * fatigueMult, 0.55, 1.70);
 }
 
 // ── PROBABILITY v5: Statcast-anchored, interaction-aware ───────────
@@ -1548,7 +1576,31 @@ function calcPitcherMult(pitcherStats){
 //   5. Calibration via signal-specific shrinkage, not post-hoc scaling
 function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const anchor = calcAnchor(batterStats);
+
+  // ── ROLLING STATCAST (L14) — blend recent BIP quality into anchor ──────
+  // If player is barreling at 18% last 14 days vs 9% season, that's signal
+  // Weight = 0.20 (small — limited sample, not predictive like season barrel%)
+  let rollingAnchorAdj = 0;
+  if(batterStats.rollingBarrelPct!=null && batterStats.barrel_pct!=null && batterStats.barrel_pct>0){
+    const barrelRatio = batterStats.rollingBarrelPct / batterStats.barrel_pct;
+    // Only act on meaningful divergence (>30% above/below season rate)
+    if(barrelRatio > 1.3 || barrelRatio < 0.7){
+      const shrunk = (barrelRatio - 1.0) * 0.25; // 25% shrinkage
+      rollingAnchorAdj = clamp(shrunk, -0.08, 0.08);
+    }
+  }
+  // Also blend recent HR/PA from game log (last 14 games)
+  if(batterStats.l14HR!=null && batterStats.l14PA>=15 && anchor>0){
+    const l14Rate = batterStats.l14HR / batterStats.l14PA;
+    const l14Ratio = l14Rate / anchor;
+    if(l14Ratio > 1.4 || l14Ratio < 0.5){
+      const l14Adj = clamp((l14Ratio - 1.0) * 0.15, -0.06, 0.06);
+      rollingAnchorAdj = clamp(rollingAnchorAdj + l14Adj, -0.10, 0.10);
+    }
+  }
+
   let lo = logit(anchor);
+  if(rollingAnchorAdj !== 0) lo += rollingAnchorAdj;
 
   const lineupPosForPA = batterStats.lineupPos;
   const overallRate = batterStats.szPA>=50?batterStats.szHR/batterStats.szPA:anchor;
@@ -3078,32 +3130,57 @@ async function getPitcherGameLog(pid){
 
     const hr9_recent = calcHR9(starts.length>=2 ? starts : allGames.slice(0,5));
     const hr9_season = calcHR9(allGames);
+    const hr9_last3  = calcHR9(starts.slice(0,3)); // tightest recent sample
 
-    // Start count this season (to detect early-season/returning pitcher)
+    // Start count this season
     const totalStarts = splits.filter(s=>parseInt(s.stat?.gamesStarted||0)>0).length;
 
     // K rate trend — dropping K% signals mechanical issue
-    const recentK9 = (() => {
-      const g = allGames.slice(0,5);
-      const so = g.reduce((s,x)=>s+(parseInt(x.stat?.strikeOuts)||0),0);
-      const ip = g.reduce((s,x)=>s+parseFloat(x.stat?.inningsPitched||0),0);
+    const calcK9 = (games) => {
+      const so = games.reduce((s,x)=>s+(parseInt(x.stat?.strikeOuts)||0),0);
+      const ip = games.reduce((s,x)=>s+parseFloat(x.stat?.inningsPitched||0),0);
       return ip>0 ? (so/ip)*9 : null;
-    })();
-    const seasonK9 = (() => {
-      const so = allGames.reduce((s,x)=>s+(parseInt(x.stat?.strikeOuts)||0),0);
-      const ip = allGames.reduce((s,x)=>s+parseFloat(x.stat?.inningsPitched||0),0);
-      return ip>0 ? (so/ip)*9 : null;
-    })();
+    };
+    const recentK9 = calcK9(allGames.slice(0,5));
+    const seasonK9 = calcK9(allGames);
+    const last3K9  = calcK9(starts.slice(0,3));
 
-    // ERA recent vs season
-    const recentERA = (() => {
-      const g = allGames.slice(0,5);
-      const er = g.reduce((s,x)=>s+(parseInt(x.stat?.earnedRuns)||0),0);
-      const ip = g.reduce((s,x)=>s+parseFloat(x.stat?.inningsPitched||0),0);
+    // BB rate trend — high recent BB = command issues
+    const calcBB9 = (games) => {
+      const bb = games.reduce((s,x)=>s+(parseInt(x.stat?.baseOnBalls||x.stat?.walks)||0),0);
+      const ip = games.reduce((s,x)=>s+parseFloat(x.stat?.inningsPitched||0),0);
+      return ip>0 ? (bb/ip)*9 : null;
+    };
+    const recentBB9  = calcBB9(allGames.slice(0,5));
+    const last3BB9   = calcBB9(starts.slice(0,3));
+
+    // ERA + HR/9 recent vs season trend
+    const calcERA = (games) => {
+      const er = games.reduce((s,x)=>s+(parseInt(x.stat?.earnedRuns)||0),0);
+      const ip = games.reduce((s,x)=>s+parseFloat(x.stat?.inningsPitched||0),0);
       return ip>0 ? (er/ip)*9 : null;
-    })();
+    };
+    const recentERA  = calcERA(allGames.slice(0,5));
+    const last3ERA   = calcERA(starts.slice(0,3));
 
-    return { hr9_recent, hr9_season, totalStarts, recentK9, seasonK9, recentERA };
+    // Pitcher form trend: recent vs season
+    // Positive = pitcher improving / tough form; Negative = declining / vulnerable
+    let formTrend = 0;
+    if(recentK9!=null && seasonK9!=null && seasonK9>0)
+      formTrend += (recentK9-seasonK9)/seasonK9 * 0.4;   // K rate trending up = harder
+    if(recentBB9!=null && recentBB9>4.5) formTrend -= 0.08; // high recent BB = vulnerable
+    if(hr9_last3!=null && hr9_season!=null && hr9_season>0)
+      formTrend -= (hr9_last3-hr9_season)/hr9_season * 0.3; // giving up more HRs recently
+    formTrend = Math.max(-0.20, Math.min(0.20, formTrend));
+
+    // Fatigue indicator: did pitcher throw 100+ pitches last outing?
+    const lastGame = allGames[0];
+    const lastPitches = parseInt(lastGame?.stat?.numberOfPitches||0);
+    const fatigueMult = lastPitches>=100 ? 1.08 : lastPitches>=90 ? 1.04 : 1.0;
+
+    return { hr9_recent, hr9_season, hr9_last3, totalStarts,
+             recentK9, seasonK9, last3K9, recentBB9, last3BB9,
+             recentERA, last3ERA, formTrend, fatigueMult };
   }catch{ return null; }
 }
 
@@ -5521,27 +5598,6 @@ function resolveResult(id, date, actual){
   renderResultsTab();
 }
 
-function getCLVStats(){
-  try{
-    const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
-    const withCLV = stored.filter(r=>
-      r.manualBet===true &&
-      r.actual!==undefined && r.actual!==null &&
-      r.fdOdds!=null && r.closingOdds!=null
-    );
-    if(withCLV.length < 3) return null;
-    const beaten = withCLV.filter(r=>{
-      const openImplied  = r.fdOdds>0?100/(r.fdOdds+100):Math.abs(r.fdOdds)/(Math.abs(r.fdOdds)+100);
-      const closeImplied = r.closingOdds>0?100/(r.closingOdds+100):Math.abs(r.closingOdds)/(Math.abs(r.closingOdds)+100);
-      return openImplied < closeImplied;
-    });
-    return {
-      total: withCLV.length,
-      beaten: beaten.length,
-      beatClosePct: Math.round(beaten.length/withCLV.length*100),
-    };
-  }catch{ return null; }
-}
 
 
 
@@ -6191,6 +6247,12 @@ async function renderResultsTab(){
     el.appendChild(hrtEl);
     renderHitRateTracker(hrtEl);
 
+    // Model calibration dashboard
+    const calEl = document.createElement('div');
+    calEl.style.marginTop = '8px';
+    el.appendChild(calEl);
+    renderCalibrationDashboard(calEl);
+
   }catch(e){
     el.innerHTML=`<div class="card" style="color:var(--red);font-size:.75rem">
       <b>Results Error: ${e.message}</b>
@@ -6321,7 +6383,8 @@ function showTrackedList(filter){
       <button onclick="document.getElementById('tracked-list-panel').style.display='none'"
         style="font-size:.70rem;color:var(--t4);background:none;border:none;cursor:pointer;padding:2px 6px">✕</button>
     </div>
-    ${rows}`;
+    ${rows}
+    `;
 }
 
 
@@ -6520,16 +6583,7 @@ async function fetchClosingLine(playerName, gameDate){
   }catch(e){ return null; }
 }
 
-function calcCLV(ourProb, openingOdds, closingOdds){
-  if(!openingOdds||!closingOdds) return null;
-  const toProb=o=>o>0?100/(o+100):Math.abs(o)/(Math.abs(o)+100);
-  const openProb = toProb(openingOdds);
-  const closeProb = toProb(closingOdds);
-  // CLV = our probability vs closing line
-  // Positive = we had better number than where sharp money pushed it
-  const clv = (ourProb - closeProb) * 100;
-  return { clv: Math.round(clv*10)/10, openProb, closeProb };
-}
+
 
 // ==================================================================
 //  UNIT SIZING — Kelly Criterion
@@ -9577,7 +9631,7 @@ async function loadGame(g){
     _withSlot(()=>getPitcherArsenal(g.awaySpId)),
     _withSlot(()=>getPitcherArsenal(g.homeSpId)),
     _withSlot(()=>getUmpire(g.pk)),
-    _withSlot(()=>fetchJSON(PROXY + encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups`)).catch(()=>null)),
+    _withSlot(()=>fetchJSON(PROXY + encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups,players,teams`)).catch(()=>null)),
     getWeather(g.venue, g.gameTime||g.gameDate),
   ]);
   lap('after all fetches');
@@ -9612,10 +9666,10 @@ async function loadGame(g){
   let hmLineup = extractLineup(schedGame?.lineups?.homePlayers);
   console.log(`[Lineup] from schedule: aw=${Object.keys(awLineup).length} hm=${Object.keys(hmLineup).length}`);
 
-  // Fallback 1: live feed battingOrder
+  // Fallback 1: v1.1 live feed battingOrder (correct URL — v1 doesn't have /game/feed/live)
   if(Object.keys(awLineup).length < 8 || Object.keys(hmLineup).length < 8){
     try{
-      const live = await fetchJSON(PROXY + encodeURIComponent(`${MLB}/game/${g.pk}/feed/live?fields=liveData,boxscore,teams,battingOrder`)).catch(()=>null);
+      const live = await fetchJSON(PROXY + encodeURIComponent(`https://statsapi.mlb.com/api/v1.1/game/${g.pk}/feed/live?fields=liveData,boxscore,teams,battingOrder`)).catch(()=>null);
       const liveTeams = live?.liveData?.boxscore?.teams;
       console.log(`[Lineup] live feed teams keys=${liveTeams?Object.keys(liveTeams).join(','):'null'}`);
       if(liveTeams){
@@ -10428,6 +10482,10 @@ function renderSlate(){
   }
 
   if(q) rows=rows.filter(r=>r.name.toLowerCase().includes(q)||r.team.toLowerCase().includes(q));
+
+  // Show/hide search clear button
+  const clearBtn = document.getElementById('search-clear');
+  if(clearBtn) clearBtn.style.display = q ? 'block' : 'none';
 
   // Show count badge on active filter
   if(fr && af && af!=='all'){
@@ -13782,6 +13840,166 @@ function hideLoading(){
     if(fill){ fill.style.transition = 'none'; fill.style.width = '0%'; }
   }, 200);
 }
+
+// ==================================================================
+//  CLV TRACKER — Closing Line Value
+// ==================================================================
+function calcCLV(entryOdds, closingOdds){
+  if(!entryOdds || !closingOdds) return null;
+  const toProb = o => o > 0 ? 100/(o+100) : Math.abs(o)/(Math.abs(o)+100);
+  const entryProb   = toProb(entryOdds);
+  const closingProb = toProb(closingOdds);
+  const clv = (closingProb - entryProb) * 100; // positive = beat the close
+  return { clv: Math.round(clv*10)/10, positive: clv > 0 };
+}
+
+function saveCLV(betId, closingOdds){
+  try{
+    const bets = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+    const idx = bets.findIndex(b=>b.id===betId);
+    if(idx < 0) return;
+    bets[idx].closingOdds = parseInt(closingOdds);
+    const clv = calcCLV(bets[idx].odds||bets[idx].american, parseInt(closingOdds));
+    if(clv) bets[idx].clv = clv.clv;
+    localStorage.setItem('hr_hub_results', JSON.stringify(bets));
+    renderResultsTab();
+  }catch(e){ console.warn('saveCLV:', e); }
+}
+
+function getCLVStats(){
+  try{
+    const bets = JSON.parse(localStorage.getItem('hr_hub_results')||'[]')
+      .filter(b=>b.clv!=null && b.closingOdds!=null);
+    if(!bets.length) return null;
+    const avgCLV   = bets.reduce((s,b)=>s+b.clv,0)/bets.length;
+    const positive = bets.filter(b=>b.clv>0).length;
+    const winRate  = bets.filter(b=>b.result==='win').length / bets.filter(b=>b.result).length || 0;
+    return { n:bets.length, avgCLV: Math.round(avgCLV*10)/10,
+             posRate: Math.round(positive/bets.length*100), winRate };
+  }catch{ return null; }
+}
+
+
+// ==================================================================
+//  CALIBRATION DASHBOARD — model prob vs actual HR rate
+// ==================================================================
+function renderCalibrationDashboard(container){
+  if(!container) return;
+  try{
+    const bets = JSON.parse(localStorage.getItem('hr_hub_results')||'[]')
+      .filter(b=>b.modelProb && (b.result==='win'||b.result==='loss'));
+
+    if(bets.length < 10){
+      container.innerHTML='<div style="color:var(--t4);font-size:.72rem;text-align:center;padding:20px">Need 10+ settled bets with model prob to show calibration.<br><span style="font-size:.62rem">Model prob is stored when you track a bet.</span></div>';
+      return;
+    }
+
+    // Bucket bets by model probability
+    const buckets = [
+      { label:'<5%',  min:0,    max:0.05 },
+      { label:'5-8%', min:0.05, max:0.08 },
+      { label:'8-11%',min:0.08, max:0.11 },
+      { label:'11-14%',min:0.11,max:0.14 },
+      { label:'14%+', min:0.14, max:1.0  },
+    ];
+
+    const rows = buckets.map(b=>{
+      const inBucket = bets.filter(x=>x.modelProb>=b.min && x.modelProb<b.max);
+      const hits     = inBucket.filter(x=>x.result==='win').length;
+      const n        = inBucket.length;
+      const actual   = n>0 ? hits/n : null;
+      const midPoint = (b.min+b.max)/2;
+      const ratio    = actual!=null ? actual/midPoint : null;
+      return {...b, n, hits, actual, midPoint, ratio};
+    }).filter(b=>b.n>0);
+
+    const clvStats = getCLVStats();
+    const totalBets = bets.length;
+    const totalWins = bets.filter(b=>b.result==='win').length;
+    const overallActual = totalWins/totalBets;
+    const avgModelProb  = bets.reduce((s,b)=>s+b.modelProb,0)/totalBets;
+
+    container.innerHTML = `
+      <!-- Summary row -->
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <div class="card" style="flex:1;min-width:80px;padding:10px;text-align:center">
+          <div style="font-size:.55rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em">Bets Tracked</div>
+          <div style="font-size:1.4rem;font-weight:900;color:var(--t1)">${totalBets}</div>
+        </div>
+        <div class="card" style="flex:1;min-width:80px;padding:10px;text-align:center">
+          <div style="font-size:.55rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em">Hit Rate</div>
+          <div style="font-size:1.4rem;font-weight:900;color:${overallActual>avgModelProb?'var(--green)':'var(--amber)'}">${Math.round(overallActual*100)}%</div>
+          <div style="font-size:.55rem;color:var(--t4)">model avg ${Math.round(avgModelProb*100)}%</div>
+        </div>
+        <div class="card" style="flex:1;min-width:80px;padding:10px;text-align:center">
+          <div style="font-size:.55rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em">Cal Ratio</div>
+          <div style="font-size:1.4rem;font-weight:900;color:${Math.abs(overallActual/avgModelProb-1)<0.15?'var(--green)':'var(--amber)'}">${Math.round(overallActual/avgModelProb*100)}%</div>
+          <div style="font-size:.55rem;color:var(--t4)">100% = perfect</div>
+        </div>
+        ${clvStats ? `<div class="card" style="flex:1;min-width:80px;padding:10px;text-align:center">
+          <div style="font-size:.55rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em">Avg CLV</div>
+          <div style="font-size:1.4rem;font-weight:900;color:${clvStats.avgCLV>0?'var(--green)':'var(--red)'}">${clvStats.avgCLV>0?'+':''}${clvStats.avgCLV}%</div>
+          <div style="font-size:.55rem;color:var(--t4)">${clvStats.posRate}% beat close</div>
+        </div>` : ''}
+      </div>
+
+      <!-- Calibration chart -->
+      <div class="card" style="padding:12px">
+        <div class="slbl" style="margin-bottom:10px">📊 Model Calibration by Probability Bucket</div>
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:8px;height:120px;margin-bottom:8px">
+          ${rows.map(b=>{
+            const modelPct  = Math.round(b.midPoint*100);
+            const actualPct = b.actual!=null ? Math.round(b.actual*100) : null;
+            const maxH = 100;
+            const modelH  = Math.round(b.midPoint*maxH/0.20*100);
+            const actualH = actualPct!=null ? Math.round(b.actual*maxH/0.20*100) : 0;
+            const clr = b.ratio==null?'var(--t4)':b.ratio>=0.85&&b.ratio<=1.15?'var(--green)':b.ratio>=0.65&&b.ratio<=1.35?'var(--amber)':'var(--red)';
+            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+              <div style="font-size:.55rem;color:${clr};font-weight:700">${actualPct!=null?actualPct+'%':'—'}</div>
+              <div style="width:100%;flex:1;display:flex;align-items:flex-end;gap:2px">
+                <!-- Model prob bar (gray) -->
+                <div style="flex:1;background:rgba(148,163,184,.3);border-radius:3px 3px 0 0;height:${Math.min(100,modelH)}%"></div>
+                <!-- Actual rate bar (colored) -->
+                ${actualPct!=null?`<div style="flex:1;background:${clr};border-radius:3px 3px 0 0;height:${Math.min(100,actualH)}%;opacity:.85"></div>`:''}
+              </div>
+              <div style="font-size:.55rem;color:var(--t4);text-align:center;line-height:1.3">${b.label}<br><span style="color:var(--t4)">${b.n}b</span></div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;gap:10px;font-size:.58rem;color:var(--t4)">
+          <span><span style="display:inline-block;width:10px;height:8px;background:rgba(148,163,184,.4);border-radius:2px;margin-right:3px"></span>Model</span>
+          <span><span style="display:inline-block;width:10px;height:8px;background:var(--green);border-radius:2px;margin-right:3px;opacity:.85"></span>Actual</span>
+          <span style="margin-left:auto">Cal ratio 85-115% = well calibrated</span>
+        </div>
+      </div>
+
+      ${clvStats ? `
+      <!-- CLV breakdown -->
+      <div class="card" style="margin-top:8px;padding:12px">
+        <div class="slbl" style="margin-bottom:8px">📈 Closing Line Value (${clvStats.n} bets)</div>
+        <div style="display:flex;gap:6px;font-size:.68rem;color:var(--t3)">
+          <span>Avg CLV: <b style="color:${clvStats.avgCLV>0?'var(--green)':'var(--red)'}">${clvStats.avgCLV>0?'+':''}${clvStats.avgCLV}%</b></span>
+          <span>·</span>
+          <span>Beat close: <b style="color:${clvStats.posRate>=50?'var(--green)':'var(--amber)'}">${clvStats.posRate}%</b></span>
+        </div>
+        <div style="font-size:.60rem;color:var(--t4);margin-top:6px;line-height:1.6">
+          Positive avg CLV means you're consistently finding lines before they move against you — the best long-term predictor of bettor skill.
+          Add closing odds to settled bets in the Results tab to track this.
+        </div>
+      </div>` : `
+      <div class="card" style="margin-top:8px;padding:12px">
+        <div class="slbl">📈 Closing Line Value</div>
+        <div style="font-size:.68rem;color:var(--t4);margin-top:4px">
+          Add closing odds when settling bets to track CLV. Positive CLV = you're beating the market.
+        </div>
+      </div>`}
+    `;
+  }catch(e){
+    container.innerHTML='<div style="color:var(--red);padding:12px;font-size:.72rem">Error: '+e.message+'</div>';
+    console.error('[CalibrationDashboard]',e);
+  }
+}
+
 
 function initApp(){
   // ── PWA full-screen height fix ──────────────────────────────
