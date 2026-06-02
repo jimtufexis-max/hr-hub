@@ -2231,8 +2231,7 @@ function calcEdge(ourProb, bookOdds){
 function getBetRec(r){
   const prob    = r.prob;
   const odds    = getFDOdds(r.name) ?? getOddsEntry(r.name)?.odds;
-  const fairOdds= probToAmerican(prob);
-  const fairStr = fairOdds > 0 ? '+'+fairOdds : String(fairOdds);
+  const fairStr = probToAmerican(prob);   // already returns "+350" or "-120"
 
   // ── With book odds: edge-based recommendation ──────────────────────────
   if(odds != null){
@@ -2264,18 +2263,17 @@ function getBetRec(r){
   const platoon  = r.platoon      || 1;
   const hasElite = barrel>=11 || pullAir>=16 || iso>=.220;
   const hasGood  = barrel>=8  || pullAir>=13 || iso>=.180;
-  const maxBet   = probToAmerican(prob * 0.85); // price where bet is still +EV (15% margin)
-  const maxStr   = maxBet>0 ? '+'+maxBet : String(maxBet);
+  const maxBet = probToAmerican(prob * 0.85); // price where bet is still +EV (15% margin)
 
   if(prob >= 0.16 && hasElite)
     return { action:'PRIME TARGET', clr:'#ffd700', bg:'rgba(255,215,0,.12)',
-      why:`Fair ${fairStr} · bet anything ≤ ${maxStr} · elite power`, tier:'S' };
+      why:`Fair ${fairStr} · bet anything ≤ ${maxBet} · elite power`, tier:'S' };
   if(prob >= 0.13 && hasGood)
     return { action:'STRONG LOOK',  clr:'#22c95e', bg:'rgba(34,201,94,.12)',
-      why:`Fair ${fairStr} · bet ≤ ${maxStr} · load odds to confirm`, tier:'A' };
+      why:`Fair ${fairStr} · bet ≤ ${maxBet} · load odds to confirm`, tier:'A' };
   if(prob >= 0.10)
     return { action:'WORTH BETTING',clr:'#4ade80', bg:'rgba(74,222,128,.1)',
-      why:`Fair ${fairStr} · bet ≤ ${maxStr} · above avg matchup`, tier:'B' };
+      why:`Fair ${fairStr} · bet ≤ ${maxBet} · above avg matchup`, tier:'B' };
   if(prob >= 0.08)
     return { action:'PARLAY LEG',   clr:'#94a3b8', bg:'rgba(148,163,184,.1)',
       why:`Fair ${fairStr} · low standalone value, add to parlay`, tier:'C' };
@@ -8808,18 +8806,20 @@ function renderDiscover(){
   }
 
   try{
-    // ── Shared card renderer ────────────────────────────────────────
-    const discCard = (r, reasons, accentColor, badge, extraRight='') => {
+    const hasOdds = _fdOddsLoaded && _fdOdds && Object.keys(_fdOdds).length>0;
+
+    // ── Shared card renderer ─────────────────────────────────────
+    const discCard=(r,reasons,accentColor,badge,extraRight='')=>{
       const [,gc]=probGrade(r.prob);
       const fdO=getFDOdds(r.name);
       const tier=fdO?getEdgeTier(r.prob,fdO):null;
       const edgeStr=tier&&tier.edge>=2
         ?`<span style="font-size:.58rem;font-weight:700;color:var(--green);padding:1px 5px;
-            background:rgba(34,201,94,.12);border-radius:4px">${tier.tier} +${tier.edge.toFixed(0)}%</span>`:'' ;
+            background:rgba(34,201,94,.12);border-radius:4px">+${tier.edge.toFixed(0)}%</span>`:'' ;
       const headshotUrl=`https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_80,q_auto:best/v1/people/${r.id}/headshot/67/current`;
       return `<div style="border:1px solid ${accentColor}33;border-radius:12px;padding:11px 12px;
-        background:${accentColor}08;margin-bottom:7px;cursor:pointer;
-        border-left:3px solid ${accentColor}" onclick="showDetail('${r.id}')">
+        background:${accentColor}08;margin-bottom:7px;cursor:pointer;border-left:3px solid ${accentColor}"
+        onclick="showDetail('${r.id}')">
         <div style="display:flex;align-items:center;gap:9px">
           <img src="${headshotUrl}" style="width:34px;height:34px;border-radius:50%;
             object-fit:cover;flex-shrink:0;border:1px solid ${accentColor}44"
@@ -8850,213 +8850,285 @@ function renderDiscover(){
       </div>`;
     };
 
-    // ── Helper: max 1 per team ──────────────────────────────────────
-    const onePerTeam = (arr, limit) => {
-      const seen = new Set();
-      const out = [];
+    // ── Max N per unique value (smarter than 1-per-team) ─────────
+    // Allow multiple players from same team if edge is real (not arbitrary limit)
+    const topN=(arr,n,keyFn=r=>r.team)=>{
+      const seen=new Map();
+      const out=[];
       for(const item of arr){
-        const team = item.r?.team || item.team || '';
-        if(!seen.has(team)){ seen.add(team); out.push(item); }
-        if(out.length>=limit) break;
+        const k=keyFn(item.r||item);
+        const ct=seen.get(k)||0;
+        if(ct<2){ seen.set(k,ct+1); out.push(item); } // max 2 per team (was 1)
+        if(out.length>=n) break;
       }
       return out;
     };
 
-    // ── Section header ──────────────────────────────────────────────
-    const sectionHdr = (icon, title, subtitle, count) =>
+    const sHdr=(icon,title,sub,count)=>
       `<div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:6px">
         <div>
           <div style="font-size:.80rem;font-weight:800;color:var(--t1)">${icon} ${title}</div>
-          <div style="font-size:.62rem;color:var(--t4);margin-top:1px">${subtitle}</div>
+          <div style="font-size:.62rem;color:var(--t4);margin-top:1px">${sub}</div>
         </div>
         <span style="font-size:.60rem;color:var(--t4);background:var(--bg3);
           padding:2px 8px;border-radius:99px">${count}</span>
       </div>`;
 
-    let html = '';
+    let html='';
 
     // ══════════════════════════════════════════════════════════════
-    // 1. 💤 SLEEPERS — undervalued power bats the market is ignoring
+    // 1. 💰 VALUE PLAYS (odds required) — true market inefficiency
+    //    Real definition: model prob > book implied AFTER vig removal
     // ══════════════════════════════════════════════════════════════
-    const sleeperRaw = S.allRows
-      .map(r=>({r, s:detectSleeper(r)}))
-      .filter(({s})=>s!=null)
-      .sort((a,b)=>b.s.score-a.s.score);
-    const sleepers = onePerTeam(sleeperRaw, 5);
+    if(hasOdds){
+      const valueRaw=S.allRows.map(r=>{
+        const fdO=getFDOdds(r.name); if(!fdO) return null;
+        const ed=calcEdge(r.prob,fdO); if(!ed||ed.edge<3) return null;
+        // True sleeper: high jHR but somehow still cheap odds
+        const jhr=calcJHR(r);
+        const isSleeper=jhr!=null&&jhr>=130&&ed.edge>=4;
+        return {r,fdO,edge:ed.edge,ed,jhr,isSleeper};
+      }).filter(Boolean).sort((a,b)=>b.edge-a.edge);
+      const value=topN(valueRaw,7);
+      if(value.length){
+        html+=`<div style="margin-bottom:18px">${sHdr('💰','Value Plays',
+          'Model prob meaningfully above book implied — after vig removal',value.length)}`;
+        value.forEach(({r,fdO,edge,jhr,isSleeper})=>{
+          const implied=(fdO>0?100/(fdO+100):Math.abs(fdO)/(Math.abs(fdO)+100))*100;
+          const badge=isSleeper?'Sleeper Value':edge>=8?'Big Value':edge>=5?'Strong Value':'Value';
+          const reasons=[
+            `Model ${(r.prob*100).toFixed(1)}% vs book implied ${implied.toFixed(1)}% (+${edge.toFixed(1)}% edge after vig)`,
+            jhr!=null?`jHR ${jhr} — ${jhr>=145?'elite':'above avg'} power profile`:'',
+            r.pitcher>=1.10?`SP showing ${((r.pitcher-1)*100).toFixed(0)}% HR-prone today`:'',
+          ].filter(Boolean);
+          html+=discCard(r,reasons,'#22c95e',badge,
+            `<div style="font-size:.68rem;font-weight:900;color:var(--green)">+${edge.toFixed(1)}%</div>`);
+        });
+        html+=`</div>`;
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 2. 🗓️ NARRATIVE OF THE DAY — genuinely unusual situations
+    //    Things that don't happen every day and are actually relevant
+    // ══════════════════════════════════════════════════════════════
+    const narrativeFinds=[];
+    for(const r of S.allRows){
+      // Short rest pitcher (≤3 days rest)
+      if(r._pitcherStats?.restDays!=null && r._pitcherStats.restDays<=3 && r.prob>=0.04)
+        narrativeFinds.push({r,type:'Short Rest',
+          desc:`${r.spNm||'SP'} on ${r._pitcherStats.restDays}-day rest — command and stuff typically suffer`,
+          color:'#f97316'});
+      // Extreme fatigue (100+ pitches last start)
+      if(r._pitcherStats?.fatigueMult>=1.07 && r.prob>=0.04)
+        narrativeFinds.push({r,type:'Pitcher Fatigue',
+          desc:`${r.spNm||'SP'} threw 100+ pitches last outing — studies show ~8% HR rate increase`,
+          color:'#f97316'});
+      // L14 barrel rate 50%+ above season rate
+      if(r._batterStats?.l14PA>=15 && r._batterStats?.rollingBarrelPct!=null
+          && r.barrel_pct!=null && r.barrel_pct>0
+          && r._batterStats.rollingBarrelPct/r.barrel_pct>=1.50)
+        narrativeFinds.push({r,type:'L14 Barrel Surge',
+          desc:`Barreling at ${(r._batterStats.rollingBarrelPct*100).toFixed(0)}% last 14 days vs ${(r.barrel_pct).toFixed(0)}% season — genuine hot streak`,
+          color:'#22c95e'});
+      // Extreme park/weather day (rare conditions)
+      if(r.parkwx>=1.20)
+        narrativeFinds.push({r,type:'Extreme Conditions',
+          desc:'Park + weather combo is exceptionally favorable today — rare alignment',
+          color:'#4ade80'});
+    }
+    // Deduplicate by player, keep highest priority
+    const seenNarr=new Set();
+    const narratives=narrativeFinds.filter(n=>{
+      if(seenNarr.has(n.r.id)) return false;
+      seenNarr.add(n.r.id); return true;
+    }).slice(0,5);
+
+    if(narratives.length){
+      html+=`<div style="margin-bottom:18px">${sHdr('🗓️','Narrative of the Day',
+        'Genuinely unusual situations today — things that shift real probability',narratives.length)}`;
+      narratives.forEach(({r,type,desc,color})=>{
+        html+=discCard(r,[desc],color,type);
+      });
+      html+=`</div>`;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 3. 💤 SLEEPERS — high jHR / Statcast, overlooked market price
+    //    Without odds: high power + below-avg prob (situation drag)
+    //    With odds: high jHR + price implies lower prob than model
+    // ══════════════════════════════════════════════════════════════
+    const sleeperRaw=S.allRows.map(r=>{
+      const jhr=calcJHR(r);
+      if(!jhr||jhr<115) return null;
+      const fdO=getFDOdds(r.name);
+      if(hasOdds&&fdO){
+        // With odds: sleeper = jHR elite but book hasn't priced it in
+        const implied=(fdO>0?100/(fdO+100):Math.abs(fdO)/(Math.abs(fdO)+100));
+        const gap=r.prob-implied;
+        if(gap<0.01) return null; // book has it right
+        return {r,jhr,score:jhr*0.6+gap*200,fdO,desc:'Statcast profile outperforms price'};
+      } else {
+        // Without odds: high jHR but prob suppressed by situation (low platoon/pitcher)
+        const situationDrag=r.platoon<0.98||r.pitcher<0.95;
+        if(!situationDrag) return null; // not suppressed — not a sleeper
+        return {r,jhr,score:jhr,fdO:null,desc:'Elite contact quality masked by today\'s matchup'};
+      }
+    }).filter(Boolean).sort((a,b)=>b.score-a.score);
+    const sleepers=topN(sleeperRaw,5);
 
     if(sleepers.length){
-      html += `<div style="margin-bottom:18px">
-        ${sectionHdr('💤','Sleepers','Power profiles the market is ignoring today',sleepers.length)}`;
-      sleepers.forEach(({r,s})=>{
-        const badge = s.fdOdds!=null&&getEdgeTier(r.prob,s.fdOdds)?.edge>=4?'Value'
-          : r.pitcher>=1.10?'SP Mismatch'
-          : r.platoon>=1.12?'Platoon Edge':'Power Profile';
-        html += discCard(r, s.reasons, '#a78bfa', badge);
+      html+=`<div style="margin-bottom:18px">${sHdr('💤','Sleepers',
+        hasOdds
+          ?'High jHR power profile but book hasn\'t priced it in'
+          :'Elite Statcast profile masked by today\'s matchup situation',
+        sleepers.length)}`;
+      sleepers.forEach(({r,jhr,desc,fdO})=>{
+        const [,jClr]=jhrGrade(jhr);
+        const badge=jhr>=160?'Elite Power':jhr>=140?'Great Power':'Above Avg';
+        const reasons=[
+          `jHR ${jhr} — real contact quality above ${jhr>=160?'99th':'90th'} pct`,
+          desc,
+          r.platoon<0.98?`${r.batHand}HB vs ${r.oppHand||'?'}HP drag suppressing prob today`:'',
+        ].filter(Boolean);
+        html+=discCard(r,reasons,'#a78bfa',badge,
+          `<div style="font-size:.78rem;font-weight:900;color:${jClr}">${jhr}</div>`);
       });
-      html += `</div>`;
+      html+=`</div>`;
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 2. 🌋 DUE — 5+ of 6 heat signals converging
+    // 4. 📉 FADE OF THE DAY — most overpriced plays on the board
+    //    Only shows when odds loaded — meaningless without them
     // ══════════════════════════════════════════════════════════════
-    const heatScores = S.allRows.map(r => ({ r, heat: calcHeatScore(r) }));
+    if(hasOdds){
+      const fadeRaw=S.allRows.map(r=>{
+        const fdO=getFDOdds(r.name); if(!fdO) return null;
+        const ed=calcEdge(r.prob,fdO); if(!ed||ed.edge>-4) return null;
+        return {r,fdO,edge:ed.edge,ed};
+      }).filter(Boolean).sort((a,b)=>a.edge-b.edge).slice(0,3); // worst first
+      if(fadeRaw.length){
+        html+=`<div style="margin-bottom:18px">${sHdr('📉','Fade of the Day',
+          'Model prob significantly below book implied — overpriced',fadeRaw.length)}`;
+        fadeRaw.forEach(({r,fdO,edge})=>{
+          const implied=(fdO>0?100/(fdO+100):Math.abs(fdO)/(Math.abs(fdO)+100))*100;
+          const reasons=[
+            `Book implies ${implied.toFixed(1)}% but model says ${(r.prob*100).toFixed(1)}% — ${Math.abs(edge).toFixed(1)}% overpriced`,
+            r.platoon<=0.90?`Bad hand matchup (${r.platoon.toFixed(2)}×) not fully in price`:'',
+            r.pitcher<=0.95?`Tough SP matchup (${r.pitcher.toFixed(2)}×) underweighted by market`:'',
+          ].filter(Boolean);
+          html+=discCard(r,reasons,'#e0504a','FADE',
+            `<div style="font-size:.68rem;font-weight:900;color:var(--red)">${edge.toFixed(1)}%</div>`);
+        });
+        html+=`</div>`;
+      }
+    }
 
-    const dueRaw = heatScores
-      .filter(({heat}) => heat.score >= 5)
-      .sort((a,b) => b.heat.score - a.heat.score || b.r.prob - a.r.prob);
-    const due = onePerTeam(dueRaw, 5);
+    // ══════════════════════════════════════════════════════════════
+    // 5. 🎰 PARLAY COMBOS — uncorrelated plays with combined fair odds
+    //    Different games, different signal drivers = independence
+    // ══════════════════════════════════════════════════════════════
+    const parlayPool=S.allRows
+      .filter(r=>r.prob>=0.08&&calcBetScore(r)>=MIN_SCORE)
+      .sort((a,b)=>b.prob-a.prob);
+    // Build 2-3 leg combos from different games
+    const combos=[];
+    const games=new Set(parlayPool.map(r=>r.gamePk||r.game||r.team));
+    if(parlayPool.length>=2){
+      // Find pairs from different games
+      for(let i=0;i<Math.min(parlayPool.length,6);i++){
+        for(let j=i+1;j<Math.min(parlayPool.length,6);j++){
+          const a=parlayPool[i],b=parlayPool[j];
+          if((a.gamePk||a.team)===(b.gamePk||b.team)) continue; // same game
+          const combProb=a.prob*b.prob;
+          const fairOdds=Math.round(((1/combProb)-1)*100);
+          combos.push({legs:[a,b],combProb,fairOdds});
+        }
+      }
+    }
+    const topCombos=combos.sort((a,b)=>b.combProb-a.combProb).slice(0,2);
 
+    if(topCombos.length){
+      html+=`<div style="margin-bottom:18px">${sHdr('🎰','Parlay Combos',
+        'High-conviction plays from different games — statistically independent',topCombos.length)}`;
+      topCombos.forEach(({legs,combProb,fairOdds})=>{
+        const [,gc]=probGrade(combProb);
+        html+=`<div style="border:1px solid rgba(148,163,184,.25);border-radius:12px;
+          padding:11px 12px;background:rgba(148,163,184,.05);margin-bottom:7px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:.70rem;font-weight:700;color:var(--t2)">2-Leg Parlay</div>
+            <div style="text-align:right">
+              <div style="font-size:.80rem;font-weight:900;color:${gc}">${(combProb*100).toFixed(1)}%</div>
+              <div style="font-size:.58rem;color:var(--t4)">fair +${fairOdds}</div>
+            </div>
+          </div>
+          ${legs.map(r=>{
+            const [,gc2]=probGrade(r.prob);
+            const fdO=getFDOdds(r.name);
+            return `<div style="display:flex;align-items:center;justify-content:space-between;
+              padding:5px 0;border-top:1px solid var(--bg3);cursor:pointer"
+              onclick="showDetail('${r.id}')">
+              <div>
+                <div style="font-size:.72rem;font-weight:700;color:var(--t1)">${r.name}</div>
+                <div style="font-size:.58rem;color:var(--t4)">${r.team} vs ${r.spNm||'SP'}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:.78rem;font-weight:900;color:${gc2}">${(r.prob*100).toFixed(1)}%</div>
+                ${fdO?`<div style="font-size:.58rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`;
+      });
+      html+=`</div>`;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 6. Existing sections (Due, Hot, Sharp) — kept but de-emphasized
+    // ══════════════════════════════════════════════════════════════
+    const heatScores=S.allRows.map(r=>({r,heat:calcHeatScore(r)}));
+    const dueRaw=heatScores.filter(({heat})=>heat.score>=5)
+      .sort((a,b)=>b.heat.score-a.heat.score||b.r.prob-a.r.prob);
+    const due=topN(dueRaw,4);
     if(due.length){
-      html += `<div style="margin-bottom:18px">
-        ${sectionHdr('🌋','Due','5+ of 6 heat signals converging — maximum regression case',due.length)}`;
-      due.forEach(({r, heat})=>{
-        const metStr = heat.metLabels.join(', ');
-        const reasons = [
-          `${heat.score}/6 signals: ${metStr}`,
-          r.barrel_pct!=null ? `Barrel ${r.barrel_pct.toFixed(0)}% · ISO .${Math.round((r.iso||0)*1000).toString().padStart(3,'0').slice(-3)}` : '',
-          r.spNm ? `vs ${r.spNm} (SP mult ${r.pitcher.toFixed(2)}x)` : '',
-        ].filter(Boolean);
-        const badge = heat.score===6 ? '6/6 🌋' : '5/6';
-        const scoreStr = `<div style="font-size:.72rem;font-weight:900;color:#ffd700">${heat.score}/6</div>`;
-        html += discCard(r, reasons, '#ffd700', badge, scoreStr);
+      html+=`<div style="margin-bottom:18px">${sHdr('🌋','Due','5+ of 6 heat signals converging',due.length)}`;
+      due.forEach(({r,heat})=>{
+        html+=discCard(r,[`${heat.score}/6 signals: ${heat.metLabels.join(', ')}`],
+          '#ffd700',heat.score===6?'6/6 🌋':'5/6',
+          `<div style="font-size:.72rem;font-weight:900;color:#ffd700">${heat.score}/6</div>`);
       });
-      html += `</div>`;
+      html+=`</div>`;
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // 3. 🌡️ HEATING UP — 3-4 of 6 heat signals (exclude 5+ shown above)
-    // ══════════════════════════════════════════════════════════════
-    const heatingRaw = heatScores
-      .filter(({r, heat}) => heat.score >= 3 && heat.score <= 4)
-      .sort((a,b) => b.heat.score - a.heat.score || b.r.prob - a.r.prob);
-    const heating = onePerTeam(heatingRaw, 5);
-
-    if(heating.length){
-      html += `<div style="margin-bottom:18px">
-        ${sectionHdr('🌡️','Heating Up','3–4 of 6 heat signals firing — momentum building',heating.length)}`;
-      heating.forEach(({r, heat})=>{
-        const metStr = heat.metLabels.join(', ');
-        const reasons = [
-          `${heat.score}/6 signals: ${metStr}`,
-          r.barrel_pct!=null ? `Barrel ${r.barrel_pct.toFixed(0)}% — ${r.barrel_pct>=11?'above avg':'near avg'}` : '',
-          r.avgLA!=null ? `Avg LA ${r.avgLA.toFixed(1)}° ${r.avgLA>=18&&r.avgLA<=32?'✓ HR window':''}` : '',
-        ].filter(Boolean);
-        const badge = heat.score===4 ? '4/6' : '3/6';
-        const scoreStr = `<div style="font-size:.72rem;font-weight:900;color:var(--amber)">${heat.score}/6</div>`;
-        html += discCard(r, reasons, 'var(--amber)', badge, scoreStr);
-      });
-      html += `</div>`;
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // 4. 🔥 HOT RIGHT NOW — genuine L15 momentum + favorable matchup
-    // ══════════════════════════════════════════════════════════════
-    const hotRaw = S.allRows
-      .filter(r=>{
-        const recent = r._recentGames||[];
-        const l10HR = recent.slice(0,10).reduce((s,g)=>s+(g.hr||0),0);
-        return l10HR>=3 && r.momentum>=1.05 && r.prob>=0.03 && r.pitcher>=0.98;
-      })
-      .map(r=>{
-        const recent=r._recentGames||[];
-        const l10HR=recent.slice(0,10).reduce((s,g)=>s+(g.hr||0),0);
-        const l7=recent.slice(0,7).map(g=>g.hr>0?'🟡':'⚫').join('');
-        const reasons=[
-          `${l10HR} HR in last 10 games — active power streak`,
-          r.platoon>=1.12?`Favorable ${r.batHand}HB vs ${r.oppHand||'?'}HP matchup today`:'',
-          r.barrel_pct!=null?`${r.barrel_pct.toFixed(0)}% barrel rate sustains the pace`:'',
-        ].filter(Boolean);
-        return {r, l10HR, l7, reasons};
-      })
-      .sort((a,b)=>b.l10HR-a.l10HR || b.r.momentum-a.r.momentum);
-    const hot = onePerTeam(hotRaw, 5);
-
+    const hotRaw=S.allRows.filter(r=>{
+      const l10HR=(r._recentGames||[]).slice(0,10).reduce((s,g)=>s+(g.hr||0),0);
+      return l10HR>=3&&r.momentum>=1.05&&r.prob>=0.03&&r.pitcher>=0.98;
+    }).map(r=>{
+      const l10HR=(r._recentGames||[]).slice(0,10).reduce((s,g)=>s+(g.hr||0),0);
+      return {r,l10HR,reasons:[`${l10HR} HR in last 10 games`,r.barrel_pct!=null?`${r.barrel_pct.toFixed(0)}% barrel — sustains streak`:''].filter(Boolean)};
+    }).sort((a,b)=>b.l10HR-a.l10HR);
+    const hot=topN(hotRaw,4);
     if(hot.length){
-      html += `<div style="margin-bottom:18px">
-        ${sectionHdr('🔥','Hot Right Now','Active HR streaks with a favorable matchup today',hot.length)}`;
-      hot.forEach(({r,l10HR,l7,reasons})=>{
-        const badge = l10HR>=5?'On Fire':l10HR>=4?'Streaking':'In Form';
-        html += discCard(r, reasons, '#f97316', badge,
-          `<div style="font-size:.58rem;letter-spacing:1px;margin-top:2px">${l7}</div>`);
+      html+=`<div style="margin-bottom:18px">${sHdr('🔥','Hot Right Now','Active HR streaks with a favorable matchup today',hot.length)}`;
+      hot.forEach(({r,l10HR,reasons})=>{
+        html+=discCard(r,reasons,'#f97316',l10HR>=5?'On Fire':l10HR>=4?'Streaking':'In Form');
       });
-      html += `</div>`;
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // 5. 🎯 SHARP ANGLES — best pitcher mismatches on the slate
-    //    SP is hittable (pitcher mult ≥1.12) AND batter has power
-    // ══════════════════════════════════════════════════════════════
-    const sharpRaw = S.allRows
-      .filter(r=>r.pitcher>=1.12 && r.prob>=0.04 &&
-        ((r.barrel_pct!=null&&r.barrel_pct>=10)||(r.iso!=null&&r.iso>=0.190)))
-      .map(r=>{
-        const reasons=[
-          r.spNm?`${r.spNm} showing ${((r.pitcher-1)*100).toFixed(0)}% HR-prone (${r.pitcher.toFixed(2)}x)`:null,
-          r.platoon>=1.10?`${r.batHand}HB vs ${r.oppHand||'?'}HP platoon edge (${r.platoon.toFixed(2)}x)`:null,
-          r.barrel_pct!=null?`${r.barrel_pct.toFixed(0)}% barrel rate — real power threat`:null,
-        ].filter(Boolean);
-        return {r, reasons};
-      })
-      .sort((a,b)=>b.r.pitcher-a.r.pitcher || b.r.prob-a.r.prob);
-    const sharp = onePerTeam(sharpRaw, 5);
-
-    if(sharp.length){
-      html += `<div style="margin-bottom:18px">
-        ${sectionHdr('🎯','Sharp Angles','Best pitcher mismatches on today\'s slate',sharp.length)}`;
-      sharp.forEach(({r,reasons})=>{
-        const badge = r.pitcher>=1.20?'Elite Mismatch':r.pitcher>=1.15?'SP Fade':'SP Angle';
-        html += discCard(r, reasons, '#22c95e', badge);
-      });
-      html += `</div>`;
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // 6. 💰 VALUE PLAYS — model prob significantly above FD implied
-    // ══════════════════════════════════════════════════════════════
-    const valueRaw = S.allRows
-      .map(r=>{
-        const fdO=getFDOdds(r.name);
-        if(fdO==null) return null;
-        const tier=getEdgeTier(r.prob,fdO);
-        if(!tier||tier.edge<4) return null;
-        const implied=fdO>0?100/(fdO+100):-fdO/(-fdO+100);
-        const reasons=[
-          `Model: ${(r.prob*100).toFixed(1)}% vs book implied: ${(implied*100).toFixed(1)}% (+${tier.edge.toFixed(1)}% edge)`,
-          r.platoon>=1.10?`Favorable ${r.batHand}HB vs ${r.oppHand||'?'}HP platoon`:'',
-          r.pitcher>=1.05?`SP matchup boosting probability (${r.pitcher.toFixed(2)}x)`:'',
-        ].filter(Boolean);
-        return {r, tier, fdO, edge:tier.edge, reasons};
-      })
-      .filter(Boolean)
-      .sort((a,b)=>b.edge-a.edge);
-    const value = onePerTeam(valueRaw, 5);
-
-    if(value.length){
-      html += `<div style="margin-bottom:18px">
-        ${sectionHdr('💰','Value Plays','Model probability significantly above FD implied odds',value.length)}`;
-      value.forEach(({r,tier,fdO,edge,reasons})=>{
-        const badge = edge>=8?'Big Value':edge>=6?'Strong Value':'Value';
-        const oddsStr=`<div style="font-size:.68rem;font-weight:800;color:var(--green)">${fdO>0?'+':''}${fdO}</div>`;
-        html += discCard(r, reasons, '#22c95e', badge, oddsStr);
-      });
-      html += `</div>`;
+      html+=`</div>`;
     }
 
     if(!html){
-      html = `<div class="empty" style="padding:40px 0">
+      html=`<div class="empty" style="padding:40px 0">
         No standout plays found yet — load more games or check back after lineups confirm
       </div>`;
     }
 
-    el.innerHTML = html;
+    el.innerHTML=html;
 
   }catch(e){
-    console.error('[renderDiscover]', e);
+    console.error('[renderDiscover]',e);
     el.innerHTML=`<div class="card" style="color:var(--red);font-size:.75rem">${e.message}</div>`;
   }
 }
-
-
 // ==================================================================
 //  FANGRAPHS FIP/xFIP — gold-standard pitcher quality metrics
 //  FIP = field-independent pitching (removes luck/defense)
@@ -10467,68 +10539,71 @@ function renderHRProjection(){
 //  Not just HR probability — weights conviction, data quality,
 //  angle alignment, value vs book, and signal consistency
 // ==================================================================
+// ==================================================================
+//  PICKS — composite conviction score (no double-counting)
+//  Rewards: data quality, signal alignment, odds value
+//  Does NOT re-add signals already baked into probability
+// ==================================================================
 function calcBetScore(r){
-  if(!r||!r.prob) return 0;
+  if(!r?.prob) return 0;
 
-  const dc = calcDataConfidence(r);
-  const confMult = {A:1.0, B:0.82, C:0.60}[dc.grade] || 0.70;
-
-  // Base: probability (core signal)
-  let score = r.prob * 100;
-
-  // Positive signal alignment bonus
-  const angles = detectAngles(r);
-  const posAngles = angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)'));
-  const negAngles = detectNegativeAngles(r);
-  score += posAngles.length * 0.8;
-  score -= negAngles.length * 1.2; // negative signals penalize harder
-
-  // Specific high-value signals
-  const hasPlatoonEdge = r.platoon >= 1.10;
-  const hasHRProneSP   = r.pitcher >= 1.15;
-  const hasPowerBase   = (r.barrel_pct||0)>=10 || (r.pull_air_pct||0)>=15 || (r.iso||0)>=0.220;
-  const hasPark        = r.parkwx >= 1.06;
-  const hasHot         = r.momentum >= 1.08;
-  const hasGoodHvH     = r.hvhMult >= 1.15;
-  const hasEliminated  = r.platoon <= 0.75 || r.pitcher <= 0.75 || (r.postponeRisk||0) >= 0.40;
-
-  if(hasPlatoonEdge) score += 2.0;
-  if(hasHRProneSP)   score += 2.5;
-  if(hasPowerBase)   score += 1.5;
-  if(hasPark)        score += 1.0;
-  if(hasHot)         score += 1.0;
-  if(hasGoodHvH)     score += 1.5;
-  if(hasEliminated)  return -1; // disqualify
-
-  // Signal CONSISTENCY bonus — all pointing same direction
-  const allPositive = hasPlatoonEdge && hasHRProneSP && hasPowerBase;
-  if(allPositive) score += 3.0;
-
-  // FD value bonus
   const fdOdds = getFDOdds(r.name);
-  if(fdOdds!=null){
+  const dc     = calcDataConfidence(r);
+  const confMult = {A:1.0, B:0.85, C:0.65}[dc.grade] || 0.70;
+
+  // ── Hard disqualifiers ──────────────────────────────────────
+  if(r.prob < 0.04) return 0;
+  if((r.postponeRisk||0) >= 0.40) return 0;
+  // Strongly overpriced = no value regardless of prob
+  if(fdOdds != null){
     const ed = calcEdge(r.prob, fdOdds);
-    if(ed && ed.edge >= 5)  score += 4.0;
-    else if(ed && ed.edge >= 2) score += 2.0;
-    else if(ed && ed.edge < -5) return -1; // overpriced = disqualify
+    if(ed && ed.edge < -6) return 0;
   }
 
-  // Lineup must be confirmed
-  if(r.lineupConfirmed === false) score -= 3.0;
+  // ── Base: probability adjusted for data confidence ──────────
+  // This is the only place prob enters — no double-counting below
+  let score = r.prob * 100 * confMult;
 
-  // Data confidence multiplier
-  score *= confMult;
+  // ── Residual bonus 1: signal independence ───────────────────
+  // Reward DIFFERENT types of signals pointing same direction.
+  // These represent independent evidence, not overlap with prob.
+  const hasPower    = (r.barrel_pct||0)>=10 || (r.pull_air_pct||0)>=15 || (r.iso||0)>=0.200;
+  const hasPlatoon  = r.platoon >= 1.12;
+  const hasPitcher  = r.pitcher >= 1.12;
+  const hasPark     = r.parkwx  >= 1.06;
+  const hasForm     = r.momentum >= 1.08;
+  const hasBvP      = r.hvhMult >= 1.15;
 
-  // Minimum prob gate
-  if(r.prob < 0.045) score *= 0.5;
+  // Count independent signal types (not signal count — types)
+  const signalTypes = [hasPower, hasPlatoon, hasPitcher, hasPark, hasForm, hasBvP]
+    .filter(Boolean).length;
 
-  // Edge gate — only recommend plays where edge > MIN_EDGE_PCT
-  // This is the professional standard: without edge, don't bet
-  if(fdOdds!=null){
-    const k=calcKelly(r.prob,fdOdds);
-    if(k && k.edge < MIN_EDGE_PCT) score *= 0.7; // penalize marginal edge plays
-    if(!k || k.edge <= 0) score *= 0.3; // heavily penalize negative edge
+  // Alignment bonus scales non-linearly — 3+ types is genuinely stronger
+  if(signalTypes >= 4) score += 4.0;
+  else if(signalTypes === 3) score += 2.0;
+  else if(signalTypes === 2) score += 0.8;
+  // 0-1 types = no bonus (prob already accounts for single-signal plays)
+
+  // ── Residual bonus 2: negative signal penalty ───────────────
+  const negAngles = detectNegativeAngles(r);
+  score -= negAngles.length * 1.5;
+
+  // ── Residual bonus 3: lineup confirmation ───────────────────
+  if(r.lineupConfirmed === false) score *= 0.78; // unconfirmed = less reliable
+
+  // ── Residual bonus 4: odds value (only non-duplicate signal) ─
+  // Edge vs book is genuinely new information not in the probability
+  let edgeScore = 0;
+  if(fdOdds != null){
+    const ed = calcEdge(r.prob, fdOdds);
+    if(ed){
+      if(ed.edge >= 8)  edgeScore = 6.0;
+      else if(ed.edge >= 5) edgeScore = 4.0;
+      else if(ed.edge >= 2) edgeScore = 2.0;
+      else if(ed.edge >= 0) edgeScore = 0.5;
+    }
   }
+  score += edgeScore;
 
   return Math.max(score, 0);
 }
@@ -10536,131 +10611,168 @@ function calcBetScore(r){
 function renderBestBets(){
   const el = document.getElementById('picks-content');
   if(!el) return;
-
   if(!S.allRows.length){
-    el.innerHTML = '<div class="empty" style="padding:40px 0">Load games on the Slate tab first</div>';
+    el.innerHTML='<div class="empty" style="padding:40px 0">Load games on the Slate tab first</div>';
     return;
   }
 
-  // Score all players
-  const scored = S.allRows
-    .map(r=>({r, score:calcBetScore(r)}))
+  const hasOdds = _fdOddsLoaded && _fdOdds && Object.keys(_fdOdds).length > 0;
+  const MIN_SCORE = 9.0; // minimum conviction threshold — no floor-scraping picks
+
+  // ── Score all players ────────────────────────────────────────
+  const allScored = S.allRows
+    .map(r=>({ r, score:calcBetScore(r) }))
     .filter(({score})=>score>0)
     .sort((a,b)=>b.score-a.score);
 
-  const topPicks = scored.slice(0, 5);
-  if(!topPicks.length){
-    el.innerHTML = '<div class="empty" style="padding:40px 0">No strong picks today</div>';
+  // ── Section 1: Model Conviction Plays (score above threshold) ─
+  const convictionPicks = allScored.filter(({score})=>score>=MIN_SCORE).slice(0,8);
+
+  // ── Section 2: Best Value Plays (ranked by edge, needs odds) ──
+  const valuePicks = !hasOdds ? [] : S.allRows
+    .map(r=>{
+      const fdO=getFDOdds(r.name); if(!fdO) return null;
+      const ed=calcEdge(r.prob,fdO); if(!ed||ed.edge<3) return null;
+      return {r,fdO,edge:ed.edge,ed};
+    })
+    .filter(Boolean)
+    .sort((a,b)=>b.edge-a.edge)
+    .slice(0,5);
+
+  if(!convictionPicks.length && !valuePicks.length){
+    el.innerHTML=`<div class="empty" style="padding:40px 0">
+      No plays clear the conviction threshold today.<br>
+      <span style="font-size:.65rem;color:var(--t4)">Load more games or wait for lineups to confirm.</span>
+    </div>`;
     return;
   }
 
-  const medals = ['🥇','🥈','🥉','4️⃣','5️⃣'];
+  // ── Card builder ─────────────────────────────────────────────
+  const buildPickCard=(r,rank,accentClr,badgeLabel,showEdge=false)=>{
+    const dc       = calcDataConfidence(r);
+    const angles   = detectAngles(r);
+    const posA     = angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)'));
+    const negA     = detectNegativeAngles(r);
+    const fdOdds   = getFDOdds(r.name);
+    const ed       = fdOdds!=null ? calcEdge(r.prob,fdOdds) : null;
+    const [,gc]    = probGrade(r.prob);
+    const pct      = (r.prob*100).toFixed(1);
+    const jhr      = calcJHR(r);
+    const [jGrd,jClr] = jhrGrade(jhr);
 
-  el.innerHTML = `
-    <div style="margin-bottom:16px">
-      <div style="font-size:.65rem;color:var(--t4);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Best Bets Today</div>
-      <div style="font-size:.75rem;color:var(--t3)">Ranked by composite conviction: probability + matchup + data confidence + signal alignment</div>
-    </div>
+    // What drives this pick — residual signals not in prob
+    const drivers=[];
+    if(dc.grade==='A') drivers.push(`${dc.grade}-grade data — high confidence`);
+    const signalTypes=[
+      (r.barrel_pct||0)>=10||(r.iso||0)>=0.200 ? 'real power base':null,
+      r.platoon>=1.12 ? `${r.platoon.toFixed(2)}× platoon edge`:null,
+      r.pitcher>=1.12 ? `${r.pitcher.toFixed(2)}× pitcher edge`:null,
+      r.parkwx>=1.06  ? `${r.parkwx.toFixed(2)}× park/weather`:null,
+      r.momentum>=1.08? 'hot recent form':null,
+      r.hvhMult>=1.15 ? 'strong career BvP':null,
+    ].filter(Boolean);
+    if(signalTypes.length>=3) drivers.push(`${signalTypes.length} independent signals aligned`);
+    else signalTypes.forEach(s=>drivers.push(s));
+    if(ed&&ed.edge>=3) drivers.push(`+${ed.edge.toFixed(1)}% edge at ${fdOdds>0?'+':''}${fdOdds}`);
 
-    ${topPicks.map(({r, score}, i)=>{
-      const dc = calcDataConfidence(r);
-      const angles = detectAngles(r);
-      const posAngles = angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)'));
-      const neg = detectNegativeAngles(r);
-      const fdOdds = getFDOdds(r.name);
-      const ed = fdOdds!=null ? calcEdge(r.prob, fdOdds) : null;
-      const [,gc] = probGrade(r.prob);
-      const pct = (r.prob*100).toFixed(1);
+    // What could make this wrong
+    const risks=[];
+    if(r.lineupConfirmed===false) risks.push('Lineup not confirmed yet');
+    if(dc.grade==='C') risks.push('Limited Statcast data — lower confidence');
+    if(negA.length>0) risks.push(negA.slice(0,1).map(n=>n.label).join(', '));
+    if(r.platoon<1.0&&r.platoon>0.85) risks.push(`Slight platoon disadvantage (${r.platoon.toFixed(2)}×)`);
 
-      // Why this pick — top 3 reasons
-      const reasons = [];
-      if(r.platoon>=1.20) reasons.push('Platoon King matchup');
-      else if(r.platoon>=1.10) reasons.push('Favorable platoon');
-      if(r.pitcher>=1.20) reasons.push('HR-prone SP');
-      else if(r.pitcher>=1.10) reasons.push('Hittable pitcher');
-      if(r.parkwx>=1.08) reasons.push('HR-friendly park/weather');
-      if(r.momentum>=1.08) reasons.push('Hot recent form');
-      if(r.hvhMult>=1.15) reasons.push('Strong career vs this SP');
-      if((r.barrel_pct||0)>=15) reasons.push('Elite barrel%');
-      if((r.pull_air_pct||0)>=18) reasons.push('Pull-air elite');
-      if((r.iso||0)>=0.260) reasons.push('Elite raw power');
-      if(ed&&ed.edge>=5) reasons.push(`+${ed.edge}% FD value`);
+    return `<div class="card" style="margin-bottom:10px;border-left:3px solid ${accentClr}">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="flex-shrink:0;margin-top:2px">
+          <div style="font-size:.58rem;font-weight:700;color:${accentClr};text-transform:uppercase;
+            letter-spacing:.06em;text-align:center;margin-bottom:3px">${badgeLabel}</div>
+          <div style="text-align:center;min-width:48px">
+            <div style="font-size:1.5rem;font-weight:900;color:${gc};line-height:1">${pct}%</div>
+            <div style="font-size:.50rem;color:var(--t4);margin-top:1px">HR prob</div>
+          </div>
+          ${jhr!=null?`<div style="text-align:center;margin-top:5px;padding:3px 5px;border-radius:8px;background:${jClr}15;border:1px solid ${jClr}30">
+            <div style="font-size:1.0rem;font-weight:900;color:${jClr};line-height:1">${jhr}</div>
+            <div style="font-size:.46rem;color:var(--t4)">jHR</div>
+          </div>`:''}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.90rem;font-weight:800;color:var(--t1)">${r.name}</div>
+          <div style="font-size:.60rem;color:var(--t4);margin-bottom:6px">
+            ${r.team} · ${r.batHand}HB vs ${r.oppHand||'?'}HP · vs ${r.spNm||'SP'}${r.lineupPos?` · #${r.lineupPos}`:''}
+            ${r.gameTime?` · ${fmtGameTime(r.gameTime)}`:''}
+          </div>
 
-      // Score breakdown
-      const scoreBreakdown = `${pct}% prob · ${posAngles.length} positive signals · ${dc.grade} data`;
-      if(neg.length>0 && reasons.length < 2) reasons.push(`Note: ${neg.length} negative angle${neg.length>1?'s':''}`);
+          ${drivers.length?`<div style="margin-bottom:6px">
+            ${drivers.slice(0,3).map(d=>`<div style="display:flex;align-items:center;gap:5px;font-size:.65rem;color:var(--t2);padding:1px 0">
+              <span style="color:${accentClr};font-size:.70rem">✓</span>${d}
+            </div>`).join('')}
+          </div>`:''}
 
-      return `<div class="card" style="margin-bottom:12px;border-color:${i===0?'rgba(255,215,0,.4)':i<=1?'rgba(34,201,94,.2)':'var(--bdr)'}">
-        <div style="display:flex;align-items:flex-start;gap:12px">
-          <div style="font-size:1.6rem;flex-shrink:0;margin-top:2px">${medals[i]}</div>
-          <div style="flex:1;min-width:0">
-            <!-- Header -->
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-              <div>
-                <div style="font-size:.95rem;font-weight:800;color:var(--t1)">${r.name}</div>
-                <div style="font-size:.66rem;color:var(--t4)">${r.team} · ${r.pos} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · #${r.lineupPos}`:''}</div>
-                <div style="font-size:.64rem;color:var(--t4)">vs ${r.spNm||'SP'} · ${r.game||''}${r.gameTime?` · ${fmtGameTime(r.gameTime)}`:''}</div>
-              </div>
-              <div style="text-align:center;flex-shrink:0">
-                <div style="font-size:1.4rem;font-weight:900;color:${gc}">${pct}%</div>
-                <div style="font-size:.58rem;color:${dc.color};font-weight:700">${dc.grade} data</div>
-                ${ed&&ed.edge>=3?`<div style="font-size:.60rem;color:var(--green);font-weight:700">+${ed.edge}% edge</div>`:''}
-              </div>
-            </div>
+          ${risks.length?`<div style="margin-bottom:6px">
+            ${risks.slice(0,2).map(rk=>`<div style="display:flex;align-items:center;gap:5px;font-size:.62rem;color:var(--amber);padding:1px 0">
+              <span>⚠</span>${rk}
+            </div>`).join('')}
+          </div>`:''}
 
-            <!-- Why this pick -->
-            <div style="margin-bottom:8px">
-              ${reasons.slice(0,3).map(r2=>`<div style="display:flex;align-items:center;gap:6px;font-size:.70rem;color:var(--t2);padding:2px 0">
-                <span style="color:var(--green)">✓</span> ${r2}
-              </div>`).join('')}
-            </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+            ${posA.slice(0,3).map(a=>`<span style="font-size:.58rem;padding:1px 7px;border-radius:99px;
+              background:${a.color}20;border:1px solid ${a.color}35;color:${a.color}">
+              ${a.icon} ${a.label}</span>`).join('')}
+            <span style="font-size:.58rem;padding:1px 7px;border-radius:99px;background:var(--bg3);color:var(--t4)">${dc.grade} data</span>
+          </div>
 
-            <!-- Positive angle tags -->
-            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
-              ${posAngles.slice(0,4).map(a=>`<span style="font-size:.60rem;padding:2px 7px;border-radius:99px;
-                background:${a.color}22;border:1px solid ${a.color}44;color:${a.color}">
-                ${a.icon} ${a.label}</span>`).join('')}
-            </div>
-
-            <!-- Negative angles warning if any -->
-            ${neg.length?`<div style="font-size:.63rem;color:var(--red);margin-bottom:6px">
-              ⚠️ ${neg.slice(0,2).map(n=>n.label).join(' · ')}
-            </div>`:''}
-
-            <!-- Score + tap to detail -->
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <div style="font-size:.63rem;color:var(--t4)">${scoreBreakdown}</div>
-              <button onclick="showDetail('${r.id}')"
-                style="font-size:.65rem;padding:5px 12px;border-radius:8px;border:none;
-                background:var(--bg3);color:var(--t2);cursor:pointer">
-                View Detail →
-              </button>
-            </div>
-
-            ${ed&&ed.edge>=3?`<div style="margin-top:8px;padding:7px 10px;border-radius:8px;
-              background:rgba(34,201,94,.08);border:1px solid rgba(34,201,94,.2);
-              font-size:.68rem;color:var(--green)">
-              💰 FD ${fdOdds>0?'+':''}${fdOdds} · +${ed.edge.toFixed(1)}% edge · Edge: +${ed.edge}%
-            </div>`:''}
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:.60rem;color:var(--t4)">${(r.prob*100).toFixed(1)}% · ${posA.length} signals · ${dc.grade} data</div>
+            <button onclick="showDetail('${r.id}')"
+              style="font-size:.63rem;padding:4px 11px;border-radius:7px;border:none;
+              background:var(--bg3);color:var(--t2);cursor:pointer">Detail →</button>
           </div>
         </div>
-      </div>`;
-    }).join('')}
+      </div>
+    </div>`;
+  };
 
-    <!-- Honorable mentions -->
-    ${scored.length>5?`<div style="margin-top:8px">
-      <div style="font-size:.65rem;color:var(--t4);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">Also worth watching</div>
-      ${scored.slice(5,8).map(({r})=>{
-        const [,gc]=probGrade(r.prob);
-        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3);cursor:pointer" onclick="showDetail('${r.id}')">
-          <div style="flex:1;font-size:.78rem;color:var(--t2)">${r.name}
-            <span style="font-size:.65rem;color:var(--t4)"> · ${r.team} · ${r.batHand}HB vs ${r.oppHand}HP</span>
-          </div>
-          <span style="font-size:.78rem;font-weight:700;color:${gc}">${(r.prob*100).toFixed(1)}%</span>
-        </div>`;
-      }).join('')}
-    </div>`:''}
-  `;
+  // ── Render ────────────────────────────────────────────────────
+  const medals=['🥇','🥈','🥉','4th','5th','6th','7th','8th'];
+  let html='';
+
+  // Section 1: Model Conviction
+  if(convictionPicks.length){
+    html+=`<div style="margin-bottom:6px">
+      <div style="font-size:.68rem;font-weight:800;color:var(--t2);text-transform:uppercase;
+        letter-spacing:.07em">🎯 Model Conviction</div>
+      <div style="font-size:.60rem;color:var(--t4);margin-bottom:10px">
+        Ranked by data-quality-adjusted probability · signal alignment · ${convictionPicks.length} clear above threshold
+      </div>
+    </div>`;
+    convictionPicks.forEach(({r,score},i)=>{
+      const accent = i===0?'#ffd700':i===1?'var(--green)':i===2?'#4ade80':'var(--bdr)';
+      html += buildPickCard(r, i+1, accent, medals[i], true);
+    });
+  }
+
+  // Section 2: Best Value (odds required)
+  if(valuePicks.length){
+    html+=`<div style="margin:16px 0 8px">
+      <div style="font-size:.68rem;font-weight:800;color:var(--t2);text-transform:uppercase;
+        letter-spacing:.07em">💰 Best Value vs FD Odds</div>
+      <div style="font-size:.60rem;color:var(--t4);margin-bottom:10px">
+        Ranked by edge over book — model prob significantly above implied
+      </div>
+    </div>`;
+    valuePicks.forEach(({r,fdO,edge,ed},i)=>{
+      const accent = edge>=8?'#ffd700':edge>=5?'var(--green)':'#4ade80';
+      html += buildPickCard(r, i+1, accent,
+        `+${edge.toFixed(1)}% EDGE`, true);
+    });
+  } else if(!hasOdds && convictionPicks.length){
+    html+=`<div style="margin-top:12px;padding:10px 12px;border-radius:10px;
+      background:rgba(240,165,0,.08);border:1px solid rgba(240,165,0,.25);
+      font-size:.65rem;color:var(--amber)">
+      💡 Load FD odds via the header button to unlock value rankings — shows which picks have real edge vs the book
+    </div>`;
+  }
 }
 
 
