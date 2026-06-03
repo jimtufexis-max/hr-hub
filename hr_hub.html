@@ -1473,7 +1473,13 @@ async function getBatterL14Stats(pid, batHand='R'){
     const rows=parseCSVText(txt);
 
     const evs=[],xwobaVals=[],las=[];
-    let barrels=0,hard=0,fb=0,gb=0,ld=0,pullAir=0,bip=0,pa=0,hits=0,tb=0;
+    let barrels=0,hard=0,fb=0,gb=0,ld=0,pullAir=0,bip=0,pa=0,hits=0,tb=0,ab=0;
+
+    // At-bat events (excludes BB, HBP, SF, SH — same as official AB definition)
+    const AB_EVENTS = new Set(['single','double','triple','home_run',
+      'strikeout','strikeout_double_play','field_out','force_out',
+      'grounded_into_double_play','fielders_choice','fielders_choice_out',
+      'other_out','double_play','triple_play','pop_out','lineout','flyout','groundout']);
 
     for(const row of rows){
       const ev=parseFloat(row.launch_speed), la=parseFloat(row.launch_angle);
@@ -1484,6 +1490,7 @@ async function getBatterL14Stats(pid, batHand='R'){
         'caught_stealing_home','pickoff_1b','pickoff_2b','pickoff_3b',
         'wild_pitch','passed_ball'].includes(events);
       if(isPA) pa++;
+      if(events && AB_EVENTS.has(events)) ab++;
 
       if(!isNaN(ev)&&ev>0){
         evs.push(ev); if(ev>=95) hard++;
@@ -1528,10 +1535,10 @@ async function getBatterL14Stats(pid, batHand='R'){
       gbPct:       bip>5? Math.round(gb/bip*1000)/10  : null,
       pullAirPct:  bip>5? Math.round(pullAir/bip*1000)/10 : null,
       xwoba:       xwobaVals.length>5 ? Math.round(xwobaVals.reduce((a,b)=>a+b)/xwobaVals.length*1000)/1000 : null,
-      iso:         pa>5&&n>0 ? (() => {
-                     const ab=n; const slg=ab>0?tb/ab:null; const avg=ab>0?hits/ab:null;
-                     return slg&&avg ? Math.round((slg-avg)*1000)/1000 : null;
-                   })() : null,
+      iso:   ab>5 ? (() => {
+               const slg=ab>0?tb/ab:null; const avg=ab>0?hits/ab:null;
+               return slg!=null&&avg!=null ? Math.round((slg-avg)*1000)/1000 : null;
+             })() : null,
       n, bip,
     };
     _playerCache[ckey] = result;
@@ -10706,7 +10713,7 @@ async function loadGame(g){
         chaseRate:       savH.chaseRate     ?? null,
         zContact:        savH.zContact      ?? null,
         sweetSpot:       savH.sweetSpot     ?? null,
-        avgLA:           savH.avgLA         ?? null,
+        avgLA:           savH.avg_la        ?? null,
         avgHRDist:       savH.avgHRDist     ?? null,
         homeAwaySplits:  homeAwayMap[pid]   || null,
         platoonSplits:   platoonMap[pid]    || null,
@@ -11067,8 +11074,8 @@ function renderScout(){
       coverage.barrel   = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.barrelPct  ?? r.barrel_pct)!=null).length / n;
       coverage.pullAir  = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.pullAirPct ?? r.pull_air_pct)!=null).length / n;
       coverage.hardHit  = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.hardHitPct ?? r.hard_hit_pct)!=null).length / n;
-      coverage.la       = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.avgLA       ?? r.avgLA)!=null).length / n;
-      coverage.iso      = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.iso         ?? r.iso)!=null).length / n;
+      coverage.la       = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.avgLA ?? r.avgLA)!=null).length / n;
+      coverage.iso      = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.iso ?? r._l14iso ?? r.iso)!=null).length / n;
       coverage.slg      = enrichedRows.filter(r=>(r._l14slg ?? r.szSLG)!=null).length / n;
       coverage.avg      = enrichedRows.filter(r=>(r._l14avg ?? r.szAVG)!=null).length / n;
       coverage.platoon  = enrichedRows.filter(r=>r.platoon!=null).length / n;
@@ -11174,7 +11181,7 @@ function renderScout(){
           else if(key==='hardHit') val = l14sc?.hardHitPct ?? r.hard_hit_pct;
           else if(key==='pullAir') val = l14sc?.pullAirPct  ?? r.pull_air_pct;
           else if(key==='la')      val = l14sc?.avgLA        ?? r.avgLA;
-          else if(key==='iso')     val = l14sc?.iso          ?? r._l14iso ?? r.iso;
+          else if(key==='iso')     val = l14sc?.iso ?? r._l14iso ?? r.iso;
           else if(key==='slg')     val = r._l14slg  ?? r.szSLG;
           else if(key==='avg')     val = r._l14avg  ?? r.szAVG;
           else if(key==='prob')    val = r._l14hrRate ?? (r.prob*100);
