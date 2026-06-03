@@ -10956,6 +10956,42 @@ function renderScout(){
   const filters  = isBatter ? st.batter : st.pitcher;
   const activeCount = Object.values(filters).filter(f=>f.on).length;
 
+  // ── Sync latest pitcher maps to rows (fireSecondaryMaps only runs once,
+  //    so new games loaded afterward never get fgStats/whiffPct/savant data)
+  if(!isBatter){
+    for(const r of S.allRows){
+      if(!r._pitcherStats || !r._spId) continue;
+      const pid = String(r._spId);
+      // FG pitcher map
+      if(_fgPitcherMap && _fgPitcherMap[pid] && !r._pitcherStats.fgStats)
+        r._pitcherStats.fgStats = _fgPitcherMap[pid];
+      // Savant pitcher Statcast
+      const sp2 = (_savP||{})[pid]||{};
+      if(sp2.barrel_pct!=null && r._pitcherStats.barrel_pct_allowed==null)
+        r._pitcherStats.barrel_pct_allowed    = sp2.barrel_pct;
+      if(sp2.pull_air_pct!=null && r._pitcherStats.pull_air_pct_allowed==null)
+        r._pitcherStats.pull_air_pct_allowed  = sp2.pull_air_pct;
+      if(sp2.pull_pct!=null && r._pitcherStats.pull_pct_allowed==null)
+        r._pitcherStats.pull_pct_allowed      = sp2.pull_pct;
+      if(r._pitcherStats.fb_pct_savant==null)
+        r._pitcherStats.fb_pct_savant         = sp2.fb_pct_bb ?? sp2.fb_percent ?? null;
+      // Whiff / run value
+      if(_pitcherWhiffMap && _pitcherWhiffMap[pid]){
+        if(r._pitcherStats.whiffPct==null)
+          r._pitcherStats.whiffPct = _pitcherWhiffMap[pid].whiffPct ?? null;
+        if(r._pitcherStats.runValue==null)
+          r._pitcherStats.runValue = _pitcherWhiffMap[pid].runValue ?? null;
+      }
+    }
+    // Trigger loading of any pitcher maps not yet fetched
+    if(_fgPitcherMap===null)
+      ensureFGPitcherMap().then(()=>{ if(_currentPage==='scout') renderScout(); });
+    if(_pitcherWhiffMap===null)
+      ensurePitcherWhiffMap().then(()=>{ if(_currentPage==='scout') renderScout(); });
+    if(!_savP || Object.keys(_savP).length===0)
+      getSavantPitchers().then(d=>{ _savP=d||{}; if(_currentPage==='scout') renderScout(); });
+  }
+
   // ── Compute L14 stats from _recentGames for each batter row ───────
   // Only hr/ab/h/tb available at game level — no L14 Statcast
   const computeL14 = r => {
@@ -14771,6 +14807,21 @@ function mapStatcastABRow(row, pitcherNameMap={}){
     if(la>=mn&&la<=mx) isBrl=true;
   }
 
+  // Pull direction — use hc_x coordinate from Savant
+  // Savant coordinate: home plate ~x=125. RHB pull = LF side (x<120), LHB pull = RF side (x>130)
+  // Fallback: hit_location (1-9 fielder positions) — RHB pull: 5,6,7; LHB pull: 3,4,9
+  const stand = row.stand || row.batter_stands || 'R';
+  const hcx   = parseFloat(row.hc_x);
+  const hitLoc= parseInt(row.hit_location);
+  let pull = false;
+  if(!isNaN(hcx) && hcx > 0){
+    pull = stand === 'L' ? hcx > 135 : hcx < 115;
+  } else if(!isNaN(hitLoc) && hitLoc > 0){
+    pull = stand === 'L'
+      ? [3,4,9].includes(hitLoc)   // LHB pull = 1B/2B/RF side
+      : [5,6,7].includes(hitLoc);  // RHB pull = 3B/SS/LF side
+  }
+
   // Resolve pitcher: try name map first (ID→name), then name columns
   const pitcherId=String(row.pitcher||'').replace(/\.0$/,'');
   const pitcherName = pitcherNameMap[pitcherId]
@@ -14790,6 +14841,8 @@ function mapStatcastABRow(row, pitcherNameMap={}){
     la:Math.round(la*10)/10,
     dist:isNaN(dist)?null:Math.round(dist),
     isBrl,
+    pull,           // ← now set correctly
+    stand,          // batter handedness for context
     result:titleCase(eventRaw.replace(/_/g,' '))||'--',
     traj:titleCase(bbRaw.replace(/_/g,' '))||'--',
     isHR:eventRaw==='home_run',
