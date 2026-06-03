@@ -1316,7 +1316,14 @@ async function getFGBatters(){
 
 async function getSavantPitchers(){
   try{
-    const toP = v=>{ const f=parseFloat(v); return isNaN(f)?null:Math.round(f*1000)/10; };
+    // Smart scale detection: Savant batted-ball CSVs sometimes return
+    // rates as percentages (8.8) not decimals (0.088) — handle both
+    const toPct = v => {
+      const f = parseFloat(v);
+      if(isNaN(f)) return null;
+      if(f > 1) return Math.round(f * 10) / 10;  // already a %, e.g. 8.8 → 8.8
+      return Math.round(f * 1000) / 10;           // decimal, e.g. 0.088 → 8.8
+    };
 
     // Fetch statcast leaderboard + batted-ball leaderboard in parallel
     const [scResp, bbResp] = await Promise.allSettled([
@@ -1337,11 +1344,11 @@ async function getSavantPitchers(){
         const pid = (row.player_id||row.pitcher||'').replace(/\.0$/,'');
         if(!pid) continue;
         out[pid] = {
-          barrel_pct:   toP(row.brl_percent ?? row.barrel_batted_rate),
-          hard_hit_pct: toP(row.ev95percent),
-          avg_ev:       toP(row.avg_hit_speed ?? row.avg_exit_velocity),
-          gb_percent:   toP(row.groundballs_percent ?? row.gb_percent ?? row.ground_ball_rate),
-          fb_percent:   toP(row.flyballs_percent ?? row.fb_percent ?? row.fly_ball_rate),
+          barrel_pct:   toPct(row.brl_percent ?? row.barrel_batted_rate),
+          hard_hit_pct: toPct(row.ev95percent),
+          avg_ev:       toPct(row.avg_hit_speed ?? row.avg_exit_velocity),
+          gb_percent:   toPct(row.groundballs_percent ?? row.gb_percent ?? row.ground_ball_rate),
+          fb_percent:   toPct(row.flyballs_percent ?? row.fb_percent ?? row.fly_ball_rate),
         };
       }
       console.log(`Savant pitchers (statcast): ${Object.keys(out).length}`);
@@ -1355,12 +1362,12 @@ async function getSavantPitchers(){
           const pid = String(row.id||row.player_id||'').replace(/\.0$/,'');
           if(!pid) continue;
           if(!out[pid]) out[pid] = {};
-          const pull    = toP(row.pull_rate    ?? row.pull_percent);
-          const pullAir = toP(row.pull_air_rate ?? row.pull_air_percent ?? row.pull_percent_of);
-          const fbPct   = toP(row.fb_rate      ?? row.fly_ball_rate);
+          const pull    = toPct(row.pull_rate    ?? row.pull_percent);
+          const pullAir = toPct(row.pull_air_rate ?? row.pull_air_percent ?? row.pull_percent_of);
+          const fbPct   = toPct(row.fb_rate      ?? row.fly_ball_rate);
           if(pull    != null) out[pid].pull_pct     = pull;
           if(pullAir != null) out[pid].pull_air_pct = pullAir;
-          if(fbPct   != null) out[pid].fb_pct_bb    = fbPct;  // disambiguate from statcast fb_percent
+          if(fbPct   != null) out[pid].fb_pct_bb    = fbPct;
         }
         console.log(`Savant pitchers (batted-ball) merged`);
       }
@@ -10778,6 +10785,49 @@ function renderScout(){
   const filters  = isBatter ? st.batter : st.pitcher;
   const activeCount = Object.values(filters).filter(f=>f.on).length;
 
+  // ── Enrich batter rows with derived/fallback fields ──────────────
+  // Compute ISO from SLG-AVG if primary FG value is missing
+  const enrichedRows = S.allRows.map(r => {
+    if(r.iso != null) return r;
+    if(r.szSLG != null && r.szAVG != null){
+      return {...r, iso: Math.round((r.szSLG - r.szAVG)*1000)/1000};
+    }
+    return r;
+  });
+
+  // ── Data coverage check (what % of rows have each field) ─────────
+  const coverage = {};
+  if(isBatter){
+    const n = enrichedRows.length || 1;
+    coverage.prob     = enrichedRows.filter(r=>r.prob!=null).length / n;
+    coverage.jhr      = enrichedRows.filter(r=>calcJHR(r)!=null).length / n;
+    coverage.barrel   = enrichedRows.filter(r=>r.barrel_pct!=null).length / n;
+    coverage.pullAir  = enrichedRows.filter(r=>r.pull_air_pct!=null).length / n;
+    coverage.hardHit  = enrichedRows.filter(r=>r.hard_hit_pct!=null).length / n;
+    coverage.iso      = enrichedRows.filter(r=>r.iso!=null).length / n;
+    coverage.platoon  = enrichedRows.filter(r=>r.platoon!=null).length / n;
+    coverage.pitcher  = enrichedRows.filter(r=>r.pitcher!=null).length / n;
+    coverage.lineupPos= enrichedRows.filter(r=>r.lineupPos!=null).length / n;
+    coverage.parkwx   = enrichedRows.filter(r=>r.parkwx!=null).length / n;
+  } else {
+    const pitchers = [];
+    const seen = new Set();
+    for(const r of S.allRows){
+      const k = r._spId||r.spNm; if(!k||seen.has(k)) continue;
+      seen.add(k); pitchers.push(r._pitcherStats||{});
+    }
+    const n = pitchers.length || 1;
+    coverage.fbPct    = pitchers.filter(p=>p.fgStats?.fbPct!=null).length / n;
+    coverage.pullAir  = pitchers.filter(p=>p.pull_air_pct_allowed!=null).length / n;
+    coverage.hr9r     = pitchers.filter(p=>p.hr9_recent!=null).length / n;
+    coverage.hr9s     = pitchers.filter(p=>p.hr9_season!=null).length / n;
+    coverage.xfip     = pitchers.filter(p=>p.fgStats?.xfip!=null).length / n;
+    coverage.barrel   = pitchers.filter(p=>p.barrel_pct_allowed!=null).length / n;
+    coverage.kPct     = pitchers.filter(p=>p.fgStats?.kPct!=null).length / n;
+    coverage.whiff    = pitchers.filter(p=>p.whiffPct!=null).length / n;
+    coverage.daysRest = pitchers.filter(p=>p.daysRest?.days!=null).length / n;
+  }
+
   // ── Step adjustments per filter ────────────────────────────────
   const STEPS = {
     prob:0.5, jhr:5, barrel:1, pullAir:1, hardHit:1, iso:0.010,
@@ -10789,6 +10839,10 @@ function renderScout(){
   const filterChip = (key, f) => {
     const step  = STEPS[key] || 1;
     const fmt   = v => key==='iso' ? v.toFixed(3) : (v===Math.round(v)?v:v.toFixed(key.includes('fip')||key.includes('xfip')?2:1));
+    const cov   = coverage[key];
+    const covBadge = cov!=null
+      ? `<span style="font-size:.52rem;color:${cov>=0.7?'var(--green)':cov>=0.3?'var(--amber)':'var(--red)'};margin-left:3px" title="Data available for ${Math.round(cov*100)}% of players">${Math.round(cov*100)}%</span>`
+      : '';
     return `<div style="border:1px solid ${f.on?'var(--amber)':'var(--bdr)'};border-radius:10px;
       padding:7px 8px;background:${f.on?'rgba(240,165,0,.08)':'var(--bg3)'};
       transition:all .15s;margin-bottom:6px">
@@ -10799,7 +10853,7 @@ function renderScout(){
           <div style="position:absolute;top:2px;left:${f.on?'14':'2'}px;width:14px;height:14px;
             border-radius:50%;background:#fff;transition:left .15s"></div>
         </div>
-        <span style="font-size:.70rem;font-weight:600;color:${f.on?'var(--amber)':'var(--t3)'};flex:1">${f.label}</span>
+        <span style="font-size:.70rem;font-weight:600;color:${f.on?'var(--amber)':'var(--t3)'};flex:1">${f.label}${covBadge}</span>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           <span style="font-size:.60rem;color:var(--t4)">${f.op}</span>
           <button onclick="_scoutAdj('${key}',-1)"
@@ -10811,15 +10865,16 @@ function renderScout(){
             background:var(--bg2);color:var(--t2);font-size:.80rem;cursor:pointer;line-height:1;font-weight:700">+</button>
         </div>
       </div>
+      ${f.on&&cov!=null&&cov<0.3?`<div style="font-size:.58rem;color:var(--amber);margin-top:4px;padding-top:4px;border-top:1px solid rgba(240,165,0,.15)">⚠ Data only available for ${Math.round(cov*100)}% of players — load more games or wait for Statcast data to finish loading</div>`:''}
     </div>`;
   };
 
-  // ── Run filters against S.allRows ─────────────────────────────────
+  // ── Run filters against rows ─────────────────────────────────────
   let results = [];
   const activeFilters = Object.entries(filters).filter(([,f])=>f.on);
 
   if(isBatter){
-    results = S.allRows.filter(r=>{
+    results = enrichedRows.filter(r=>{
       return activeFilters.every(([key,f])=>{
         let val;
         if(key==='prob')     val = r.prob * 100;
@@ -10917,6 +10972,65 @@ function renderScout(){
         🥎 Pitcher Search
       </button>
     </div>
+
+    <!-- Example profile card -->
+    ${isBatter ? `
+    <div style="border:1px solid rgba(34,201,94,.25);border-radius:12px;padding:11px 12px;
+      background:rgba(34,201,94,.05);margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px">
+        <span style="font-size:.70rem;font-weight:800;color:var(--green)">📖 Elite HR Hitter Profile</span>
+        <span style="font-size:.58rem;color:var(--t4)">use as your filter benchmark</span>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${[
+          ['Barrel%','≥ 12%','green','Top 15% of MLB. Primary driver — hard contact at optimal angle'],
+          ['Pull-Air%','≥ 16%','green','Pulls fly balls frequently. This is the HR swing plane'],
+          ['Hard Hit%','≥ 50%','green','Consistent loud contact, not just barreling occasionally'],
+          ['ISO','≥ .220','green','Raw power. Anything above .200 is above avg, .250+ is elite'],
+          ['jHR Score','≥ 145','green','Great tier. Composite of all 6 Statcast power signals'],
+          ['HR Prob','≥ 10%','amber','Model threshold where standalone bet becomes interesting'],
+          ['Platoon ×','≥ 1.10','amber','Favorable hand matchup adds 10%+ over baseline'],
+          ['Lineup Spot','≤ 4','amber','More PA = more chances. Top 4 get ~4.5 PA vs #7 getting ~3.8'],
+        ].map(([lbl,val,clr,tip])=>`<div style="flex:1;min-width:calc(50% - 3px);padding:6px 8px;
+          border-radius:8px;background:var(--bg3);border-left:2px solid ${clr==='green'?'var(--green)':'var(--amber)'}">
+          <div style="font-size:.68rem;font-weight:700;color:${clr==='green'?'var(--green)':'var(--amber)'}">
+            ${lbl} <span style="font-size:.60rem;opacity:.85">${val}</span>
+          </div>
+          <div style="font-size:.58rem;color:var(--t4);margin-top:2px;line-height:1.4">${tip}</div>
+        </div>`).join('')}
+      </div>
+      <div style="margin-top:8px;font-size:.60rem;color:var(--t4);line-height:1.6;padding-top:7px;border-top:1px solid rgba(34,201,94,.15)">
+        💡 <b style="color:var(--t3)">Best combo:</b> Enable Barrel% + Pull-Air% + Hard Hit% together. A player clearing all three at these thresholds is in the top 5-8% of MLB power profiles. Add jHR ≥ 145 for extra conviction.
+      </div>
+    </div>` : `
+    <div style="border:1px solid rgba(224,80,74,.25);border-radius:12px;padding:11px 12px;
+      background:rgba(224,80,74,.05);margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:8px">
+        <span style="font-size:.70rem;font-weight:800;color:var(--red)">📖 HR-Prone Pitcher Profile</span>
+        <span style="font-size:.58rem;color:var(--t4)">what to look for on the mound</span>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${[
+          ['FB% Allowed','≥ 38%','red','Fly ball pitchers give up more HRs. MLB avg ~35%. Above 40% is dangerous'],
+          ['Pull-Air Allow','≥ 14%','red','Pull fly balls allowed. High rate = power hitters finding the barrel'],
+          ['HR/9 Recent','≥ 1.5','red','Last 3 starts trend. MLB avg ~1.1. Above 1.5 = actively struggling'],
+          ['Barrel% Allow','≥ 9%','red','Getting barreled up consistently. League avg ~7%. Anything ≥9% is bad'],
+          ['xFIP','≥ 4.20','amber','Process-based ERA estimator. Anything above 4.20 is below average'],
+          ['K% ≤','≤ 20%','amber','Low strikeout rate means more balls in play — more chances for HRs'],
+          ['Whiff% ≤','≤ 22%','amber','Hitters making contact. Stuff isn\'t missing bats'],
+          ['Days Rest ≤','≤ 4','amber','Short rest. Command and velo typically drop on normal rest or less'],
+        ].map(([lbl,val,clr,tip])=>`<div style="flex:1;min-width:calc(50% - 3px);padding:6px 8px;
+          border-radius:8px;background:var(--bg3);border-left:2px solid ${clr==='red'?'var(--red)':'var(--amber)'}">
+          <div style="font-size:.68rem;font-weight:700;color:${clr==='red'?'var(--red)':'var(--amber)'}">
+            ${lbl} <span style="font-size:.60rem;opacity:.85">${val}</span>
+          </div>
+          <div style="font-size:.58rem;color:var(--t4);margin-top:2px;line-height:1.4">${tip}</div>
+        </div>`).join('')}
+      </div>
+      <div style="margin-top:8px;font-size:.60rem;color:var(--t4);line-height:1.6;padding-top:7px;border-top:1px solid rgba(224,80,74,.15)">
+        💡 <b style="color:var(--t3)">Best combo:</b> Enable FB% ≥ 38% + HR/9 Recent ≥ 1.5. That combination narrows to pitchers who are both structurally fly-ball pitchers AND currently giving them up. Cross with Barrel% ≥ 9% for the full picture.
+      </div>
+    </div>`}
 
     <!-- Filters -->
     <div style="margin-bottom:10px">
