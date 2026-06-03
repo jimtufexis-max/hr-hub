@@ -1402,34 +1402,163 @@ async function getFGPitchers(){
 }
 
 async function getPitcherL14(pid){
-  if(!pid)return{};
+  if(!pid) return {};
+  const ckey = `l14pit_${pid}`;
+  if(_playerCache[ckey] !== undefined) return _playerCache[ckey]||{};
   try{
     const now=new Date(), st=new Date(); st.setDate(st.getDate()-14);
     const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const url=`https://baseballsavant.mlb.com/statcast_search/csv?player_type=pitcher&pitchers_lookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&hfGT=R%7C&min_results=0&group_by=name&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&`;
     const r = await fetch(PROXY + encodeURIComponent(url));
-    if(!r.ok)return{};
+    if(!r.ok){ _playerCache[ckey]={}; return{}; }
     const txt=await r.text();
     const rows=parseCSVText(txt);
-    const evs=[],las=[];let barrels=0,hard=0;
+    const evs=[],las=[],xwobaVals=[];
+    let barrels=0,hard=0,fb=0,gb=0,ld=0,pullAirCount=0,bip=0;
     for(const row of rows){
-      const ev=parseFloat(row.launch_speed),la=parseFloat(row.launch_angle);
+      const ev=parseFloat(row.launch_speed), la=parseFloat(row.launch_angle);
+      const bbType=(row.bb_type||'').toLowerCase();
+      const xw=parseFloat(row.estimated_woba_using_speedangle);
       if(!isNaN(ev)&&ev>0){
-        evs.push(ev); if(ev>=95)hard++;
+        evs.push(ev); if(ev>=95) hard++;
         if(!isNaN(la)){
           las.push(la);
           if(ev>=98){const mx=Math.min(50,30+(ev-98));const mn=Math.max(8,26-(ev-98));if(la>=mn&&la<=mx)barrels++;}
         }
       }
+      if(bbType){
+        bip++;
+        if(bbType==='fly_ball'||bbType==='popup') fb++;
+        else if(bbType==='ground_ball') gb++;
+        else if(bbType==='line_drive') ld++;
+        // Pull-air: fly balls hit to pull side (location 7=LF or 5=3B for RHB)
+        const loc=parseInt(row.hit_location);
+        const pitHand=(row.p_throws||'R').toUpperCase();
+        // From pitcher's perspective: pull is toward the strong side of batter
+        if((bbType==='fly_ball'||bbType==='line_drive')&&!isNaN(loc)){
+          if(loc>=5&&loc<=7) pullAirCount++; // pull/center field direction
+        }
+      }
+      if(!isNaN(xw)&&xw>=0) xwobaVals.push(xw);
     }
     const n=evs.length;
-    return{
-      brl:  n>0?Math.round(barrels/n*1000)/10:null,
-      hard: n>0?Math.round(hard/n*1000)/10:null,
-      ev:   n>0?Math.round(evs.reduce((a,b)=>a+b)/n*10)/10:null,
-      n,
+    const result={
+      brl:        n>0?Math.round(barrels/n*1000)/10:null,
+      hard:       n>0?Math.round(hard/n*1000)/10:null,
+      ev:         n>0?Math.round(evs.reduce((a,b)=>a+b)/n*10)/10:null,
+      fbPct:      bip>0?Math.round(fb/bip*1000)/10:null,
+      gbPct:      bip>0?Math.round(gb/bip*1000)/10:null,
+      pullAirPct: bip>0?Math.round(pullAirCount/bip*1000)/10:null,
+      xwoba:      xwobaVals.length>0?Math.round(xwobaVals.reduce((a,b)=>a+b)/xwobaVals.length*1000)/1000:null,
+      n, bip,
     };
-  }catch(e){console.warn('getPitcherL14 failed:',e.message);return{};}
+    _playerCache[ckey] = result;
+    return result;
+  }catch(e){ console.warn('getPitcherL14 failed:',e.message); _playerCache[`l14pit_${pid}`]={}; return{}; }
+}
+
+// ── Batter L14 Statcast stats — per-player Savant search ──────────
+async function getBatterL14Stats(pid, batHand='R'){
+  if(!pid) return null;
+  const ckey = `l14bat_${pid}`;
+  if(_playerCache[ckey] !== undefined) return _playerCache[ckey];
+  try{
+    const now=new Date(), st=new Date(); st.setDate(st.getDate()-14);
+    const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const url=`https://baseballsavant.mlb.com/statcast_search/csv?player_type=batter&batters_lookup%5B%5D=${pid}&game_date_gt=${fd(st)}&game_date_lt=${fd(now)}&type=details&hfGT=R%7C&min_results=0&sort_col=pitches&player_event_sort=api_p_release_speed&sort_order=desc&`;
+    const ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),15000);
+    const r=await fetch(PROXY+encodeURIComponent(url),{signal:ctrl.signal});
+    if(!r.ok){ _playerCache[ckey]=null; return null; }
+    const txt=await r.text();
+    const rows=parseCSVText(txt);
+
+    const evs=[],xwobaVals=[];
+    let barrels=0,hard=0,fb=0,gb=0,ld=0,pullAir=0,bip=0,pa=0,hits=0,tb=0;
+
+    for(const row of rows){
+      const ev=parseFloat(row.launch_speed), la=parseFloat(row.launch_angle);
+      const bbType=(row.bb_type||'').toLowerCase();
+      const xw=parseFloat(row.estimated_woba_using_speedangle);
+      const events=(row.events||'').toLowerCase();
+      const isPA = events && !['', 'caught_stealing_2b','caught_stealing_3b',
+        'caught_stealing_home','pickoff_1b','pickoff_2b','pickoff_3b',
+        'wild_pitch','passed_ball'].includes(events);
+      if(isPA) pa++;
+
+      if(!isNaN(ev)&&ev>0){
+        evs.push(ev); if(ev>=95) hard++;
+        if(!isNaN(la)){
+          if(ev>=98){const mx=Math.min(50,30+(ev-98));const mn=Math.max(8,26-(ev-98));if(la>=mn&&la<=mx)barrels++;}
+        }
+      }
+
+      if(bbType){
+        bip++;
+        if(bbType==='fly_ball'||bbType==='popup') fb++;
+        else if(bbType==='ground_ball') gb++;
+        else if(bbType==='line_drive') ld++;
+
+        // Pull-Air: pull fly balls — use hc_x coordinate for direction
+        // hc_x: LHB pull = high x (>200 = RF side), RHB pull = low x (<100 = LF side)
+        const hcx=parseFloat(row.hc_x);
+        if((bbType==='fly_ball'||bbType==='line_drive')&&!isNaN(hcx)&&hcx>0){
+          const isPull = batHand==='L' ? hcx>200 : hcx<120;
+          if(isPull) pullAir++;
+        }
+      }
+
+      if(!isNaN(xw)&&xw>=0) xwobaVals.push(xw);
+
+      // Count hits/TB from events
+      if(events==='single'){hits++;tb+=1;}
+      else if(events==='double'){hits++;tb+=2;}
+      else if(events==='triple'){hits++;tb+=3;}
+      else if(events==='home_run'){hits++;tb+=4;}
+    }
+
+    const n=evs.length;
+    const result = {
+      pa,
+      barrelPct:   n>5 ? Math.round(barrels/n*1000)/10 : null,
+      hardHitPct:  n>5 ? Math.round(hard/n*1000)/10    : null,
+      avgEV:       n>5 ? Math.round(evs.reduce((a,b)=>a+b)/n*10)/10 : null,
+      fbPct:       bip>5? Math.round(fb/bip*1000)/10  : null,
+      gbPct:       bip>5? Math.round(gb/bip*1000)/10  : null,
+      pullAirPct:  bip>5? Math.round(pullAir/bip*1000)/10 : null,
+      xwoba:       xwobaVals.length>5 ? Math.round(xwobaVals.reduce((a,b)=>a+b)/xwobaVals.length*1000)/1000 : null,
+      iso:         pa>5&&n>0 ? (() => {
+                     const ab=n; const slg=ab>0?tb/ab:null; const avg=ab>0?hits/ab:null;
+                     return slg&&avg ? Math.round((slg-avg)*1000)/1000 : null;
+                   })() : null,
+      n, bip,
+    };
+    _playerCache[ckey] = result;
+    return result;
+  }catch(e){ console.warn(`getBatterL14 ${pid}:`,e.message); _playerCache[`l14bat_${pid}`]=null; return null; }
+}
+
+// ── Batch load L14 Statcast for all current slate players ──────────
+// Called from Scout "Load L14" button — fires in parallel, shows progress
+async function loadL14ForSlate(progressCb){
+  if(!S.allRows.length) return;
+
+  // Get unique batters + pitchers
+  const batters = [...new Map(S.allRows.map(r=>[r.id,{pid:r.id,hand:r.batHand||'R'}])).values()];
+  const pitchers= [...new Map(S.allRows.filter(r=>r._spId).map(r=>[r._spId,r._spId])).values()];
+
+  let done=0, total=batters.length+pitchers.length;
+  const tick=()=>{ done++; if(progressCb) progressCb(done,total); };
+
+  // Chunk requests to avoid hammering the proxy
+  const chunk=(arr,n)=>{const out=[];for(let i=0;i<arr.length;i+=n)out.push(arr.slice(i,i+n));return out;};
+
+  for(const group of chunk(batters, 6)){
+    await Promise.allSettled(group.map(({pid,hand})=>getBatterL14Stats(pid,hand).then(tick).catch(tick)));
+  }
+  for(const group of chunk(pitchers, 4)){
+    await Promise.allSettled(group.map(pid=>getPitcherL14(pid).then(tick).catch(tick)));
+  }
+  return {batters:batters.length, pitchers:pitchers.length};
 }
 
 // ==================================================================
@@ -10490,7 +10619,13 @@ async function loadGame(g){
         barrel_pct:      savH.barrel_pct   ?? fgH.barrel   ?? null,
         hard_hit_pct:    savH.hard_hit_pct ?? fgH.hard     ?? null,
         avg_ev:          savH.avg_ev       ?? fgH.avgEV    ?? null,
-        iso:             fgH.iso           ?? null,
+        iso:             fgH.iso  ??
+                           (mlbSt?.sluggingPercentage && mlbSt?.avg
+                             ? Math.round((parseFloat(mlbSt.sluggingPercentage) - parseFloat(mlbSt.avg))*1000)/1000
+                             : null),
+        avg:             fgH.avg  ?? (mlbSt ? parseFloat(mlbSt.avg)||null          : null),
+        slg:             fgH.slg  ?? (mlbSt ? parseFloat(mlbSt.sluggingPercentage)||null : null),
+        obp:             mlbSt ? parseFloat(mlbSt.obp)||null : null,
         pull_air_pct:    savH.pull_air_pct  ?? null,
         sweet_spot_pct:  savH.sweetSpot     ?? savH.sweet_spot_pct ?? null,
         gb_pct:          savH.gb_pct        ?? fgH.gbPct           ?? null,
@@ -10588,6 +10723,7 @@ async function loadGame(g){
         iso:          batterStats.iso,
         szAVG:        batterStats.avg  || null,
         szSLG:        batterStats.slg  || null,
+        szOBP:        batterStats.obp  || null,
         pull_air_pct: batterStats.pull_air_pct,
         hr_fb_pct:    batterStats.hr_fb_pct,
         pull_pct:     batterStats.pull_pct,
@@ -10718,18 +10854,21 @@ function renderHRProjection(){
 //  SCOUT — parameterized search across all loaded players/pitchers
 // ==================================================================
 const SCOUT_DEFAULTS = {
-  mode: 'batter', // 'batter' | 'pitcher'
+  mode:   'batter', // 'batter' | 'pitcher'
+  period: 'season', // 'season' | 'l14'
   batter: {
-    prob:       { on:false, op:'>=', val:8,   label:'HR Prob %',      field:'prob',         scale:100 },
-    jhr:        { on:false, op:'>=', val:130,  label:'jHR Score',      field:'_jhr',         scale:1   },
-    barrel:     { on:false, op:'>=', val:10,   label:'Barrel %',       field:'barrel_pct',   scale:1   },
-    pullAir:    { on:false, op:'>=', val:15,   label:'Pull-Air %',     field:'pull_air_pct', scale:1   },
-    hardHit:    { on:false, op:'>=', val:45,   label:'Hard Hit %',     field:'hard_hit_pct', scale:1   },
-    iso:        { on:false, op:'>=', val:0.200,label:'ISO',            field:'iso',          scale:1   },
-    platoon:    { on:false, op:'>=', val:1.10, label:'Platoon ×',      field:'platoon',      scale:1   },
-    pitcher:    { on:false, op:'>=', val:1.10, label:'Pitcher ×',      field:'pitcher',      scale:1   },
-    lineupPos:  { on:false, op:'<=', val:5,    label:'Lineup Spot ≤',  field:'lineupPos',    scale:1   },
-    parkwx:     { on:false, op:'>=', val:1.05, label:'Park×Weather',   field:'parkwx',       scale:1   },
+    prob:       { on:false, op:'>=', val:8,   label:'HR Prob %',      field:'prob',         scale:100, l14:'hrRate', l14label:'L14 HR/PA %'   },
+    jhr:        { on:false, op:'>=', val:130,  label:'jHR Score',      field:'_jhr',         scale:1,   l14:null,     l14label:null             },
+    barrel:     { on:false, op:'>=', val:10,   label:'Barrel %',       field:'barrel_pct',   scale:1,   l14:null,     l14label:'Season only'    },
+    pullAir:    { on:false, op:'>=', val:15,   label:'Pull-Air %',     field:'pull_air_pct', scale:1,   l14:null,     l14label:'Season only'    },
+    hardHit:    { on:false, op:'>=', val:45,   label:'Hard Hit %',     field:'hard_hit_pct', scale:1,   l14:null,     l14label:'Season only'    },
+    iso:        { on:false, op:'>=', val:0.200,label:'ISO',            field:'iso',          scale:1,   l14:'l14iso', l14label:'L14 ISO'        },
+    slg:        { on:false, op:'>=', val:0.450,label:'SLG',            field:'szSLG',        scale:1,   l14:'l14slg', l14label:'L14 SLG'        },
+    avg:        { on:false, op:'>=', val:0.260,label:'AVG',            field:'szAVG',        scale:1,   l14:'l14avg', l14label:'L14 AVG'        },
+    platoon:    { on:false, op:'>=', val:1.10, label:'Platoon ×',      field:'platoon',      scale:1,   l14:null,     l14label:null             },
+    pitcher:    { on:false, op:'>=', val:1.10, label:'Pitcher ×',      field:'pitcher',      scale:1,   l14:null,     l14label:null             },
+    lineupPos:  { on:false, op:'<=', val:5,    label:'Lineup Spot ≤',  field:'lineupPos',    scale:1,   l14:null,     l14label:null             },
+    parkwx:     { on:false, op:'>=', val:1.05, label:'Park×Weather',   field:'parkwx',       scale:1,   l14:null,     l14label:null             },
   },
   pitcher: {
     fbPct:      { on:false, op:'>=', val:38,   label:'FB% Allowed',    field:'fgStats.fbPct',      scale:1 },
@@ -10782,17 +10921,42 @@ function renderScout(){
 
   const st = getScoutState();
   const isBatter = st.mode === 'batter';
+  const isL14    = st.period === 'l14';
   const filters  = isBatter ? st.batter : st.pitcher;
   const activeCount = Object.values(filters).filter(f=>f.on).length;
 
-  // ── Enrich batter rows with derived/fallback fields ──────────────
-  // Compute ISO from SLG-AVG if primary FG value is missing
+  // ── Compute L14 stats from _recentGames for each batter row ───────
+  // Only hr/ab/h/tb available at game level — no L14 Statcast
+  const computeL14 = r => {
+    const g14 = (r._recentGames||[]).slice(0, 14);
+    const pa  = g14.reduce((s,x)=>s+(x.pa||x.ab||0), 0);
+    if(pa < 5) return null;
+    const hr  = g14.reduce((s,x)=>s+(x.hr||0),  0);
+    const ab  = g14.reduce((s,x)=>s+(x.ab||0),  0);
+    const h   = g14.reduce((s,x)=>s+(x.h||0),   0);
+    const tb  = g14.reduce((s,x)=>s+(x.tb||0),  0);
+    const slg = ab > 0 ? tb/ab : null;
+    const avg = ab > 0 ? h/ab  : null;
+    const iso = slg && avg ? Math.round((slg-avg)*1000)/1000 : null;
+    const hrRate = pa > 0 ? Math.round(hr/pa*1000)/10 : null; // as %
+    return { pa, hr, hrRate, avg, slg, iso };
+  };
+
+  // ── Enrich rows with ISO fallback + L14 computed fields ──────────
   const enrichedRows = S.allRows.map(r => {
-    if(r.iso != null) return r;
-    if(r.szSLG != null && r.szAVG != null){
-      return {...r, iso: Math.round((r.szSLG - r.szAVG)*1000)/1000};
+    const enriched = {...r};
+    // ISO fallback: compute from SLG-AVG if FG ISO isn't available
+    if(enriched.iso == null && enriched.szSLG != null && enriched.szAVG != null){
+      enriched.iso = Math.round((enriched.szSLG - enriched.szAVG)*1000)/1000;
     }
-    return r;
+    // L14 fields
+    const l14 = computeL14(r);
+    enriched._l14hrRate = l14?.hrRate ?? null;
+    enriched._l14iso    = l14?.iso    ?? null;
+    enriched._l14slg    = l14?.slg    ?? null;
+    enriched._l14avg    = l14?.avg    ?? null;
+    enriched._l14pa     = l14?.pa     ?? 0;
+    return enriched;
   });
 
   // ── Data coverage check (what % of rows have each field) ─────────
@@ -10838,14 +11002,20 @@ function renderScout(){
   // ── Filter chips ─────────────────────────────────────────────────
   const filterChip = (key, f) => {
     const step  = STEPS[key] || 1;
-    const fmt   = v => key==='iso' ? v.toFixed(3) : (v===Math.round(v)?v:v.toFixed(key.includes('fip')||key.includes('xfip')?2:1));
-    const cov   = coverage[key];
-    const covBadge = cov!=null
-      ? `<span style="font-size:.52rem;color:${cov>=0.7?'var(--green)':cov>=0.3?'var(--amber)':'var(--red)'};margin-left:3px" title="Data available for ${Math.round(cov*100)}% of players">${Math.round(cov*100)}%</span>`
+    // In L14 mode, show L14 label if available, or grey out season-only
+    const displayLabel = isL14 && f.l14label ? f.l14label : f.label;
+    const isSeasonOnly = isL14 && f.l14 === null && f.l14label === 'Season only';
+    const fmtVal = v => key==='iso'||key==='slg'||key==='avg' ? v.toFixed(3)
+      : key==='hrRate' ? v.toFixed(1)+'%'
+      : (v===Math.round(v)?v:v.toFixed(key.includes('fip')||key.includes('xfip')?2:1));
+    const fmt = v => fmtVal(v);
+    const cov = coverage[key];
+    const covBadge = cov!=null && !isSeasonOnly
+      ? `<span style="font-size:.52rem;color:${cov>=0.7?'var(--green)':cov>=0.3?'var(--amber)':'var(--red)'};margin-left:3px">${Math.round(cov*100)}%</span>`
       : '';
-    return `<div style="border:1px solid ${f.on?'var(--amber)':'var(--bdr)'};border-radius:10px;
-      padding:7px 8px;background:${f.on?'rgba(240,165,0,.08)':'var(--bg3)'};
-      transition:all .15s;margin-bottom:6px">
+    return `<div style="border:1px solid ${f.on?'var(--amber)':isSeasonOnly?'rgba(148,163,184,.2)':'var(--bdr)'};border-radius:10px;
+      padding:7px 8px;background:${f.on?'rgba(240,165,0,.08)':isSeasonOnly?'rgba(100,116,139,.04)':'var(--bg3)'};
+      transition:all .15s;margin-bottom:6px;${isSeasonOnly?'opacity:.6':''}">
       <div style="display:flex;align-items:center;gap:7px">
         <div onclick="_scoutToggle('${key}')" style="width:30px;height:18px;border-radius:99px;
           background:${f.on?'var(--amber)':'rgba(100,116,139,.3)'};cursor:pointer;
@@ -10853,7 +11023,10 @@ function renderScout(){
           <div style="position:absolute;top:2px;left:${f.on?'14':'2'}px;width:14px;height:14px;
             border-radius:50%;background:#fff;transition:left .15s"></div>
         </div>
-        <span style="font-size:.70rem;font-weight:600;color:${f.on?'var(--amber)':'var(--t3)'};flex:1">${f.label}${covBadge}</span>
+        <span style="font-size:.70rem;font-weight:600;color:${f.on?'var(--amber)':isSeasonOnly?'var(--t4)':'var(--t3)'};flex:1">
+          ${displayLabel}${covBadge}
+          ${isSeasonOnly?`<span style="font-size:.54rem;color:var(--t4);margin-left:4px">· season only</span>`:''}
+        </span>
         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
           <span style="font-size:.60rem;color:var(--t4)">${f.op}</span>
           <button onclick="_scoutAdj('${key}',-1)"
@@ -10865,7 +11038,7 @@ function renderScout(){
             background:var(--bg2);color:var(--t2);font-size:.80rem;cursor:pointer;line-height:1;font-weight:700">+</button>
         </div>
       </div>
-      ${f.on&&cov!=null&&cov<0.3?`<div style="font-size:.58rem;color:var(--amber);margin-top:4px;padding-top:4px;border-top:1px solid rgba(240,165,0,.15)">⚠ Data only available for ${Math.round(cov*100)}% of players — load more games or wait for Statcast data to finish loading</div>`:''}
+      ${f.on&&cov!=null&&cov<0.3&&!isSeasonOnly?`<div style="font-size:.58rem;color:var(--amber);margin-top:4px;padding-top:4px;border-top:1px solid rgba(240,165,0,.15)">⚠ Data available for ${Math.round(cov*100)}% of players</div>`:''}
     </div>`;
   };
 
@@ -10875,11 +11048,25 @@ function renderScout(){
 
   if(isBatter){
     results = enrichedRows.filter(r=>{
+      const l14sc = isL14 ? (_playerCache[`l14bat_${r.id}`]||null) : null;
       return activeFilters.every(([key,f])=>{
         let val;
-        if(key==='prob')     val = r.prob * 100;
-        else if(key==='jhr') val = calcJHR(r);
-        else                 val = scoutGetField(r, f.field);
+        if(isL14){
+          // L14 Statcast cache takes priority, then game-log derived, then season
+          if(key==='barrel')   val = l14sc?.barrelPct   ?? r.barrel_pct;
+          else if(key==='hardHit') val = l14sc?.hardHitPct ?? r.hard_hit_pct;
+          else if(key==='pullAir') val = l14sc?.pullAirPct  ?? r.pull_air_pct;
+          else if(key==='iso')     val = l14sc?.iso          ?? r._l14iso ?? r.iso;
+          else if(key==='slg')     val = r._l14slg  ?? r.szSLG;
+          else if(key==='avg')     val = r._l14avg  ?? r.szAVG;
+          else if(key==='prob')    val = r._l14hrRate ?? (r.prob*100);
+          else if(key==='jhr')     val = calcJHR(r);
+          else                     val = scoutGetField(r, f.field);
+        } else {
+          if(key==='prob')     val = r.prob * 100;
+          else if(key==='jhr') val = calcJHR(r);
+          else                 val = scoutGetField(r, f.field);
+        }
         return scoutMatch(val, f.op, f.val);
       });
     }).sort((a,b)=>b.prob-a.prob);
@@ -10895,18 +11082,33 @@ function renderScout(){
     }
     results = pitcherRows.filter(r=>{
       const pit = r._pitcherStats||{};
+      const l14p = r._spId ? (_playerCache[`l14pit_${r._spId}`]||null) : null;
       return activeFilters.every(([key,f])=>{
         let val;
-        if(key==='pullAir')  val = pit.pull_air_pct_allowed;
-        else if(key==='fbPct') val = pit.fgStats?.fbPct;
-        else if(key==='hr9r')  val = pit.hr9_recent;
-        else if(key==='hr9s')  val = pit.hr9_season;
-        else if(key==='xfip')  val = pit.fgStats?.xfip;
-        else if(key==='barrel')val = pit.barrel_pct_allowed;
-        else if(key==='kPct')  val = pit.fgStats?.kPct;
-        else if(key==='whiff') val = pit.whiffPct;
-        else if(key==='daysRest') val = pit.daysRest?.days;
-        else                   val = scoutGetField(pit, f.field);
+        // In L14 mode, prefer L14 Statcast values for relevant fields
+        if(isL14){
+          if(key==='barrel')   val = l14p?.brl    ?? pit.barrel_pct_allowed;
+          else if(key==='fbPct')   val = l14p?.fbPct   ?? pit.fgStats?.fbPct;
+          else if(key==='pullAir') val = l14p?.pullAirPct ?? pit.pull_air_pct_allowed;
+          else if(key==='hr9r')    val = pit.hr9_recent;   // already IS recent
+          else if(key==='hr9s')    val = pit.hr9_season;
+          else if(key==='xfip')    val = pit.fgStats?.xfip;
+          else if(key==='kPct')    val = pit.fgStats?.kPct;
+          else if(key==='whiff')   val = pit.whiffPct;
+          else if(key==='daysRest')val = pit.daysRest?.days;
+          else                     val = scoutGetField(pit, f.field);
+        } else {
+          if(key==='pullAir')  val = pit.pull_air_pct_allowed;
+          else if(key==='fbPct') val = pit.fgStats?.fbPct;
+          else if(key==='hr9r')  val = pit.hr9_recent;
+          else if(key==='hr9s')  val = pit.hr9_season;
+          else if(key==='xfip')  val = pit.fgStats?.xfip;
+          else if(key==='barrel')val = pit.barrel_pct_allowed;
+          else if(key==='kPct')  val = pit.fgStats?.kPct;
+          else if(key==='whiff') val = pit.whiffPct;
+          else if(key==='daysRest') val = pit.daysRest?.days;
+          else                   val = scoutGetField(pit, f.field);
+        }
         return scoutMatch(val, f.op, f.val);
       });
     }).sort((a,b)=>(b._pitcherStats?.hr9_recent||0)-(a._pitcherStats?.hr9_recent||0));
@@ -10956,7 +11158,7 @@ function renderScout(){
 
   el.innerHTML = `
     <!-- Mode toggle -->
-    <div style="display:flex;gap:6px;margin-bottom:14px;padding:4px;background:var(--bg3);border-radius:11px">
+    <div style="display:flex;gap:6px;margin-bottom:10px;padding:4px;background:var(--bg3);border-radius:11px">
       <button onclick="_scoutMode('batter')" style="flex:1;padding:8px;border-radius:8px;border:none;
         cursor:pointer;font-size:.72rem;font-weight:700;transition:all .15s;
         background:${isBatter?'var(--bg2)':'transparent'};
@@ -10972,6 +11174,84 @@ function renderScout(){
         🥎 Pitcher Search
       </button>
     </div>
+
+    <!-- Period toggle: Season vs L14 -->
+    ${isBatter?`<div style="display:flex;gap:5px;margin-bottom:8px">
+      <button onclick="_scoutPeriod('season')" style="flex:1;padding:6px;border-radius:8px;
+        border:1px solid ${!isL14?'var(--amber)':'var(--bdr)'};
+        background:${!isL14?'rgba(240,165,0,.1)':'var(--bg3)'};
+        color:${!isL14?'var(--amber)':'var(--t4)'};
+        font-size:.68rem;font-weight:700;cursor:pointer">
+        📊 Season Stats
+      </button>
+      <button onclick="_scoutPeriod('l14')" style="flex:1;padding:6px;border-radius:8px;
+        border:1px solid ${isL14?'var(--blue)':'var(--bdr)'};
+        background:${isL14?'rgba(61,142,240,.1)':'var(--bg3)'};
+        color:${isL14?'var(--blue)':'var(--t4)'};
+        font-size:.68rem;font-weight:700;cursor:pointer">
+        📅 L14 Stats
+      </button>
+    </div>
+    ${isL14?`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
+      border-radius:8px;background:rgba(61,142,240,.06);border:1px solid rgba(61,142,240,.2);margin-bottom:10px">
+      <div style="flex:1">
+        <div style="font-size:.65rem;font-weight:700;color:var(--blue)">📅 L14 Statcast</div>
+        <div id="l14-status-msg" style="font-size:.58rem;color:var(--t4);margin-top:1px">
+          ${(()=>{
+            const loaded=S.allRows.filter(r=>_playerCache['l14bat_'+r.id]!=null).length;
+            const total=S.allRows.length;
+            return loaded>0?`${loaded}/${total} batters loaded`:'Not loaded — tap button to fetch';
+          })()}
+        </div>
+      </div>
+      <button id="l14-load-btn" onclick="_scoutLoadL14(this)"
+        style="padding:5px 12px;border-radius:8px;border:none;
+        background:var(--blue);color:#fff;font-size:.65rem;font-weight:700;cursor:pointer;white-space:nowrap">
+        ${(()=>{
+          const loaded=S.allRows.filter(r=>_playerCache['l14bat_'+r.id]!=null).length;
+          return loaded===S.allRows.length&&S.allRows.length>0?'↻ Refresh':'Load L14';
+        })()}
+      </button>
+    </div>`:''}`:
+    /* Pitcher mode L14 toggle */
+    `<div style="display:flex;gap:5px;margin-bottom:8px">
+      <button onclick="_scoutPeriod('season')" style="flex:1;padding:6px;border-radius:8px;
+        border:1px solid ${!isL14?'var(--amber)':'var(--bdr)'};
+        background:${!isL14?'rgba(240,165,0,.1)':'var(--bg3)'};
+        color:${!isL14?'var(--amber)':'var(--t4)'};
+        font-size:.68rem;font-weight:700;cursor:pointer">
+        📊 Season Stats
+      </button>
+      <button onclick="_scoutPeriod('l14')" style="flex:1;padding:6px;border-radius:8px;
+        border:1px solid ${isL14?'var(--blue)':'var(--bdr)'};
+        background:${isL14?'rgba(61,142,240,.1)':'var(--bg3)'};
+        color:${isL14?'var(--blue)':'var(--t4)'};
+        font-size:.68rem;font-weight:700;cursor:pointer">
+        📅 L14 Stats
+      </button>
+    </div>
+    ${isL14?`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
+      border-radius:8px;background:rgba(61,142,240,.06);border:1px solid rgba(61,142,240,.2);margin-bottom:10px">
+      <div style="flex:1">
+        <div style="font-size:.65rem;font-weight:700;color:var(--blue)">📅 L14 Pitcher Statcast</div>
+        <div style="font-size:.58rem;color:var(--t4);margin-top:1px">
+          ${(()=>{
+            const pids=[...new Set(S.allRows.filter(r=>r._spId).map(r=>r._spId))];
+            const loaded=pids.filter(p=>_playerCache['l14pit_'+p]!=null).length;
+            return loaded>0?`${loaded}/${pids.length} pitchers loaded`:'Not loaded — tap button to fetch';
+          })()}
+        </div>
+      </div>
+      <button onclick="_scoutLoadL14(this)"
+        style="padding:5px 12px;border-radius:8px;border:none;
+        background:var(--blue);color:#fff;font-size:.65rem;font-weight:700;cursor:pointer;white-space:nowrap">
+        ${(()=>{
+          const pids=[...new Set(S.allRows.filter(r=>r._spId).map(r=>r._spId))];
+          const loaded=pids.filter(p=>_playerCache['l14pit_'+p]!=null).length;
+          return loaded===pids.length&&pids.length>0?'↻ Refresh':'Load L14';
+        })()}
+      </button>
+    </div>`:''}`}
 
     <!-- Example profile card -->
     ${isBatter ? `
@@ -11067,6 +11347,20 @@ window._scoutAdj = function(key, dir){
 };
 window._scoutMode = function(mode){
   const st=getScoutState(); st.mode=mode; saveScoutState(); renderScout();
+};
+window._scoutPeriod = function(period){
+  const st=getScoutState(); st.period=period; saveScoutState(); renderScout();
+};
+window._scoutLoadL14 = async function(btn){
+  if(!S.allRows.length){ showToast('Load games first','amber'); return; }
+  btn.disabled=true; btn.textContent='Loading…';
+  const msg=document.getElementById('l14-status-msg');
+  let done=0;
+  const total=S.allRows.length+new Set(S.allRows.filter(r=>r._spId).map(r=>r._spId)).size;
+  const tick=()=>{ done++; if(msg) msg.textContent=`${done}/${total} fetched…`; };
+  await loadL14ForSlate(tick);
+  renderScout();
+  showToast(`L14 Statcast loaded for ${S.allRows.length} batters`,'green');
 };
 window._scoutClearAll = function(){
   const st=getScoutState();
