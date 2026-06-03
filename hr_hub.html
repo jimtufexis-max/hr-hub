@@ -1472,7 +1472,7 @@ async function getBatterL14Stats(pid, batHand='R'){
     const txt=await r.text();
     const rows=parseCSVText(txt);
 
-    const evs=[],xwobaVals=[];
+    const evs=[],xwobaVals=[],las=[];
     let barrels=0,hard=0,fb=0,gb=0,ld=0,pullAir=0,bip=0,pa=0,hits=0,tb=0;
 
     for(const row of rows){
@@ -1488,6 +1488,7 @@ async function getBatterL14Stats(pid, batHand='R'){
       if(!isNaN(ev)&&ev>0){
         evs.push(ev); if(ev>=95) hard++;
         if(!isNaN(la)){
+          las.push(la);
           if(ev>=98){const mx=Math.min(50,30+(ev-98));const mn=Math.max(8,26-(ev-98));if(la>=mn&&la<=mx)barrels++;}
         }
       }
@@ -1522,6 +1523,7 @@ async function getBatterL14Stats(pid, batHand='R'){
       barrelPct:   n>5 ? Math.round(barrels/n*1000)/10 : null,
       hardHitPct:  n>5 ? Math.round(hard/n*1000)/10    : null,
       avgEV:       n>5 ? Math.round(evs.reduce((a,b)=>a+b)/n*10)/10 : null,
+      avgLA:       las.length>5 ? Math.round(las.reduce((a,b)=>a+b)/las.length*10)/10 : null,
       fbPct:       bip>5? Math.round(fb/bip*1000)/10  : null,
       gbPct:       bip>5? Math.round(gb/bip*1000)/10  : null,
       pullAirPct:  bip>5? Math.round(pullAir/bip*1000)/10 : null,
@@ -10915,9 +10917,10 @@ const SCOUT_DEFAULTS = {
   batter: {
     prob:       { on:false, op:'>=', val:8,   label:'HR Prob %',      field:'prob',         scale:100, l14:'hrRate', l14label:'L14 HR/PA %'   },
     jhr:        { on:false, op:'>=', val:130,  label:'jHR Score',      field:'_jhr',         scale:1,   l14:null,     l14label:null             },
-    barrel:     { on:false, op:'>=', val:10,   label:'Barrel %',       field:'barrel_pct',   scale:1,   l14:null,     l14label:'Season only'    },
-    pullAir:    { on:false, op:'>=', val:15,   label:'Pull-Air %',     field:'pull_air_pct', scale:1,   l14:null,     l14label:'Season only'    },
-    hardHit:    { on:false, op:'>=', val:45,   label:'Hard Hit %',     field:'hard_hit_pct', scale:1,   l14:null,     l14label:'Season only'    },
+    barrel:     { on:false, op:'>=', val:10,   label:'Barrel %',       field:'barrel_pct',   scale:1,   l14:'barrelPct',  l14label:'L14 Barrel %'   },
+    pullAir:    { on:false, op:'>=', val:15,   label:'Pull-Air %',     field:'pull_air_pct', scale:1,   l14:'pullAirPct', l14label:'L14 Pull-Air %' },
+    hardHit:    { on:false, op:'>=', val:45,   label:'Hard Hit %',     field:'hard_hit_pct', scale:1,   l14:'hardHitPct', l14label:'L14 Hard Hit %' },
+    la:         { on:false, op:'>=', val:16,   label:'Avg LA °',       field:'avgLA',        scale:1,   l14:'avgLA',      l14label:'L14 Avg LA °'   },
     iso:        { on:false, op:'>=', val:0.200,label:'ISO',            field:'iso',          scale:1,   l14:'l14iso', l14label:'L14 ISO'        },
     slg:        { on:false, op:'>=', val:0.450,label:'SLG',            field:'szSLG',        scale:1,   l14:'l14slg', l14label:'L14 SLG'        },
     avg:        { on:false, op:'>=', val:0.260,label:'AVG',            field:'szAVG',        scale:1,   l14:'l14avg', l14label:'L14 AVG'        },
@@ -11057,16 +11060,36 @@ function renderScout(){
   const coverage = {};
   if(isBatter){
     const n = enrichedRows.length || 1;
-    coverage.prob     = enrichedRows.filter(r=>r.prob!=null).length / n;
-    coverage.jhr      = enrichedRows.filter(r=>calcJHR(r)!=null).length / n;
-    coverage.barrel   = enrichedRows.filter(r=>r.barrel_pct!=null).length / n;
-    coverage.pullAir  = enrichedRows.filter(r=>r.pull_air_pct!=null).length / n;
-    coverage.hardHit  = enrichedRows.filter(r=>r.hard_hit_pct!=null).length / n;
-    coverage.iso      = enrichedRows.filter(r=>r.iso!=null).length / n;
-    coverage.platoon  = enrichedRows.filter(r=>r.platoon!=null).length / n;
-    coverage.pitcher  = enrichedRows.filter(r=>r.pitcher!=null).length / n;
-    coverage.lineupPos= enrichedRows.filter(r=>r.lineupPos!=null).length / n;
-    coverage.parkwx   = enrichedRows.filter(r=>r.parkwx!=null).length / n;
+    if(isL14){
+      // Coverage from L14 Statcast cache where available, season as fallback
+      coverage.prob     = enrichedRows.filter(r=>r.prob!=null).length / n;
+      coverage.jhr      = enrichedRows.filter(r=>calcJHR(r)!=null).length / n;
+      coverage.barrel   = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.barrelPct  ?? r.barrel_pct)!=null).length / n;
+      coverage.pullAir  = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.pullAirPct ?? r.pull_air_pct)!=null).length / n;
+      coverage.hardHit  = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.hardHitPct ?? r.hard_hit_pct)!=null).length / n;
+      coverage.la       = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.avgLA       ?? r.avgLA)!=null).length / n;
+      coverage.iso      = enrichedRows.filter(r=>(_playerCache['l14bat_'+r.id]?.iso         ?? r.iso)!=null).length / n;
+      coverage.slg      = enrichedRows.filter(r=>(r._l14slg ?? r.szSLG)!=null).length / n;
+      coverage.avg      = enrichedRows.filter(r=>(r._l14avg ?? r.szAVG)!=null).length / n;
+      coverage.platoon  = enrichedRows.filter(r=>r.platoon!=null).length / n;
+      coverage.pitcher  = enrichedRows.filter(r=>r.pitcher!=null).length / n;
+      coverage.lineupPos= enrichedRows.filter(r=>r.lineupPos!=null).length / n;
+      coverage.parkwx   = enrichedRows.filter(r=>r.parkwx!=null).length / n;
+    } else {
+      coverage.prob     = enrichedRows.filter(r=>r.prob!=null).length / n;
+      coverage.jhr      = enrichedRows.filter(r=>calcJHR(r)!=null).length / n;
+      coverage.barrel   = enrichedRows.filter(r=>r.barrel_pct!=null).length / n;
+      coverage.pullAir  = enrichedRows.filter(r=>r.pull_air_pct!=null).length / n;
+      coverage.hardHit  = enrichedRows.filter(r=>r.hard_hit_pct!=null).length / n;
+      coverage.la       = enrichedRows.filter(r=>r.avgLA!=null).length / n;
+      coverage.iso      = enrichedRows.filter(r=>r.iso!=null).length / n;
+      coverage.slg      = enrichedRows.filter(r=>r.szSLG!=null).length / n;
+      coverage.avg      = enrichedRows.filter(r=>r.szAVG!=null).length / n;
+      coverage.platoon  = enrichedRows.filter(r=>r.platoon!=null).length / n;
+      coverage.pitcher  = enrichedRows.filter(r=>r.pitcher!=null).length / n;
+      coverage.lineupPos= enrichedRows.filter(r=>r.lineupPos!=null).length / n;
+      coverage.parkwx   = enrichedRows.filter(r=>r.parkwx!=null).length / n;
+    }
   } else {
     const pitchers = [];
     const seen = new Set();
@@ -11150,6 +11173,7 @@ function renderScout(){
           if(key==='barrel')   val = l14sc?.barrelPct   ?? r.barrel_pct;
           else if(key==='hardHit') val = l14sc?.hardHitPct ?? r.hard_hit_pct;
           else if(key==='pullAir') val = l14sc?.pullAirPct  ?? r.pull_air_pct;
+          else if(key==='la')      val = l14sc?.avgLA        ?? r.avgLA;
           else if(key==='iso')     val = l14sc?.iso          ?? r._l14iso ?? r.iso;
           else if(key==='slg')     val = r._l14slg  ?? r.szSLG;
           else if(key==='avg')     val = r._l14avg  ?? r.szAVG;
@@ -11159,6 +11183,7 @@ function renderScout(){
         } else {
           if(key==='prob')     val = r.prob * 100;
           else if(key==='jhr') val = calcJHR(r);
+          else if(key==='la')  val = r.avgLA;
           else                 val = scoutGetField(r, f.field);
         }
         return scoutMatch(val, f.op, f.val);
@@ -11324,11 +11349,11 @@ function renderScout(){
           ['Barrel%','≥ 12%','green','Top 15% of MLB. Primary driver — hard contact at optimal angle'],
           ['Pull-Air%','≥ 16%','green','Pulls fly balls frequently. This is the HR swing plane'],
           ['Hard Hit%','≥ 50%','green','Consistent loud contact, not just barreling occasionally'],
+          ['Avg LA °','16–28°','green','Sweet spot for HR carry. Below 10° = grounders, above 35° = pop-ups'],
           ['ISO','≥ .220','green','Raw power. Anything above .200 is above avg, .250+ is elite'],
           ['jHR Score','≥ 145','green','Great tier. Composite of all 6 Statcast power signals'],
           ['HR Prob','≥ 10%','amber','Model threshold where standalone bet becomes interesting'],
           ['Platoon ×','≥ 1.10','amber','Favorable hand matchup adds 10%+ over baseline'],
-          ['Lineup Spot','≤ 4','amber','More PA = more chances. Top 4 get ~4.5 PA vs #7 getting ~3.8'],
         ].map(([lbl,val,clr,tip])=>`<div style="flex:1;min-width:calc(50% - 3px);padding:6px 8px;
           border-radius:8px;background:var(--bg3);border-left:2px solid ${clr==='green'?'var(--green)':'var(--amber)'}">
           <div style="font-size:.68rem;font-weight:700;color:${clr==='green'?'var(--green)':'var(--amber)'}">
