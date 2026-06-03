@@ -2867,9 +2867,25 @@ async function ensureLeaderboards(){
       getFGBatters(), getSavantPitchers(), getFGPitchers()
     ]).then(([fgB, savP, fgP])=>{
       if(fgB.value)  _fgB  = fgB.value  || {};
-      if(savP.value) _savP = savP.value || {};
+      if(savP.value) _savP = savP.value  || {};
       if(fgP.value)  _fgP  = fgP.value  || {};
       console.log('[LB] background data ready');
+      // Back-fill _savP pitcher fields on already-loaded rows
+      // (loadGame ran before _savP finished — barrel/pull/fb fields were null)
+      for(const r of S.allRows||[]){
+        if(!r._spId||!r._pitcherStats) continue;
+        const sp2 = (_savP||{})[String(r._spId)]||{};
+        if(!sp2.barrel_pct) continue; // nothing to update
+        if(r._pitcherStats.barrel_pct_allowed==null)
+          r._pitcherStats.barrel_pct_allowed    = sp2.barrel_pct ?? null;
+        if(r._pitcherStats.pull_air_pct_allowed==null)
+          r._pitcherStats.pull_air_pct_allowed  = sp2.pull_air_pct ?? null;
+        if(r._pitcherStats.pull_pct_allowed==null)
+          r._pitcherStats.pull_pct_allowed      = sp2.pull_pct ?? null;
+        if(r._pitcherStats.fb_pct_savant==null)
+          r._pitcherStats.fb_pct_savant         = sp2.fb_pct_bb ?? sp2.fb_percent ?? null;
+      }
+      if(_currentPage==='scout') try{ renderScout(); }catch{}
     });
     ensurePercentileMap();
     ensureSwingSpeedMap();
@@ -2999,11 +3015,24 @@ function fireSecondaryMaps(){
         const runValue  = (_pitcherWhiffMap||{})[pid]?.runValue  ?? null;
         const platDisc  = (_plateDiscMap||{})[String(r.id)] ?? null;
 
+        // Re-apply _savP pitcher Statcast data — it loads after loadGame runs
+        // so barrel_pct_allowed, pull_air_pct_allowed etc. start as null
+        const savP2 = (_savP||{})[pid] || {};
+
         // Update pitcherStats on the row
         if(r._pitcherStats){
-          r._pitcherStats.fgStats  = fgStats;
-          r._pitcherStats.whiffPct = whiffPct;
-          r._pitcherStats.runValue = runValue;
+          r._pitcherStats.fgStats              = fgStats;
+          r._pitcherStats.whiffPct             = whiffPct;
+          r._pitcherStats.runValue             = runValue;
+          // Re-apply Savant pitcher fields if they were null at game load time
+          if(r._pitcherStats.barrel_pct_allowed==null && savP2.barrel_pct!=null)
+            r._pitcherStats.barrel_pct_allowed   = savP2.barrel_pct;
+          if(r._pitcherStats.pull_air_pct_allowed==null && savP2.pull_air_pct!=null)
+            r._pitcherStats.pull_air_pct_allowed = savP2.pull_air_pct;
+          if(r._pitcherStats.pull_pct_allowed==null && savP2.pull_pct!=null)
+            r._pitcherStats.pull_pct_allowed     = savP2.pull_pct;
+          if(r._pitcherStats.fb_pct_savant==null)
+            r._pitcherStats.fb_pct_savant        = savP2.fb_pct_bb ?? savP2.fb_percent ?? null;
         }
         // Update plate discipline on batterStats
         if(platDisc != null) r.platDiscMult = calcPlateDiscMult(r.id);
@@ -3031,6 +3060,8 @@ function fireSecondaryMaps(){
         renderSlate();
         renderDailySummary();
         queueForAutoTrack(S.allRows);
+        // Re-render Scout if active so pitcher data coverage shows correctly
+        if(_currentPage === 'scout') try{ renderScout(); }catch{}
       }
       // Note: prefetchEliteSpotData is scheduled by renderSlate with a delay
       // to avoid crashing iOS when loading multiple games simultaneously
@@ -11318,6 +11349,7 @@ function renderScout(){
         <div style="font-size:.68rem;font-weight:700;color:var(--t2)">Filters</div>
         <div style="display:flex;align-items:center;gap:8px">
           ${activeCount>0?`<span style="font-size:.62rem;color:var(--amber)">${activeCount} active · ${results.length} result${results.length!==1?'s':''}</span>`:'<span style="font-size:.62rem;color:var(--t4)">toggle to activate</span>'}
+          <button onclick="renderScout()" style="font-size:.58rem;padding:2px 8px;border-radius:5px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t4);cursor:pointer" title="Refresh data">↺</button>
           ${activeCount>0?`<button onclick="_scoutClearAll()" style="font-size:.60rem;padding:2px 9px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--red);cursor:pointer">Clear all</button>`:''}
         </div>
       </div>
