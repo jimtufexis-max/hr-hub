@@ -1530,7 +1530,7 @@ async function getBatterL14Stats(pid, batHand='R'){
       barrelPct:   n>5 ? Math.round(barrels/n*1000)/10 : null,
       hardHitPct:  n>5 ? Math.round(hard/n*1000)/10    : null,
       avgEV:       n>5 ? Math.round(evs.reduce((a,b)=>a+b)/n*10)/10 : null,
-      avgLA:       las.length>5 ? Math.round(las.reduce((a,b)=>a+b)/las.length*10)/10 : null,
+      avgLA:       las.length>2 ? Math.round(las.reduce((a,b)=>a+b)/las.length*10)/10 : null,
       fbPct:       bip>5? Math.round(fb/bip*1000)/10  : null,
       gbPct:       bip>5? Math.round(gb/bip*1000)/10  : null,
       pullAirPct:  bip>5? Math.round(pullAir/bip*1000)/10 : null,
@@ -2879,6 +2879,24 @@ async function ensureLeaderboards(){
       if(savP.value) _savP = savP.value  || {};
       if(fgP.value)  _fgP  = fgP.value  || {};
       console.log('[LB] background data ready');
+      // Back-fill _savB batter Savant fields on already-loaded rows
+      // (loadGame ran before _savB finished — avgLA, barrel etc. were null)
+      let batBackfill = 0;
+      for(const r of S.allRows||[]){
+        const sb = (_savB||{})[String(r.id)];
+        if(!sb) continue;
+        if(r.avgLA==null && sb.avg_la!=null)        { r.avgLA=sb.avg_la; batBackfill++; }
+        if(r.barrel_pct==null && sb.barrel_pct!=null)   r.barrel_pct=sb.barrel_pct;
+        if(r.hard_hit_pct==null && sb.hard_hit_pct!=null) r.hard_hit_pct=sb.hard_hit_pct;
+        if(r.avg_ev==null && sb.avg_ev!=null)         r.avg_ev=sb.avg_ev;
+        if(r.pull_air_pct==null && sb.pull_air_pct!=null) r.pull_air_pct=sb.pull_air_pct;
+        if(r.iso==null && sb.avg_la!=null){           // use avg_la as signal data loaded
+          // re-compute ISO from MLB stats if FG wasn't ready
+          const szSLG = r.szSLG, szAVG = r.szAVG;
+          if(szSLG!=null && szAVG!=null) r.iso = Math.round((szSLG-szAVG)*1000)/1000;
+        }
+      }
+      if(batBackfill>0) console.log('[LB] back-filled avgLA for',batBackfill,'batters');
       // Back-fill _savP pitcher fields on already-loaded rows
       // (loadGame ran before _savP finished — barrel/pull/fb fields were null)
       for(const r of S.allRows||[]){
@@ -10990,6 +11008,19 @@ function renderScout(){
   const isL14    = st.period === 'l14';
   const filters  = isBatter ? st.batter : st.pitcher;
   const activeCount = Object.values(filters).filter(f=>f.on).length;
+
+  // ── Sync _savB batter fields onto rows — same timing issue as pitchers ──
+  if(isBatter && Object.keys(_savB||{}).length > 0){
+    for(const r of S.allRows){
+      const sb = (_savB||{})[String(r.id)];
+      if(!sb) continue;
+      if(r.avgLA==null && sb.avg_la!=null)          r.avgLA       = sb.avg_la;
+      if(r.barrel_pct==null && sb.barrel_pct!=null)  r.barrel_pct  = sb.barrel_pct;
+      if(r.hard_hit_pct==null && sb.hard_hit_pct!=null) r.hard_hit_pct= sb.hard_hit_pct;
+      if(r.pull_air_pct==null && sb.pull_air_pct!=null) r.pull_air_pct= sb.pull_air_pct;
+      if(r.avg_ev==null && sb.avg_ev!=null)          r.avg_ev      = sb.avg_ev;
+    }
+  }
 
   // ── Sync latest pitcher maps to rows (fireSecondaryMaps only runs once,
   //    so new games loaded afterward never get fgStats/whiffPct/savant data)
