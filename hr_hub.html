@@ -1304,26 +1304,58 @@ async function getFGBatters(){
 
 async function getSavantPitchers(){
   try{
-    const url=`https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&year=${SEASON}&position=&team=&min=10&csv=true`;
-    const ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),12000);
-    const r = await fetch(PROXY + encodeURIComponent(url),{signal:ctrl.signal});
-    if(!r.ok)throw new Error(`savant pitchers ${r.status}`);
-    const txt=await r.text();
-    const rows=parseCSVText(txt); const out={};
-    for(const row of rows){
-      const pid=(row.player_id||row.pitcher||'').replace(/\.0$/,'');
-      if(!pid)continue;
-      out[pid]={
-        barrel_pct:  parseF(row.brl_percent ?? row.barrel_batted_rate),
-        hard_hit_pct:parseF(row.ev95percent),
-        avg_ev:      parseF(row.avg_hit_speed ?? row.avg_exit_velocity),
-        gb_percent:  parseF(row.groundballs_percent ?? row.gb_percent ?? row.ground_ball_rate),
-        fb_percent:  parseF(row.flyballs_percent ?? row.fb_percent ?? row.fly_ball_rate),
-      };
+    const toP = v=>{ const f=parseFloat(v); return isNaN(f)?null:Math.round(f*1000)/10; };
+
+    // Fetch statcast leaderboard + batted-ball leaderboard in parallel
+    const [scResp, bbResp] = await Promise.allSettled([
+      fetch(PROXY + encodeURIComponent(
+        `https://baseballsavant.mlb.com/leaderboard/statcast?type=pitcher&year=${SEASON}&position=&team=&min=10&csv=true`
+      ), { signal: (() => { const c=new AbortController(); setTimeout(()=>c.abort(),12000); return c.signal; })() }),
+      fetch(PROXY + encodeURIComponent(
+        `https://baseballsavant.mlb.com/leaderboard/batted-ball?type=pitcher&year=${SEASON}&team=&min=10&csv=true`
+      ), { signal: (() => { const c=new AbortController(); setTimeout(()=>c.abort(),12000); return c.signal; })() }),
+    ]);
+
+    const out = {};
+
+    // 1. Statcast leaderboard — barrel%, hard hit%, avg EV, GB%, FB%
+    if(scResp.status==='fulfilled' && scResp.value.ok){
+      const rows = parseCSVText(await scResp.value.text());
+      for(const row of rows){
+        const pid = (row.player_id||row.pitcher||'').replace(/\.0$/,'');
+        if(!pid) continue;
+        out[pid] = {
+          barrel_pct:   toP(row.brl_percent ?? row.barrel_batted_rate),
+          hard_hit_pct: toP(row.ev95percent),
+          avg_ev:       toP(row.avg_hit_speed ?? row.avg_exit_velocity),
+          gb_percent:   toP(row.groundballs_percent ?? row.gb_percent ?? row.ground_ball_rate),
+          fb_percent:   toP(row.flyballs_percent ?? row.fb_percent ?? row.fly_ball_rate),
+        };
+      }
+      console.log(`Savant pitchers (statcast): ${Object.keys(out).length}`);
     }
-    console.log(`Savant pitchers: ${Object.keys(out).length} players`);
+
+    // 2. Batted-ball leaderboard — pull%, pull-air%, fb% (more precise)
+    try{
+      if(bbResp.status==='fulfilled' && bbResp.value.ok){
+        const rows2 = parseCSVText(await bbResp.value.text());
+        for(const row of rows2){
+          const pid = String(row.id||row.player_id||'').replace(/\.0$/,'');
+          if(!pid) continue;
+          if(!out[pid]) out[pid] = {};
+          const pull    = toP(row.pull_rate    ?? row.pull_percent);
+          const pullAir = toP(row.pull_air_rate ?? row.pull_air_percent ?? row.pull_percent_of);
+          const fbPct   = toP(row.fb_rate      ?? row.fly_ball_rate);
+          if(pull    != null) out[pid].pull_pct     = pull;
+          if(pullAir != null) out[pid].pull_air_pct = pullAir;
+          if(fbPct   != null) out[pid].fb_pct_bb    = fbPct;  // disambiguate from statcast fb_percent
+        }
+        console.log(`Savant pitchers (batted-ball) merged`);
+      }
+    }catch(e2){ console.warn('[savant pitchers batted-ball]:', e2.message); }
+
     return out;
-  }catch(e){console.warn('getSavantPitchers failed:',e.message);return{};}
+  }catch(e){ console.warn('getSavantPitchers failed:',e.message); return {}; }
 }
 
 async function getFGPitchers(){
@@ -10300,6 +10332,9 @@ async function loadGame(g){
       totalStarts:        pitLog?.totalStarts ?? null,
       hrFb:               fgP.hrFb            ?? null,
       barrel_pct_allowed: savP.barrel_pct     ?? null,
+      pull_pct_allowed:   savP.pull_pct        ?? null,
+      pull_air_pct_allowed:savP.pull_air_pct   ?? null,
+      fb_pct_savant:      savP.fb_pct_bb       ?? savP.fb_percent ?? null,
       arsenal:            spArsenal,
       workload:           (key.endsWith('_away') ? hmWorkload : awWorkload) || null,
       daysRest:           (key.endsWith('_away') ? hmRest    : awRest   )  || null,
@@ -12266,8 +12301,11 @@ function renderDetail(r){
         ${pit.fgStats?.xfip!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.fgStats.xfip<=3.50?'var(--green)':pit.fgStats.xfip>=4.80?'var(--red)':'var(--t3)'}">${pit.fgStats.xfip.toFixed(2)}</span><span class="sb-lbl">xFIP</span></div>`:''}
         ${pit.fgStats?.fip!=null?`<div class="stat-box"><span class="sb-val">${pit.fgStats.fip.toFixed(2)}</span><span class="sb-lbl">FIP</span></div>`:''}
         ${pit.fgStats?.kPct!=null?`<div class="stat-box"><span class="sb-val">${pit.fgStats.kPct.toFixed(1)}%</span><span class="sb-lbl">K%</span></div>`:''}
+        ${pit.fgStats?.fbPct!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.fgStats.fbPct>=42?'var(--green)':pit.fgStats.fbPct<=32?'var(--red)':'var(--t3)'}">${pit.fgStats.fbPct.toFixed(1)}%</span><span class="sb-lbl">FB% (FG)</span></div>`:''}
+        ${pit.pull_pct_allowed!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.pull_pct_allowed>=42?'var(--green)':pit.pull_pct_allowed<=34?'var(--red)':'var(--t3)'}">${pit.pull_pct_allowed.toFixed(1)}%</span><span class="sb-lbl">Pull% Allow</span></div>`:''}
+        ${pit.pull_air_pct_allowed!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.pull_air_pct_allowed>=18?'var(--green)':pit.pull_air_pct_allowed<=11?'var(--red)':'var(--t3)'}">${pit.pull_air_pct_allowed.toFixed(1)}%</span><span class="sb-lbl">Pull-Air Allow</span></div>`:''}
+        ${pit.fb_pct_savant!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.fb_pct_savant>=42?'var(--green)':pit.fb_pct_savant<=32?'var(--red)':'var(--t3)'}">${pit.fb_pct_savant.toFixed(1)}%</span><span class="sb-lbl">FB% (SC)</span></div>`:''}
         ${pit.battedBall!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.battedBall.gbRate>50?'var(--red)':pit.battedBall.fbRate>42?'var(--green)':'var(--t3)'}">${pit.battedBall.gbRate}%</span><span class="sb-lbl">GB Rate</span></div>`:''}
-        ${pit.battedBall?.fbRate!=null?`<div class="stat-box"><span class="sb-val" style="color:${pit.battedBall.fbRate>45?'var(--green)':'var(--t3)'}"> ${pit.battedBall.fbRate}%</span><span class="sb-lbl">FB Rate</span></div>`:''}
       </div>`;
 
       // Arsenal pitch rows with batter performance overlay
