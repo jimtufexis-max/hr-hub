@@ -9468,32 +9468,57 @@ function renderDiscover(){
 // ==================================================================
 async function ensureFGPitcherMap(){
   if(_fgPitcherMap!==null) return; _fgPitcherMap={};
+  const p = v => { const f=parseFloat(v); return !isNaN(f)&&f!==0 ? f : null; };
+  const normId = row => String(row.xMLBAMID||row.mlbamid||row.playerid||row.PlayerID||'').replace(/\.0$/,'').trim();
+
   try{
-    // FanGraphs pitcher leaderboard — standard stats + FIP/xFIP
-    const url=`https://www.fangraphs.com/api/leaders/major-league/data?age=0&pos=all&stats=pit&lg=all&qual=20&season=${SEASON}&season1=${SEASON}&ind=0&team=0&pageitems=500&pagenum=1&type=8&sortdir=default&sortstat=GamesPitched`;
-    const r=await fetch(PROXY+encodeURIComponent(url));
-    if(!r.ok) throw new Error(`FG pitcher ${r.status}`);
-    const d=await r.json();
-    const rows=d.data||d.Data||[];
-    console.log('[FG Pitchers] rows:',rows.length,'sample keys:',rows[0]?Object.keys(rows[0]).slice(0,12):[]);
-    for(const row of rows){
-      const id=String(row.mlbamid||row.playerid||row.PlayerID||'');
-      if(!id) continue;
-      _fgPitcherMap[id]={
-        fip:   parseFloat(row.FIP||row.xFIP||0)||null,
-        xfip:  parseFloat(row.xFIP||row.xfip||0)||null,
-        siera: parseFloat(row.SIERA||row.siera||0)||null,
-        kPct:  parseFloat(row['K%']||row.kpct||0)||null,
-        bbPct: parseFloat(row['BB%']||row.bbpct||0)||null,
-        hrFb:  parseFloat(row['HR/FB']||row.hrfb||0)||null,
-        era:   parseFloat(row.ERA||row.era||0)||null,
-        gbPct: parseFloat(row['GB%']||row.gb_pct||row['GB/FB']||0)||null,
-        fbPct: parseFloat(row['FB%']||row.fb_pct||0)||null,
-        ldPct: parseFloat(row['LD%']||row.ld_pct||0)||null,
-        iffbPct: parseFloat(row['IFFB%']||row.iffb_pct||0)||null,
-      };
+    // Fetch two FG tables in parallel:
+    // type=8  = Plate Discipline → K%, BB%, FB%, GB% (same as getFGPitchers, works reliably)
+    // type=1  = Dashboard/Advanced → ERA, FIP, xFIP, SIERA, K/9, BB/9
+    const [r8, r1] = await Promise.allSettled([
+      fetch(PROXY+encodeURIComponent(`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=pit&lg=all&qual=1&season=${SEASON}&season1=${SEASON}&ind=0&team=0&pageitems=2000&pagenum=1&type=8&sortdir=default&sortstat=GamesPitched`)),
+      fetch(PROXY+encodeURIComponent(`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=pit&lg=all&qual=1&season=${SEASON}&season1=${SEASON}&ind=0&team=0&pageitems=2000&pagenum=1&type=1&sortdir=default&sortstat=GamesPitched`)),
+    ]);
+
+    // Base: plate discipline stats (K%, FB%, GB%, HR/FB)
+    if(r8.status==='fulfilled' && r8.value.ok){
+      const d8=await r8.value.json();
+      for(const row of (d8.data||[])){
+        const id=normId(row); if(!id) continue;
+        _fgPitcherMap[id]={
+          kPct:   p(row['K%']||row.K_pct),
+          bbPct:  p(row['BB%']||row.BB_pct),
+          fbPct:  p(row['FB%']||row.FB_pct||row.fly_ball_pct),
+          gbPct:  p(row['GB%']||row.GB_pct),
+          ldPct:  p(row['LD%']||row.LD_pct),
+          hrFb:   p(row['HR/FB']||row.HR_FB),
+          fip:    p(row.FIP),
+          era:    p(row.ERA),
+          xfip:   p(row.xFIP),        // may or may not be in type=8
+        };
+      }
+      console.log('[FG Pitchers] type=8 loaded:',Object.keys(_fgPitcherMap).length);
     }
-    console.log('[FG Pitchers] loaded',Object.keys(_fgPitcherMap).length,'pitchers');
+
+    // Overlay: advanced stats (xFIP, SIERA, FIP) from dashboard table
+    if(r1.status==='fulfilled' && r1.value.ok){
+      const d1=await r1.value.json();
+      let advCount=0;
+      for(const row of (d1.data||[])){
+        const id=normId(row); if(!id) continue;
+        if(!_fgPitcherMap[id]) _fgPitcherMap[id]={};
+        const xfip=p(row.xFIP||row['xFIP']||row.xfip);
+        const fip=p(row.FIP||row.fip);
+        const siera=p(row.SIERA||row.siera);
+        if(xfip!=null) { _fgPitcherMap[id].xfip=xfip; advCount++; }
+        if(fip!=null)  _fgPitcherMap[id].fip=fip;
+        if(siera!=null) _fgPitcherMap[id].siera=siera;
+        if(!_fgPitcherMap[id].kPct){ _fgPitcherMap[id].kPct=p(row['K%']); }
+      }
+      console.log('[FG Pitchers] type=1 xFIP overlay:',advCount,'pitchers');
+    }
+
+    console.log('[FG Pitchers] final map:',Object.keys(_fgPitcherMap).length,'pitchers');
   }catch(e){ console.warn('[FG Pitchers]:',e.message); _fgPitcherMap={}; }
 }
 
@@ -10984,6 +11009,8 @@ function renderScout(){
       }
     }
     // Trigger loading of any pitcher maps not yet fetched
+    // Reset empty map to null so ensureFGPitcherMap re-fetches with fixed ID
+    if(_fgPitcherMap!==null && Object.keys(_fgPitcherMap).length===0) _fgPitcherMap=null;
     if(_fgPitcherMap===null)
       ensureFGPitcherMap().then(()=>{ if(_currentPage==='scout') renderScout(); });
     if(_pitcherWhiffMap===null)
