@@ -434,6 +434,13 @@ input:focus,textarea:focus{border-color:var(--amber)}
       </div>
 
       <!-- RESULTS -->
+      <!-- Scout / Search page -->
+      <div id="page-scout" class="page">
+        <div id="scout-content" style="padding:4px 0">
+          <div class="empty" style="padding:40px 0">Load games on the Slate tab first</div>
+        </div>
+      </div>
+
       <div id="page-results" class="page">
         <div id="results-content"></div>
       </div>
@@ -724,6 +731,10 @@ input:focus,textarea:focus{border-color:var(--amber)}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
       Discover
     </button>
+    <button class="nav-btn" id="nav-scout" onclick="showPage('scout')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      Scout
+    </button>
     <button class="nav-btn" id="nav-results" onclick="showPage('results')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
       Results
@@ -878,6 +889,7 @@ function showPage(name){
     if(name==='kelly') renderKelly();
     if(name==='picks') renderBestBets();
     if(name==='discover') renderDiscover();
+    if(name==='scout') renderScout();
     if(name==='ab') populateABSelect();
     if(name==='pl') populatePitcherSelect();
     if(name==='info'){
@@ -10695,6 +10707,260 @@ function renderHRProjection(){
 //  Not just HR probability — weights conviction, data quality,
 //  angle alignment, value vs book, and signal consistency
 // ==================================================================
+// ==================================================================
+//  SCOUT — parameterized search across all loaded players/pitchers
+// ==================================================================
+const SCOUT_DEFAULTS = {
+  mode: 'batter', // 'batter' | 'pitcher'
+  batter: {
+    prob:       { on:false, op:'>=', val:8,   label:'HR Prob %',      field:'prob',         scale:100 },
+    jhr:        { on:false, op:'>=', val:130,  label:'jHR Score',      field:'_jhr',         scale:1   },
+    barrel:     { on:false, op:'>=', val:10,   label:'Barrel %',       field:'barrel_pct',   scale:1   },
+    pullAir:    { on:false, op:'>=', val:15,   label:'Pull-Air %',     field:'pull_air_pct', scale:1   },
+    hardHit:    { on:false, op:'>=', val:45,   label:'Hard Hit %',     field:'hard_hit_pct', scale:1   },
+    iso:        { on:false, op:'>=', val:0.200,label:'ISO',            field:'iso',          scale:1   },
+    platoon:    { on:false, op:'>=', val:1.10, label:'Platoon ×',      field:'platoon',      scale:1   },
+    pitcher:    { on:false, op:'>=', val:1.10, label:'Pitcher ×',      field:'pitcher',      scale:1   },
+    lineupPos:  { on:false, op:'<=', val:5,    label:'Lineup Spot ≤',  field:'lineupPos',    scale:1   },
+    parkwx:     { on:false, op:'>=', val:1.05, label:'Park×Weather',   field:'parkwx',       scale:1   },
+  },
+  pitcher: {
+    fbPct:      { on:false, op:'>=', val:38,   label:'FB% Allowed',    field:'fgStats.fbPct',      scale:1 },
+    pullAir:    { on:false, op:'>=', val:14,   label:'Pull-Air Allow', field:'pull_air_pct_allowed',scale:1 },
+    hr9r:       { on:false, op:'>=', val:1.5,  label:'HR/9 Recent',    field:'hr9_recent',         scale:1 },
+    hr9s:       { on:false, op:'>=', val:1.2,  label:'HR/9 Season',    field:'hr9_season',         scale:1 },
+    xfip:       { on:false, op:'>=', val:4.20, label:'xFIP',           field:'fgStats.xfip',       scale:1 },
+    barrel:     { on:false, op:'>=', val:9,    label:'Barrel% Allow',  field:'barrel_pct_allowed', scale:1 },
+    kPct:       { on:false, op:'<=', val:22,   label:'K% ≤',           field:'fgStats.kPct',       scale:1 },
+    whiff:      { on:false, op:'<=', val:24,   label:'Whiff% ≤',       field:'whiffPct',           scale:1 },
+    daysRest:   { on:false, op:'<=', val:4,    label:'Days Rest ≤',    field:'daysRest.days',      scale:1 },
+  }
+};
+
+// Live scout state — persists across renders within session
+let _scoutState = null;
+function getScoutState(){
+  if(!_scoutState){
+    try{
+      const saved = JSON.parse(localStorage.getItem('diq_scout')||'null');
+      _scoutState = saved || JSON.parse(JSON.stringify(SCOUT_DEFAULTS));
+    }catch{ _scoutState = JSON.parse(JSON.stringify(SCOUT_DEFAULTS)); }
+  }
+  return _scoutState;
+}
+function saveScoutState(){ try{ localStorage.setItem('diq_scout',JSON.stringify(_scoutState)); }catch{} }
+
+// Resolve a dot-path field on an object  e.g. 'fgStats.fbPct'
+function scoutGetField(obj, path){
+  return path.split('.').reduce((o,k)=>o?.[k], obj);
+}
+
+// Evaluate one filter against a value
+function scoutMatch(val, op, threshold){
+  if(val==null) return false;
+  if(op==='>=') return val >= threshold;
+  if(op==='<=') return val <= threshold;
+  if(op==='=')  return Math.abs(val - threshold) < 0.001;
+  return false;
+}
+
+function renderScout(){
+  const el = document.getElementById('scout-content');
+  if(!el) return;
+
+  if(!S.allRows.length){
+    el.innerHTML='<div class="empty" style="padding:40px 0">Load games on the Slate tab first</div>';
+    return;
+  }
+
+  const st = getScoutState();
+  const isBatter = st.mode === 'batter';
+  const filters  = isBatter ? st.batter : st.pitcher;
+  const activeCount = Object.values(filters).filter(f=>f.on).length;
+
+  // ── Step adjustments per filter ────────────────────────────────
+  const STEPS = {
+    prob:0.5, jhr:5, barrel:1, pullAir:1, hardHit:1, iso:0.010,
+    platoon:0.05, pitcher:0.05, lineupPos:1, parkwx:0.05,
+    fbPct:2, hr9r:0.1, hr9s:0.1, xfip:0.10, kPct:1, whiff:1, daysRest:1,
+  };
+
+  // ── Filter chips ─────────────────────────────────────────────────
+  const filterChip = (key, f) => {
+    const step  = STEPS[key] || 1;
+    const fmt   = v => key==='iso' ? v.toFixed(3) : (v===Math.round(v)?v:v.toFixed(key.includes('fip')||key.includes('xfip')?2:1));
+    return `<div style="border:1px solid ${f.on?'var(--amber)':'var(--bdr)'};border-radius:10px;
+      padding:7px 8px;background:${f.on?'rgba(240,165,0,.08)':'var(--bg3)'};
+      transition:all .15s;margin-bottom:6px">
+      <div style="display:flex;align-items:center;gap:7px">
+        <div onclick="_scoutToggle('${key}')" style="width:30px;height:18px;border-radius:99px;
+          background:${f.on?'var(--amber)':'rgba(100,116,139,.3)'};cursor:pointer;
+          position:relative;transition:background .15s;flex-shrink:0">
+          <div style="position:absolute;top:2px;left:${f.on?'14':'2'}px;width:14px;height:14px;
+            border-radius:50%;background:#fff;transition:left .15s"></div>
+        </div>
+        <span style="font-size:.70rem;font-weight:600;color:${f.on?'var(--amber)':'var(--t3)'};flex:1">${f.label}</span>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+          <span style="font-size:.60rem;color:var(--t4)">${f.op}</span>
+          <button onclick="_scoutAdj('${key}',-1)"
+            style="width:24px;height:24px;border-radius:6px;border:1px solid var(--bdr);
+            background:var(--bg2);color:var(--t2);font-size:.80rem;cursor:pointer;line-height:1;font-weight:700">−</button>
+          <span style="font-size:.78rem;font-weight:800;color:var(--t1);min-width:44px;text-align:center">${fmt(f.val)}</span>
+          <button onclick="_scoutAdj('${key}',1)"
+            style="width:24px;height:24px;border-radius:6px;border:1px solid var(--bdr);
+            background:var(--bg2);color:var(--t2);font-size:.80rem;cursor:pointer;line-height:1;font-weight:700">+</button>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  // ── Run filters against S.allRows ─────────────────────────────────
+  let results = [];
+  const activeFilters = Object.entries(filters).filter(([,f])=>f.on);
+
+  if(isBatter){
+    results = S.allRows.filter(r=>{
+      return activeFilters.every(([key,f])=>{
+        let val;
+        if(key==='prob')     val = r.prob * 100;
+        else if(key==='jhr') val = calcJHR(r);
+        else                 val = scoutGetField(r, f.field);
+        return scoutMatch(val, f.op, f.val);
+      });
+    }).sort((a,b)=>b.prob-a.prob);
+  } else {
+    // Pitcher mode — gather unique pitchers from S.allRows
+    const seen = new Set();
+    const pitcherRows = [];
+    for(const r of S.allRows){
+      const spKey = r._spId || r.spNm;
+      if(!spKey || seen.has(spKey)) continue;
+      seen.add(spKey);
+      pitcherRows.push(r);
+    }
+    results = pitcherRows.filter(r=>{
+      const pit = r._pitcherStats||{};
+      return activeFilters.every(([key,f])=>{
+        let val;
+        if(key==='pullAir')  val = pit.pull_air_pct_allowed;
+        else if(key==='fbPct') val = pit.fgStats?.fbPct;
+        else if(key==='hr9r')  val = pit.hr9_recent;
+        else if(key==='hr9s')  val = pit.hr9_season;
+        else if(key==='xfip')  val = pit.fgStats?.xfip;
+        else if(key==='barrel')val = pit.barrel_pct_allowed;
+        else if(key==='kPct')  val = pit.fgStats?.kPct;
+        else if(key==='whiff') val = pit.whiffPct;
+        else if(key==='daysRest') val = pit.daysRest?.days;
+        else                   val = scoutGetField(pit, f.field);
+        return scoutMatch(val, f.op, f.val);
+      });
+    }).sort((a,b)=>(b._pitcherStats?.hr9_recent||0)-(a._pitcherStats?.hr9_recent||0));
+  }
+
+  // ── Render pitcher result row ─────────────────────────────────────
+  const pitRow = r => {
+    const pit = r._pitcherStats||{};
+    const chips = [
+      pit.hr9_recent!=null  ? `<span style="font-size:.60rem;padding:2px 7px;border-radius:99px;background:rgba(34,201,94,.1);color:var(--green);border:1px solid rgba(34,201,94,.25)">HR/9 ${pit.hr9_recent.toFixed(2)}r</span>` : '',
+      pit.fgStats?.xfip!=null ? `<span style="font-size:.60rem;padding:2px 7px;border-radius:99px;background:var(--bg3);color:var(--t3);border:1px solid var(--bdr)">xFIP ${pit.fgStats.xfip.toFixed(2)}</span>` : '',
+      pit.fgStats?.fbPct!=null ? `<span style="font-size:.60rem;padding:2px 7px;border-radius:99px;background:rgba(34,201,94,.1);color:var(--green);border:1px solid rgba(34,201,94,.25)">FB% ${pit.fgStats.fbPct.toFixed(0)}%</span>` : '',
+      pit.pull_air_pct_allowed!=null ? `<span style="font-size:.60rem;padding:2px 7px;border-radius:99px;background:rgba(34,201,94,.1);color:var(--green);border:1px solid rgba(34,201,94,.25)">Pull-Air ${pit.pull_air_pct_allowed.toFixed(0)}%</span>` : '',
+      pit.barrel_pct_allowed!=null ? `<span style="font-size:.60rem;padding:2px 7px;border-radius:99px;background:var(--bg3);color:var(--t3);border:1px solid var(--bdr)">Brl% ${pit.barrel_pct_allowed.toFixed(1)}</span>` : '',
+      pit.daysRest?.days!=null ? `<span style="font-size:.60rem;padding:2px 7px;border-radius:99px;background:var(--bg3);color:var(--t4);border:1px solid var(--bdr)">${pit.daysRest.days}d rest</span>` : '',
+    ].filter(Boolean).join('');
+    return `<div style="padding:10px;border-radius:10px;background:var(--bg3);margin-bottom:6px;border-left:3px solid rgba(224,80,74,.5)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">
+        <div>
+          <div style="font-size:.82rem;font-weight:800;color:var(--t1)">${r.spNm||'Unknown SP'}</div>
+          <div style="font-size:.60rem;color:var(--t4);margin-top:1px">${r.oppHand||'?'}HP · vs ${r.team}${r.gameTime?' · '+fmtGameTime(r.gameTime):''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:.72rem;font-weight:700;color:${(pit.hr9_recent||0)>=2?'var(--green)':(pit.hr9_recent||0)>=1.4?'var(--amber)':'var(--t4)'}">
+            ${pit.hr9_recent!=null?pit.hr9_recent.toFixed(2)+' HR/9':'--'}</div>
+          <div style="font-size:.56rem;color:var(--t4)">recent</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">${chips}</div>
+    </div>`;
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────
+  const filterHTML = Object.entries(filters).map(([k,f])=>filterChip(k,f)).join('');
+  const noFiltersMsg = activeCount===0
+    ? `<div style="padding:24px 14px;text-align:center;font-size:.68rem;color:var(--t4);border-radius:12px;border:1px dashed var(--bdr);margin-top:4px">
+        Enable filters above to search.<br>
+        <span style="opacity:.6">Toggle any parameter, set your threshold, results appear instantly.</span>
+      </div>` : '';
+  const resultHTML = activeCount > 0
+    ? (results.length
+        ? results.map(r => isBatter
+            ? renderHitterCard(r, true)
+            : pitRow(r)).join('')
+        : `<div style="padding:24px 14px;text-align:center;font-size:.68rem;color:var(--t4)">No ${isBatter?'batters':'pitchers'} match all active filters — try relaxing a threshold.</div>`)
+    : noFiltersMsg;
+
+  el.innerHTML = `
+    <!-- Mode toggle -->
+    <div style="display:flex;gap:6px;margin-bottom:14px;padding:4px;background:var(--bg3);border-radius:11px">
+      <button onclick="_scoutMode('batter')" style="flex:1;padding:8px;border-radius:8px;border:none;
+        cursor:pointer;font-size:.72rem;font-weight:700;transition:all .15s;
+        background:${isBatter?'var(--bg2)':'transparent'};
+        color:${isBatter?'var(--amber)':'var(--t4)'};
+        box-shadow:${isBatter?'0 1px 4px rgba(0,0,0,.2)':'none'}">
+        ⚾ Batter Search
+      </button>
+      <button onclick="_scoutMode('pitcher')" style="flex:1;padding:8px;border-radius:8px;border:none;
+        cursor:pointer;font-size:.72rem;font-weight:700;transition:all .15s;
+        background:${!isBatter?'var(--bg2)':'transparent'};
+        color:${!isBatter?'var(--amber)':'var(--t4)'};
+        box-shadow:${!isBatter?'0 1px 4px rgba(0,0,0,.2)':'none'}">
+        🥎 Pitcher Search
+      </button>
+    </div>
+
+    <!-- Filters -->
+    <div style="margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:.68rem;font-weight:700;color:var(--t2)">Filters</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${activeCount>0?`<span style="font-size:.62rem;color:var(--amber)">${activeCount} active · ${results.length} result${results.length!==1?'s':''}</span>`:'<span style="font-size:.62rem;color:var(--t4)">toggle to activate</span>'}
+          ${activeCount>0?`<button onclick="_scoutClearAll()" style="font-size:.60rem;padding:2px 9px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--red);cursor:pointer">Clear all</button>`:''}
+        </div>
+      </div>
+      ${filterHTML}
+    </div>
+
+    <!-- Results -->
+    <div>${resultHTML}</div>
+  `;
+}
+
+// Scout action handlers — called from inline onclick
+window._scoutToggle = function(key){
+  const st=getScoutState();
+  const group=st.mode==='batter'?st.batter:st.pitcher;
+  if(group[key]) group[key].on=!group[key].on;
+  saveScoutState(); renderScout();
+};
+window._scoutAdj = function(key, dir){
+  const st=getScoutState();
+  const group=st.mode==='batter'?st.batter:st.pitcher;
+  if(!group[key]) return;
+  const STEPS={prob:0.5,jhr:5,barrel:0.5,pullAir:0.5,hardHit:1,iso:0.005,platoon:0.05,pitcher:0.05,lineupPos:1,parkwx:0.05,fbPct:1,pullAir:0.5,hr9r:0.1,hr9s:0.1,xfip:0.10,kPct:1,whiff:1,daysRest:1};
+  const step=STEPS[key]||1;
+  group[key].val=Math.round((group[key].val + dir*step)*1000)/1000;
+  saveScoutState(); renderScout();
+};
+window._scoutMode = function(mode){
+  const st=getScoutState(); st.mode=mode; saveScoutState(); renderScout();
+};
+window._scoutClearAll = function(){
+  const st=getScoutState();
+  const group=st.mode==='batter'?st.batter:st.pitcher;
+  Object.values(group).forEach(f=>f.on=false);
+  saveScoutState(); renderScout();
+};
+
 // ==================================================================
 //  PICKS — composite conviction score (no double-counting)
 //  Rewards: data quality, signal alignment, odds value
