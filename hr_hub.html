@@ -5036,16 +5036,23 @@ function exportBetHistory(){
   if(!bets.length){ showToast('No bets to export','amber'); return; }
 
   const resolved = bets.filter(b=>b.actual!==undefined&&b.actual!==null);
-  const won = resolved.filter(b=>b.actual>0);
-  const lost = resolved.filter(b=>b.actual===0);
-  const pending = bets.filter(b=>b.actual===undefined||b.actual===null);
+  const won      = resolved.filter(b=>b.actual===1||b.actual>0&&b.actual!=='cashout');
+  const lost     = resolved.filter(b=>b.actual===0);
+  const cashedOut= resolved.filter(b=>b.actual==='cashout');
+  const pending  = bets.filter(b=>b.actual===undefined||b.actual===null);
 
-  // Calculate P&L
+  // Calculate P&L — cash outs counted as partial wins/losses
   let totalWagered=0, totalWon=0, totalLost=0;
   for(const b of resolved){
     const w = parseFloat(b.wagered)||0;
     totalWagered += w;
-    if(b.actual>0){
+    if(b.actual==='cashout'){
+      // Cash out P&L: received amount minus wagered
+      const received = parseFloat(b.cashoutAmount)||0;
+      const profit   = received - w;
+      if(profit >= 0) totalWon  += profit;
+      else            totalLost += Math.abs(profit);
+    } else if(b.actual>0){
       const p = calcPayout(w, b.odds);
       totalWon += p ? p.profit : 0;
     } else {
@@ -5058,11 +5065,12 @@ function exportBetHistory(){
   const net = totalWon - totalLost;
 
   const fmt = b => {
-    const icon = b.actual>0?'✅':b.actual===0?'❌':'⏳';
+    const icon = b.actual==='cashout'?'💵':b.actual>0?'✅':b.actual===0?'❌':'⏳';
     const type = b.betType==='parlay'?'🎰 PARLAY':'⚾';
     const odds = b.odds!=null?(b.odds>0?'+':'')+b.odds:'---';
     const w = b.wagered ? `$${b.wagered}` : '';
-    const payout = b.actual>0&&b.wagered&&b.odds ? (()=>{const p=calcPayout(b.wagered,b.odds);return p?` → +$${p.profit.toFixed(2)}`:''})() :
+    const payout = b.actual==='cashout'&&b.cashoutAmount ? ` → 💵 $${parseFloat(b.cashoutAmount).toFixed(2)} (${(parseFloat(b.cashoutAmount)-(parseFloat(b.wagered)||0)>=0?'+':'')}$${(parseFloat(b.cashoutAmount)-(parseFloat(b.wagered)||0)).toFixed(2)})` :
+                   b.actual>0&&b.wagered&&b.odds ? (()=>{const p=calcPayout(b.wagered,b.odds);return p?` → +$${p.profit.toFixed(2)}`:''})() :
                    b.actual===0&&b.wagered ? ` → -$${b.wagered}` : '';
     return `${icon} ${b.name} | ${odds} | ${w}${payout}`;
   };
@@ -5939,6 +5947,40 @@ function resolveResult(id, date, actual){
   renderResultsTab();
 }
 
+// Show inline cash out input on a pending bet card
+function showCashOutInput(id, date){
+  const rowEl = document.getElementById('cashout-row-'+id);
+  if(!rowEl) return;
+  // Toggle — hide if already showing
+  if(rowEl.style.display !== 'none'){
+    rowEl.style.display = 'none';
+    return;
+  }
+  rowEl.style.display = 'flex';
+  setTimeout(()=>document.getElementById('cashout-input-'+id)?.focus(), 80);
+}
+
+// Confirm cash out — saves amount, marks bet as cashed out, moves to settled
+function confirmCashOut(id, date){
+  const inputEl = document.getElementById('cashout-input-'+id);
+  const amount  = parseFloat(inputEl?.value?.replace(/[$,]/g,''));
+  if(!amount || amount < 0){
+    showToast('Enter a valid cash out amount', 'red');
+    return;
+  }
+  const stored = JSON.parse(localStorage.getItem('hr_hub_results')||'[]');
+  const idx = stored.findIndex(r=>String(r.id)===String(id)&&r.date===date&&r.manualBet===true);
+  if(idx >= 0){
+    stored[idx].actual       = 'cashout';  // special status — not win/loss
+    stored[idx].cashoutAmount = amount;
+    stored[idx].resolvedManual = true;
+    stored[idx].cashoutDate   = ds();
+  }
+  localStorage.setItem('hr_hub_results', JSON.stringify(stored));
+  renderResultsTab();
+  showToast(`💵 Cashed out $${amount.toFixed(2)}`, 'green');
+}
+
 
 
 
@@ -6325,14 +6367,28 @@ async function renderResultsTab(){
                 onchange="saveClosingLine('${r.id}','${r.date}',this.value)"
                 style="flex:1;padding:3px 7px;border-radius:6px;border:1px solid rgba(61,142,240,.25);background:var(--bg3);color:var(--t1);font-size:.68rem;font-family:monospace;min-width:0">
             </div>
+            <!-- Cash out input row — hidden until button tapped -->
+            <div id="cashout-row-${r.id}" style="display:none;align-items:center;gap:5px;margin-top:5px">
+              <span style="font-size:.57rem;color:#22c95e;white-space:nowrap;flex-shrink:0">💵 Cash Out $</span>
+              <input id="cashout-input-${r.id}" type="number" placeholder="amount received" min="0" step="0.01"
+                style="flex:1;padding:3px 7px;border-radius:6px;border:1px solid rgba(34,201,94,.35);background:var(--bg2);color:var(--t1);font-size:.72rem;font-family:monospace;min-width:0"
+                onkeydown="if(event.key==='Enter')confirmCashOut('${r.id}','${r.date}')">
+              <button onclick="confirmCashOut('${r.id}','${r.date}')"
+                style="padding:3px 10px;border-radius:6px;border:none;background:var(--green);color:#000;font-size:.68rem;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0">
+                Confirm
+              </button>
+            </div>
           </div>
-          <div style="display:flex;gap:4px;flex-shrink:0">
+          <div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
             <button onclick="resolveResult('${r.id}','${r.date}',1)" style="padding:5px 8px;
               border-radius:8px;border:1px solid rgba(34,201,94,.4);
               background:rgba(34,201,94,.1);color:var(--green);font-size:.68rem;cursor:pointer;font-weight:700">✅</button>
             <button onclick="resolveResult('${r.id}','${r.date}',0)" style="padding:5px 8px;
               border-radius:8px;border:1px solid rgba(224,80,74,.4);
               background:rgba(224,80,74,.08);color:var(--red);font-size:.68rem;cursor:pointer;font-weight:700">❌</button>
+            <button onclick="showCashOutInput('${r.id}','${r.date}')" style="padding:5px 8px;
+              border-radius:8px;border:1px solid rgba(34,201,94,.4);
+              background:rgba(34,201,94,.08);color:var(--green);font-size:.60rem;cursor:pointer;font-weight:700;white-space:nowrap">💵</button>
             <button onclick="voidBet('${r.id}','${r.date}')" style="padding:5px 8px;
               border-radius:8px;border:1px solid rgba(148,163,184,.3);
               background:rgba(148,163,184,.06);color:var(--t4);font-size:.68rem;cursor:pointer">🚫</button>
@@ -6700,7 +6756,7 @@ function showTrackedList(filter){
 
   const rows = picks.map(p=>{
     const resultIcon = p.actual===undefined||p.actual===null ? '⏳'
-      : p.actual>0 ? '✅' : '❌';
+      : p.actual==='cashout' ? '💵' : p.actual>0 ? '✅' : '❌';
     const resultClr  = p.actual===undefined||p.actual===null ? 'var(--t4)'
       : p.actual>0 ? 'var(--green)' : 'var(--red)';
     const fdStr = p.fdOdds!=null ? `${p.fdOdds>0?'+':''}${p.fdOdds}` : '--';
