@@ -11270,82 +11270,46 @@ function renderScout(){
     </div>
 
     <!-- Period toggle: Season vs L14 -->
-    ${isBatter?`<div style="display:flex;gap:5px;margin-bottom:8px">
-      <button onclick="_scoutPeriod('season')" style="flex:1;padding:6px;border-radius:8px;
-        border:1px solid ${!isL14?'var(--amber)':'var(--bdr)'};
-        background:${!isL14?'rgba(240,165,0,.1)':'var(--bg3)'};
-        color:${!isL14?'var(--amber)':'var(--t4)'};
-        font-size:.68rem;font-weight:700;cursor:pointer">
-        📊 Season Stats
-      </button>
-      <button onclick="_scoutPeriod('l14')" style="flex:1;padding:6px;border-radius:8px;
-        border:1px solid ${isL14?'var(--blue)':'var(--bdr)'};
-        background:${isL14?'rgba(61,142,240,.1)':'var(--bg3)'};
-        color:${isL14?'var(--blue)':'var(--t4)'};
-        font-size:.68rem;font-weight:700;cursor:pointer">
-        📅 L14 Stats
-      </button>
-    </div>
-    ${isL14?`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
-      border-radius:8px;background:rgba(61,142,240,.06);border:1px solid rgba(61,142,240,.2);margin-bottom:10px">
-      <div style="flex:1">
-        <div style="font-size:.65rem;font-weight:700;color:var(--blue)">📅 L14 Statcast</div>
-        <div id="l14-status-msg" style="font-size:.58rem;color:var(--t4);margin-top:1px">
-          ${(()=>{
-            const loaded=S.allRows.filter(r=>_playerCache['l14bat_'+r.id]!=null).length;
-            const total=S.allRows.length;
-            return loaded>0?`${loaded}/${total} batters loaded`:'Not loaded — tap button to fetch';
-          })()}
-        </div>
-      </div>
-      <button id="l14-load-btn" onclick="_scoutLoadL14(this)"
-        style="padding:5px 12px;border-radius:8px;border:none;
-        background:var(--blue);color:#fff;font-size:.65rem;font-weight:700;cursor:pointer;white-space:nowrap">
-        ${(()=>{
-          const loaded=S.allRows.filter(r=>_playerCache['l14bat_'+r.id]!=null).length;
-          return loaded===S.allRows.length&&S.allRows.length>0?'↻ Refresh':'Load L14';
-        })()}
-      </button>
-    </div>`:''}`:
-    /* Pitcher mode L14 toggle */
-    `<div style="display:flex;gap:5px;margin-bottom:8px">
-      <button onclick="_scoutPeriod('season')" style="flex:1;padding:6px;border-radius:8px;
-        border:1px solid ${!isL14?'var(--amber)':'var(--bdr)'};
-        background:${!isL14?'rgba(240,165,0,.1)':'var(--bg3)'};
-        color:${!isL14?'var(--amber)':'var(--t4)'};
-        font-size:.68rem;font-weight:700;cursor:pointer">
-        📊 Season Stats
-      </button>
-      <button onclick="_scoutPeriod('l14')" style="flex:1;padding:6px;border-radius:8px;
-        border:1px solid ${isL14?'var(--blue)':'var(--bdr)'};
-        background:${isL14?'rgba(61,142,240,.1)':'var(--bg3)'};
-        color:${isL14?'var(--blue)':'var(--t4)'};
-        font-size:.68rem;font-weight:700;cursor:pointer">
-        📅 L14 Stats
-      </button>
-    </div>
-    ${isL14?`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
-      border-radius:8px;background:rgba(61,142,240,.06);border:1px solid rgba(61,142,240,.2);margin-bottom:10px">
-      <div style="flex:1">
-        <div style="font-size:.65rem;font-weight:700;color:var(--blue)">📅 L14 Pitcher Statcast</div>
-        <div style="font-size:.58rem;color:var(--t4);margin-top:1px">
-          ${(()=>{
-            const pids=[...new Set(S.allRows.filter(r=>r._spId).map(r=>r._spId))];
-            const loaded=pids.filter(p=>_playerCache['l14pit_'+p]!=null).length;
-            return loaded>0?`${loaded}/${pids.length} pitchers loaded`:'Not loaded — tap button to fetch';
-          })()}
-        </div>
-      </div>
-      <button onclick="_scoutLoadL14(this)"
-        style="padding:5px 12px;border-radius:8px;border:none;
-        background:var(--blue);color:#fff;font-size:.65rem;font-weight:700;cursor:pointer;white-space:nowrap">
-        ${(()=>{
-          const pids=[...new Set(S.allRows.filter(r=>r._spId).map(r=>r._spId))];
-          const loaded=pids.filter(p=>_playerCache['l14pit_'+p]!=null).length;
-          return loaded===pids.length&&pids.length>0?'↻ Refresh':'Load L14';
-        })()}
-      </button>
-    </div>`:''}`}
+    ${(()=>{
+      // Pre-compute L14 status values — avoids deep nested template literal issues
+      const batL14Loaded = S.allRows.filter(r=>_playerCache['l14bat_'+r.id]!=null).length;
+      const batL14Total  = S.allRows.length;
+      const pitIds = [...new Set(S.allRows.filter(r=>r._spId).map(r=>r._spId))];
+      const pitL14Loaded = pitIds.filter(p=>_playerCache['l14pit_'+p]!=null).length;
+      const batStatus  = batL14Loaded>0 ? batL14Loaded+'/'+batL14Total+' batters loaded' : 'Not loaded — tap to fetch';
+      const pitStatus  = pitL14Loaded>0 ? pitL14Loaded+'/'+pitIds.length+' pitchers loaded' : 'Not loaded — tap to fetch';
+      const batBtnTxt  = batL14Loaded===batL14Total&&batL14Total>0 ? 'Refresh' : 'Load L14';
+      const pitBtnTxt  = pitL14Loaded===pitIds.length&&pitIds.length>0 ? 'Refresh' : 'Load L14';
+      const seasonBdr  = !isL14?'var(--amber)':'var(--bdr)';
+      const seasonBg   = !isL14?'rgba(240,165,0,.1)':'var(--bg3)';
+      const seasonClr  = !isL14?'var(--amber)':'var(--t4)';
+      const l14Bdr     = isL14?'var(--blue)':'var(--bdr)';
+      const l14Bg      = isL14?'rgba(61,142,240,.1)':'var(--bg3)';
+      const l14Clr     = isL14?'var(--blue)':'var(--t4)';
+
+      const periodBtns = `<div style="display:flex;gap:5px;margin-bottom:8px">
+        <button onclick="_scoutPeriod('season')" style="flex:1;padding:6px;border-radius:8px;
+          border:1px solid ${seasonBdr};background:${seasonBg};color:${seasonClr};
+          font-size:.68rem;font-weight:700;cursor:pointer">📊 Season Stats</button>
+        <button onclick="_scoutPeriod('l14')" style="flex:1;padding:6px;border-radius:8px;
+          border:1px solid ${l14Bdr};background:${l14Bg};color:${l14Clr};
+          font-size:.68rem;font-weight:700;cursor:pointer">📅 L14 Stats</button>
+      </div>`;
+
+      const loadBar = (status, btnTxt) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;
+          border-radius:8px;background:rgba(61,142,240,.06);border:1px solid rgba(61,142,240,.2);margin-bottom:10px">
+          <div style="flex:1">
+            <div style="font-size:.65rem;font-weight:700;color:var(--blue)">📅 L14 Statcast</div>
+            <div id="l14-status-msg" style="font-size:.58rem;color:var(--t4);margin-top:1px">${status}</div>
+          </div>
+          <button id="l14-load-btn" style="padding:5px 14px;border-radius:8px;border:none;
+            background:var(--blue);color:#fff;font-size:.66rem;font-weight:800;
+            cursor:pointer;white-space:nowrap;-webkit-appearance:none;touch-action:manipulation">${btnTxt}</button>
+        </div>`;
+
+      return periodBtns + (isL14 ? loadBar(isBatter ? batStatus : pitStatus, isBatter ? batBtnTxt : pitBtnTxt) : '');
+    })()}
 
     <!-- Example profile card -->
     ${isBatter ? `
@@ -11422,6 +11386,10 @@ function renderScout(){
     <!-- Results -->
     <div>${resultHTML}</div>
   `;
+
+  // Wire Load L14 button after innerHTML is set — avoids onclick-in-innerHTML issues
+  const l14Btn = document.getElementById('l14-load-btn');
+  if(l14Btn) l14Btn.addEventListener('click', function(){ window._scoutLoadL14(this); });
 }
 
 // Scout action handlers — called from inline onclick
