@@ -1640,11 +1640,23 @@ function calcAnchor(stats){
     const interaction = b * pa * 0.25;
     statcastEst += interaction;
 
-    // ISO as direct signal — captures extra-base power independently
-    // ISO >.250 signals true HR power; use as small trim
-    if(stats.iso!=null){
+    // xSLG: expected SLG from actual EV/LA distributions — much stronger than ISO
+    // League avg xSLG ~.393. Each .100 above = meaningful HR power signal.
+    // Replaces weak ISO trim: xSLG stabilizes in ~80 PA, ISO needs 300+
+    if(stats.xslg!=null){
+      const xslgAdj = clamp((stats.xslg - 0.393) * 0.020, -0.007, 0.018);
+      statcastEst += xslgAdj;
+    } else if(stats.iso!=null){
+      // Fallback to ISO when xSLG unavailable
       const isoAdj = clamp((stats.iso - 0.160) * 0.015, -0.003, 0.010);
       statcastEst += isoAdj;
+    }
+
+    // xwOBA: expected outcomes metric — captures HR skill independently of luck
+    // League avg xwOBA ~.315. Stabilizes quickly (~100 PA), strong HR predictor
+    if(stats.xwoba!=null){
+      const xwobaAdj = clamp((stats.xwoba - 0.315) * 0.022, -0.005, 0.013);
+      statcastEst += xwobaAdj;
     }
 
     statcastEst = clamp(statcastEst, 0.005, 0.115);
@@ -1881,13 +1893,13 @@ function calcPitcherMult(pitcherStats){
   return clamp(quality * restMod * whiffMod * bbMod * formMod * fatigueMult, 0.55, 1.70);
 }
 
-// ── PROBABILITY v5: Statcast-anchored, interaction-aware ───────────
-// Key changes from v4:
-//   1. Statcast linear weights anchor (barrel×pull_air primary)
-//   2. Momentum REMOVED — too noisy, near-zero predictive value
-//   3. Platoon × Pitcher interaction term (they're correlated)
-//   4. Pitcher mult now integrates batter-specific BvP matchup
-//   5. Calibration via signal-specific shrinkage, not post-hoc scaling
+// ── PROBABILITY v6: xSLG/xwOBA-enriched anchor + bat speed ───────────
+// Key changes from v5:
+//   1. xSLG replaces weak ISO trim in anchor — stabilizes in 80 PA vs 300+
+//   2. xwOBA added to anchor — expected outcomes metric, luck-independent
+//   3. Bat speed (swing speed) wired in — was loaded but never applied (weight 0.10)
+//   4. Rolling xwOBA trend added — better heat signal than raw outcome rate
+//   5. All four signals were already fetched from Savant; now actually used
 function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const anchor = calcAnchor(batterStats);
 
@@ -1910,6 +1922,28 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     if(l14Ratio > 1.4 || l14Ratio < 0.5){
       const l14Adj = clamp((l14Ratio - 1.0) * 0.15, -0.06, 0.06);
       rollingAnchorAdj = clamp(rollingAnchorAdj + l14Adj, -0.10, 0.10);
+    }
+  }
+  // Rolling xwOBA trend — strongest quality-of-contact heat signal
+  // If recent xwOBA (L30 BIP) diverges from season, it's genuine plate quality change
+  // xwOBA normalizes for luck, so ratio > 1.12 = real heat, not just results variance
+  if(batterStats.rollingXwoba!=null && batterStats.xwoba!=null && batterStats.xwoba>0.200){
+    const xwobaRatio = batterStats.rollingXwoba / batterStats.xwoba;
+    if(xwobaRatio > 1.10 || xwobaRatio < 0.88){
+      // Use 30% shrinkage — xwOBA is more stable than raw outcomes but still limited sample
+      const xwobaAdj = clamp((xwobaRatio - 1.0) * 0.30, -0.09, 0.09);
+      rollingAnchorAdj = clamp(rollingAnchorAdj + xwobaAdj, -0.14, 0.14);
+    }
+  }
+  // Rolling EV trend — earliest-available hot streak indicator
+  // EV spike of 2+ mph above season avg (while plate appearances continue) = real power surge
+  // Use only when we have enough recent contact (avoids noise from 2-3 BIP)
+  if(batterStats.rollingEV!=null && batterStats.avg_ev!=null && batterStats.avg_ev>85){
+    const evDiff = batterStats.rollingEV - batterStats.avg_ev;
+    if(Math.abs(evDiff) >= 1.5){
+      // Each 1 mph of sustained EV change ≈ ~2% HR rate shift; cap total at ±7%
+      const evAdj = clamp(evDiff * 0.018, -0.07, 0.07);
+      rollingAnchorAdj = clamp(rollingAnchorAdj + evAdj, -0.16, 0.16);
     }
   }
 
@@ -1997,6 +2031,17 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platDiscMult = batterStats.platDiscMult??1.0;
   lo += logOddsAdj(platDiscMult) * 0.12;
 
+  // ── BAT SPEED (weight: 0.10) ──────────────────────────────────────
+  // Swing speed is among the strongest predictors of raw HR power.
+  // MLB avg ~70.5 mph. 74+ mph = elite tier (Judge, Soto). 66- = weak.
+  // Each mph above/below avg = ~1.2% HR rate shift.
+  // Data from Statcast bat tracking leaderboard — already loaded, now applied.
+  const swingSpeed = batterStats.swingSpeed;
+  if(swingSpeed!=null && swingSpeed>0){
+    const batSpeedMult = clamp(1.0 + (swingSpeed - 70.5) * 0.012, 0.86, 1.20);
+    lo += logOddsAdj(batSpeedMult) * 0.10;
+  }
+
   // ── BULLPEN EXPOSURE (weight: 0.10, reduced from 0.12) ───────────
   const bullpenMult = batterStats.bullpenMult??1.0;
   const expIP = calcExpectedInnings(pitcherStats);
@@ -2004,6 +2049,52 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     const bpExposure = bullpenExposure(expIP);
     const blendedBullpen = 1.0 + (bullpenMult - 1.0) * bpExposure;
     lo += logOddsAdj(blendedBullpen) * 0.10;
+  }
+
+  // ── LAUNCH ANGLE ZONE (weight: 0.12) ─────────────────────────────
+  // 22-32° avg LA is the HR sweet spot (ball elevation + carry).
+  // Groundball hitters (<15°) have their batted balls killed before lift.
+  // Pop-up hitters (>35°) hit easy fly outs. Data: Statcast BIP avg.
+  const avgLA = batterStats.avgLA;
+  if(avgLA!=null){
+    let laMult;
+    if(avgLA>=22 && avgLA<=32)       laMult = 1.12;  // HR sweet spot
+    else if(avgLA>32 && avgLA<=37)   laMult = 0.95;  // too steep = pop-ups
+    else if(avgLA>=17 && avgLA<22)   laMult = 1.03;  // decent elevation
+    else if(avgLA>=12 && avgLA<17)   laMult = 0.89;  // flat = gap shots, not HRs
+    else if(avgLA<12)                laMult = 0.80;  // groundball hitter — big penalty
+    else                             laMult = 1.0;
+    if(laMult!==1.0) lo += logOddsAdj(laMult) * 0.12;
+  }
+
+  // ── SP FLY-BALL PROFILE (weight: 0.10) ────────────────────────────
+  // SP's fly ball rate directly determines HR opportunity rate.
+  // A FB-heavy SP (fbRate > 45%) allows ~25% more HRs than a GB pitcher at
+  // equal HR/9, because more balls are in the air for power hitters to lift.
+  // Orthogonal to HR/9 — a low-HR/9 FB pitcher in a pitcher's park still
+  // gives a power hitter more balls to elevate than a groundball SP.
+  const spFBRate = batterStats.spFBRate;
+  if(spFBRate!=null){
+    // League avg FB rate ~36.5%; each 5% above/below is meaningful
+    const spFBMult = clamp(1.0 + (spFBRate - 0.365) * 1.2, 0.86, 1.20);
+    if(spFBMult!==1.0) lo += logOddsAdj(spFBMult) * 0.10;
+  }
+
+  // ── TEAM HR CONTEXT (weight: 0.07) ────────────────────────────────
+  // When a lineup is running hot collectively (L14 HR/game vs league avg),
+  // individual players benefit. Reflects lineup synergy, favorable schedule,
+  // and possible park/weather run that applies to the whole team.
+  const teamHRMult = clamp(batterStats.teamHRMult ?? 1.0, 0.80, 1.28);
+  if(teamHRMult!==1.0) lo += logOddsAdj(teamHRMult) * 0.07;
+
+  // ── BLAST RATE — hard swing % (weight: 0.06) ──────────────────────
+  // The percentage of swings classified as "blasts" (max-effort, well-timed).
+  // When blast rate is high alongside fast bat speed, confirms elite power.
+  // MLB avg ~6%. 10%+ = top-tier (Ohtani, Judge). 3%- = contact hitter.
+  const blastPct = batterStats.blastPct;
+  if(blastPct!=null && blastPct>0){
+    const blastMult = clamp(1.0 + (blastPct - 6.0) * 0.016, 0.93, 1.10);
+    if(blastMult!==1.0) lo += logOddsAdj(blastMult) * 0.06;
   }
 
   // Cap per-PA at 7% — realistic elite ceiling (Judge vs Wainwright in Coors)
@@ -2019,8 +2110,12 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
 // rather than an arbitrary scaling constant
 function perPAtoGame(perPA, lineupPos){
   // Convert per-plate-appearance probability to per-game probability
-  // PA estimate based on lineup position (leadoff ~4.8, cleanup ~4.5, 9th ~3.2)
-  const expPA = lineupPos ? clamp(4.8-(lineupPos-1)*0.15, 3.2, 4.8) : 4.1;
+  // PA estimate uses empirical MLB averages by lineup slot (2022-2024 data)
+  // Previous linear formula under-counted cleanup hitters and over-counted #9
+  const PA_BY_SLOT = [4.72, 4.65, 4.57, 4.52, 4.48, 4.41, 4.34, 4.28, 4.05];
+  const expPA = (lineupPos && lineupPos>=1 && lineupPos<=9)
+    ? PA_BY_SLOT[lineupPos-1]
+    : 4.38; // default: weighted league average across all slots
   const rawGame = 1 - Math.pow(1 - perPA, expPA);
   // NO SHRINKAGE — model outputs true-talent probability, not market price
   // Edge = modelProb - bookNoVigImplied (the only comparison that matters)
@@ -3087,6 +3182,8 @@ function fireSecondaryMaps(){
         renderSlate();
         renderDailySummary();
         queueForAutoTrack(S.allRows);
+        // Silently log all predictions to the auto-backtest log
+        try{ logPrediction(S.allRows); }catch(e){ console.warn('[predLog]',e.message); }
         // Re-render Scout if active so pitcher data coverage shows correctly
         if(_currentPage === 'scout') try{ renderScout(); }catch{}
       }
@@ -3274,6 +3371,8 @@ async function loadSlate(){
 
   // Auto-track in background after chips are shown
   setTimeout(()=>{ try{ autoTrackResults(); }catch(e){ console.warn('autoTrack:',e.message); } }, 3000);
+  // Auto-resolve prediction log (separate from manual bet tracker)
+  setTimeout(()=>{ try{ autoResolvePredictions(); }catch(e){ console.warn('predLog:',e.message); } }, 5000);
 }
 
 // Format UTC game time to local 12-hour time
@@ -4953,6 +5052,87 @@ async function autoTrackResults(){
     if(infoPage?.classList.contains('active')){
     }
   }catch(e){ console.warn('[autoTrack] error:', e.message); }
+}
+
+// ==================================================================
+//  PREDICTION LOG — silently tracks every model prediction for
+//  automatic calibration. No manual bet entry needed.
+//  Storage key: diq_pred_log  (separate from manual bet tracker)
+//  Schema: { uid, id, name, prob, rawProb, date, logged, actual, resolvedAt }
+// ==================================================================
+function logPrediction(rows){
+  if(!rows||!rows.length) return;
+  try{
+    const today = ds();
+    const stored = JSON.parse(localStorage.getItem('diq_pred_log')||'[]');
+    const uidMap  = new Map(stored.map((x,i)=>[x.uid,i]));
+    let added = 0;
+    for(const r of rows){
+      if(!r.id||!r._rawProb) continue;
+      const uid = `${r.id}_${today}`;
+      if(uidMap.has(uid)){
+        // Update prob if enrichment refined it since first log
+        const idx = uidMap.get(uid);
+        stored[idx].prob    = r.prob;
+        stored[idx].rawProb = r._rawProb;
+        continue;
+      }
+      stored.push({ uid, id:String(r.id), name:r.name,
+        prob:r.prob, rawProb:r._rawProb, date:today,
+        logged:Date.now(), actual:null, resolvedAt:null });
+      uidMap.set(uid, stored.length-1);
+      added++;
+    }
+    // Keep only last 90 days
+    const cutoff = ds(new Date(Date.now()-90*864e5));
+    const trimmed = stored.filter(x=>x.date>=cutoff);
+    localStorage.setItem('diq_pred_log', JSON.stringify(trimmed));
+    if(added) console.log(`[predLog] +${added} predictions`);
+  }catch(e){ console.warn('[predLog]', e.message); }
+}
+
+async function autoResolvePredictions(){
+  try{
+    const key     = 'diq_pred_log';
+    const stored  = JSON.parse(localStorage.getItem(key)||'[]');
+    const today   = ds();
+    const yest    = ds(new Date(Date.now()-864e5));
+    // Only resolve yesterday — today's games may still be in progress
+    const pending = stored.filter(r=>r.actual===null && r.date===yest);
+    if(!pending.length){ console.log('[predLog] no pending to resolve'); return; }
+    console.log(`[predLog] resolving ${pending.length} from ${yest}`);
+    const d = await fetchJSON(`${MLB}/schedule?sportId=1&date=${yest}&hydrate=linescore`).catch(()=>null);
+    if(!d) return;
+    const games = (d.dates||[]).flatMap(dt=>(dt.games||[]).filter(g=>
+      g.status?.abstractGameState==='Final'||g.status?.codedGameState==='F'
+    ));
+    for(const game of games){
+      try{
+        const box = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/game/${game.gamePk}/boxscore`)).catch(()=>null);
+        if(!box) continue;
+        const hrMap = {};
+        for(const side of ['away','home']){
+          const batters = box.teams?.[side]?.players||{};
+          for(const [,player] of Object.entries(batters)){
+            const pid = String(player.person?.id||'');
+            const hr  = parseInt(player.stats?.batting?.homeRuns||0);
+            if(pid) hrMap[pid]=(hrMap[pid]||0)+hr;
+          }
+        }
+        for(const entry of pending){
+          if(Object.prototype.hasOwnProperty.call(hrMap, entry.id)){
+            const idx = stored.findIndex(x=>x.uid===entry.uid);
+            if(idx>=0){
+              stored[idx].actual     = hrMap[entry.id]>0?1:0;
+              stored[idx].resolvedAt = Date.now();
+            }
+          }
+        }
+      }catch(e){ console.warn('[predLog] box score:', e.message); }
+    }
+    localStorage.setItem(key, JSON.stringify(stored));
+    console.log('[predLog] resolve complete');
+  }catch(e){ console.warn('[predLog] autoResolve:', e.message); }
 }
 
 // ==================================================================
@@ -6897,11 +7077,17 @@ async function renderResultsTab(){
     el.appendChild(hrtEl);
     renderHitRateTracker(hrtEl);
 
-    // Model calibration dashboard
+    // Model calibration dashboard (manual bets)
     const calEl = document.createElement('div');
     calEl.style.marginTop = '8px';
     el.appendChild(calEl);
     renderCalibrationDashboard(calEl);
+
+    // Auto-backtest panel (all predictions, no manual tracking needed)
+    const btEl = document.createElement('div');
+    btEl.style.marginTop = '8px';
+    el.appendChild(btEl);
+    renderBacktestPanel(btEl);
 
   }catch(e){
     el.innerHTML=`<div class="card" style="color:var(--red);font-size:.75rem">
@@ -7654,6 +7840,166 @@ function renderHitRateTracker(el){
       <span style="color:#60a5fa">&gt;130%</span> = under-predicting, you have more edge than shown
     </div>
   </div>`;
+}
+
+// ==================================================================
+//  AUTO-BACKTEST PANEL
+//  Reads diq_pred_log (all predictions, not just tracked bets) and
+//  shows calibration by probability bucket — no manual tracking needed.
+// ==================================================================
+function renderBacktestPanel(el){
+  if(!el) return;
+  try{
+    const all      = JSON.parse(localStorage.getItem('diq_pred_log')||'[]');
+    const resolved = all.filter(x=>x.actual!==null);
+    const pending  = all.filter(x=>x.actual===null);
+    const n        = resolved.length;
+
+    const hits     = resolved.filter(x=>x.actual===1).length;
+    const hitRate  = n ? hits/n : null;
+    const modelAvg = n ? resolved.reduce((s,x)=>s+(x.rawProb||x.prob),0)/n : null;
+    const calRatio = hitRate!=null&&modelAvg ? hitRate/modelAvg : null;
+
+    const buckets = [
+      { label:'<8%',    min:0,    max:0.08 },
+      { label:'8–11%',  min:0.08, max:0.11 },
+      { label:'11–14%', min:0.11, max:0.14 },
+      { label:'14–18%', min:0.14, max:0.18 },
+      { label:'18–22%', min:0.18, max:0.22 },
+      { label:'>22%',   min:0.22, max:1.00 },
+    ].map(b=>{
+      const inB  = resolved.filter(x=>{ const p=x.rawProb||x.prob; return p>=b.min&&p<b.max; });
+      const h    = inB.filter(x=>x.actual===1).length;
+      const bN   = inB.length;
+      const midP = (b.min+b.max)/2;
+      const aRate = bN>=3 ? h/bN : null;
+      const ratio = aRate!=null ? aRate/midP : null;
+      const clr = ratio==null?'var(--t4)':ratio>=0.82&&ratio<=1.25?'var(--green)':ratio>=0.60&&ratio<=1.45?'var(--amber)':'var(--red)';
+      return {...b, bN, h, midP, aRate, ratio, clr};
+    });
+
+    const activeBuckets = buckets.filter(b=>b.bN>=3);
+
+    const crColor = calRatio==null?'var(--t4)':calRatio>=0.82&&calRatio<=1.25?'var(--green)':calRatio>=0.60&&calRatio<=1.45?'var(--amber)':'var(--red)';
+    const crLabel = calRatio==null?'—':calRatio>=0.82&&calRatio<=1.25?'✅ Well calibrated':calRatio>1.25?'📈 Under-predicting — actual edge larger than shown':calRatio<0.60?'📉 Over-predicting — reduce bet sizing':calRatio<0.82?'⚠️ Slight over-prediction':'⚠️ Slight under-prediction';
+
+    const confNote = n>=300?`<span style="color:var(--green)">✅ Statistically significant (${n} predictions)</span>`:n>=100?`<span style="color:var(--amber)">⚠️ Directional — ${300-n} more for significance</span>`:`<span style="color:var(--t4)">🔬 Early data (${n} resolved)</span>`;
+
+    // Bar chart
+    const maxH = 80;
+    const barChart = activeBuckets.length>=2?`
+      <div style="display:flex;align-items:flex-end;gap:4px;height:${maxH+28}px;margin-bottom:4px;padding:0 2px">
+        ${activeBuckets.map(b=>{
+          const mH  = Math.min(maxH,Math.round(b.midP/0.28*maxH));
+          const aH  = b.aRate!=null?Math.min(maxH,Math.round(b.aRate/0.28*maxH)):0;
+          const aPct = b.aRate!=null?Math.round(b.aRate*100):null;
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center">
+            <div style="font-size:.48rem;color:${b.clr};font-weight:700;margin-bottom:3px">${aPct!=null?aPct+'%':'—'}</div>
+            <div style="width:100%;flex:1;display:flex;align-items:flex-end;justify-content:center;gap:2px">
+              <div title="Model ${Math.round(b.midP*100)}%" style="width:10px;background:rgba(255,215,0,.35);border-radius:2px 2px 0 0;height:${mH}px"></div>
+              ${aPct!=null?`<div title="Actual ${aPct}%" style="width:10px;background:${b.clr};border-radius:2px 2px 0 0;height:${aH}px;opacity:.9"></div>`:''}
+            </div>
+            <div style="font-size:.44rem;color:var(--t4);text-align:center;margin-top:3px;line-height:1.3">${b.label}<br>${b.bN}p</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;gap:10px;font-size:.55rem;color:var(--t4);margin-bottom:10px">
+        <span><span style="display:inline-block;width:8px;height:6px;background:rgba(255,215,0,.4);border-radius:2px;margin-right:2px"></span>Model avg</span>
+        <span><span style="display:inline-block;width:8px;height:6px;background:var(--green);border-radius:2px;margin-right:2px;opacity:.85"></span>Actual rate</span>
+        <span style="margin-left:auto">🟢 = 82–125% = accurate</span>
+      </div>`
+    :`<div style="font-size:.62rem;color:var(--t4);padding:10px 0;text-align:center;margin-bottom:10px">${n<50?`Need ${Math.max(0,50-n)} more resolved predictions to show chart.`:'Need 3+ predictions in each probability bucket.'}</div>`;
+
+    // Bucket table
+    const tableRows = activeBuckets.map(b=>{
+      const rPct = b.ratio!=null?Math.round(b.ratio*100):null;
+      const sig  = b.ratio==null?'—':b.ratio>=0.82&&b.ratio<=1.25?'✅ On target':b.ratio>1.25?`📈 +${Math.round((b.ratio-1)*100)}%`:`📉 ${Math.round((b.ratio-1)*100)}%`;
+      return `<tr style="border-bottom:1px solid var(--bg3)">
+        <td style="padding:5px 6px;font-size:.63rem;color:var(--t3)">${b.label}</td>
+        <td style="padding:5px 6px;font-size:.63rem;color:var(--t4);text-align:center">${b.bN}</td>
+        <td style="padding:5px 6px;font-size:.63rem;color:var(--t4);text-align:center">${Math.round(b.midP*100)}%</td>
+        <td style="padding:5px 6px;font-size:.70rem;font-weight:800;color:${b.clr};text-align:center">${b.aRate!=null?Math.round(b.aRate*100)+'%':'—'}</td>
+        <td style="padding:5px 6px;font-size:.60rem;color:${b.clr};text-align:center">${rPct!=null?rPct+'%':'—'}</td>
+        <td style="padding:5px 6px;font-size:.56rem;color:${b.clr};text-align:right">${sig}</td>
+      </tr>`;
+    }).join('');
+
+    el.id='backtest-panel';
+    el.innerHTML=`<div class="card" style="margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="slbl" style="margin:0">🔬 Auto-Backtest Panel</div>
+        <button onclick="(async()=>{const btn=this;btn.textContent='⏳';btn.disabled=true;await autoResolvePredictions();const p=document.getElementById('backtest-panel');if(p)renderBacktestPanel(p);btn.textContent='🔄 Refresh';btn.disabled=false;})()"
+          style="font-size:.58rem;padding:3px 8px;border-radius:6px;border:1px solid var(--bdr);background:var(--bg3);color:var(--t3);cursor:pointer">🔄 Refresh</button>
+      </div>
+
+      <!-- 4 summary tiles -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:12px">
+        <div style="padding:8px 4px;background:var(--bg3);border-radius:8px;text-align:center">
+          <div style="font-size:.95rem;font-weight:900;color:var(--t1)">${all.length}</div>
+          <div style="font-size:.48rem;color:var(--t4);margin-top:2px;line-height:1.4">Predictions<br>logged</div>
+        </div>
+        <div style="padding:8px 4px;background:var(--bg3);border-radius:8px;text-align:center">
+          <div style="font-size:.95rem;font-weight:900;color:var(--t2)">${n}</div>
+          <div style="font-size:.48rem;color:var(--t4);margin-top:2px;line-height:1.4">Resolved<br>${pending.length} pending</div>
+        </div>
+        <div style="padding:8px 4px;background:var(--bg3);border-radius:8px;text-align:center">
+          <div style="font-size:.95rem;font-weight:900;color:${hitRate!=null?(hitRate>=(modelAvg||0)?'var(--green)':'var(--amber)'):'var(--t4)'}">
+            ${hitRate!=null?Math.round(hitRate*100)+'%':'—'}
+          </div>
+          <div style="font-size:.48rem;color:var(--t4);margin-top:2px;line-height:1.4">Actual<br>HR rate</div>
+        </div>
+        <div style="padding:8px 4px;background:var(--bg3);border-radius:8px;text-align:center;border:1px solid ${crColor}2a">
+          <div style="font-size:.95rem;font-weight:900;color:${crColor}">${calRatio!=null?Math.round(calRatio*100)+'%':'—'}</div>
+          <div style="font-size:.48rem;color:var(--t4);margin-top:2px;line-height:1.4">Cal<br>ratio</div>
+        </div>
+      </div>
+
+      ${n>=10?`
+      <div style="padding:8px 10px;border-radius:8px;background:${crColor}0d;border:1px solid ${crColor}28;margin-bottom:12px">
+        <div style="font-size:.68rem;font-weight:800;color:${crColor}">${crLabel}</div>
+        <div style="font-size:.57rem;color:var(--t3);margin-top:3px">${calRatio==null?'—':calRatio>=0.82&&calRatio<=1.25?'Model probs match real-world HR rates. Confidence in projections is high.':calRatio>1.35?'Model is systematically conservative — actual HR rates exceed predictions. Edge may be larger than shown.':calRatio<0.60?'Model significantly over-estimates. Reduce bet sizing until more data is collected.':calRatio<0.82?'Slight over-estimation. Keep tracking — may normalize as sample grows.':'Slight under-estimation. Model may be conservative; actual edge may be higher.'}</div>
+        <div style="font-size:.50rem;color:var(--t4);margin-top:3px">
+          Model avg ${modelAvg!=null?Math.round(modelAvg*100)+'%':'—'} · Actual ${hitRate!=null?Math.round(hitRate*100)+'%':'—'} · ${confNote}
+        </div>
+      </div>
+      ${barChart}
+      ${activeBuckets.length>=2?`
+      <div style="font-size:.57rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Bucket breakdown</div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+        <thead><tr style="border-bottom:1px solid var(--bdr)">
+          <th style="padding:4px 5px;font-size:.56rem;color:var(--t4);text-align:left">Bucket</th>
+          <th style="padding:4px 5px;font-size:.56rem;color:var(--t4);text-align:center">N</th>
+          <th style="padding:4px 5px;font-size:.56rem;color:var(--t4);text-align:center">Model</th>
+          <th style="padding:4px 5px;font-size:.56rem;color:var(--t4);text-align:center">Actual</th>
+          <th style="padding:4px 5px;font-size:.56rem;color:var(--t4);text-align:center">Ratio</th>
+          <th style="padding:4px 5px;font-size:.56rem;color:var(--t4);text-align:right">Signal</th>
+        </tr></thead>
+        <tbody>${tableRows||'<tr><td colspan="6" style="padding:8px;font-size:.62rem;color:var(--t4);text-align:center">No bucket data yet</td></tr>'}</tbody>
+      </table>`:''}
+      `:`
+      <div style="padding:12px;background:var(--bg3);border-radius:10px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="flex:1;background:rgba(255,255,255,.08);border-radius:99px;height:5px;overflow:hidden">
+            <div style="height:100%;width:${Math.min(100,Math.round(n/50*100))}%;background:var(--amber);border-radius:99px"></div>
+          </div>
+          <span style="font-size:.65rem;color:var(--amber);font-weight:700">${n}/50</span>
+        </div>
+        <div style="font-size:.63rem;color:var(--t3)">Load ${Math.max(0,50-n)} more player slates to unlock the calibration chart</div>
+        <div style="font-size:.58rem;color:var(--t4);margin-top:4px">Every player loaded on the Slate is automatically tracked. No manual bet entry needed.</div>
+      </div>`}
+
+      <div style="padding:8px 10px;border-radius:8px;background:rgba(96,165,250,.05);border:1px solid rgba(96,165,250,.13)">
+        <div style="font-size:.60rem;font-weight:700;color:#60a5fa;margin-bottom:4px">🤖 How this works</div>
+        <div style="font-size:.56rem;color:var(--t4);line-height:1.7">
+          Every player loaded on the Slate is silently logged here. After games finish, results are fetched automatically from MLB box scores. <b style="color:var(--t2)">No manual tracking needed.</b><br>
+          <b>Cal ratio 82–125%</b> = accurate · <b style="color:var(--red)">&lt;65%</b> = over-predicts (reduce sizing) · <b style="color:#60a5fa">&gt;140%</b> = under-predicts (hidden edge)
+        </div>
+      </div>
+    </div>`;
+  }catch(e){
+    el.innerHTML=`<div style="color:var(--red);font-size:.72rem;padding:8px">[BacktestPanel error] ${e.message}</div>`;
+    console.error('[BacktestPanel]',e);
+  }
 }
 
 function getBettingAdvice(r, fdOdds){
@@ -10718,6 +11064,7 @@ async function loadGame(g){
         batVsPitch:      vsPitchMap[pid]    || null,
         careerVsSP:      hvhMap[pid]        || null,
         xwoba:           savH.xwoba         ?? null,
+        xslg:            savH.xslg          ?? null,
         woba:            savH.woba          ?? null,
         xwobaDiff:       savH.xwobaDiff     ?? null,
         swingSpeed:      savH.swingSpeed    ?? null,
