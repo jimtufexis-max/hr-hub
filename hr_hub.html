@@ -634,36 +634,55 @@ input:focus,textarea:focus{border-color:var(--amber)}
         <div class="card" style="margin-bottom:8px">
           <div class="slbl">🧮 How the Model Works</div>
           <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
-            <b style="color:var(--t2)">Bayesian log-odds model v8</b> · 16 weighted signals<br><br>
+            <b style="color:var(--t2)">Log5 + Bayesian log-odds model v7</b> · 18 weighted signals<br><br>
 
-            <b style="color:var(--amber)">⚓ Anchor — Statcast baseline</b><br>
-            • Barrel% × Pull-Air% linear weights — primary HR predictor<br>
-            • Season HR/PA · prior season blend (shrinks small samples)<br>
-            • <b style="color:var(--t2)">Rolling L14</b> — barrel rate divergence (&gt;40%) adjusts log-odds<br><br>
+            <b style="color:var(--amber)">⚓ Step 1 — Log5 Base Probability (Bill James)</b><br>
+            The model starts with the <b style="color:var(--t2)">Log5 formula</b> — a statistically rigorous way to combine batter ability, pitcher ability, and league context into a single true matchup probability:<br>
+            <span style="font-family:monospace;color:var(--blue);font-size:.60rem">P = (B × P_p × (1−L)) / (B×P_p×(1−L) + (1−B)×(1−P_p)×L)</span><br>
+            where <b>B</b> = batter HR/PA · <b>P_p</b> = pitcher HR/PA allowed · <b>L</b> = MLB avg HR/PA (~3.5%)<br><br>
 
-            <b style="color:var(--amber)">🔀 Platoon (weight 0.22)</b><br>
-            • Population priors: LHB vs LHP 0.72× · RHB vs LHP 1.22×<br>
-            • Player's actual split if ≥50 PA (60% actual / 40% prior)<br>
-            • <b style="color:var(--t2)">Arsenal platoon mod</b> — adjusts for pitcher's specific pitch mix vs this hand using <b style="color:var(--t2)">xwOBA 55% + ISO 45%</b> with hand-specific league baselines<br><br>
+            <b style="color:var(--amber)">🖐️ Handedness Splits in Log5</b><br>
+            <b>B</b> uses the batter's <b style="color:var(--t2)">hand-specific HR/PA</b> vs today's pitcher handedness — not just the overall rate. Shrunk toward overall rate by sample size (full trust at 300 split PA, min 50 PA). Small-sample batters fall back to the overall anchor automatically.<br><br>
 
-            <b style="color:var(--amber)">⚾ Pitcher (weight 0.38)</b><br>
-            • HR/9 + xFIP blend · Barrel% allowed · HR/FB%<br>
-            • <b style="color:var(--t2)">Arsenal matchup</b> — batter's xwOBA + ISO vs each pitch type vs league avg<br>
-            • <b style="color:var(--t2)">Recent form</b> — last 3 starts K/BB/HR trend → ±15% via formMod<br>
+            <b style="color:var(--amber)">⚓ Step 2 — Anchor Signals (blended into B)</b><br>
+            • <b style="color:var(--t2)">xSLG + xwOBA</b> Statcast expected stats (40% of anchor weight)<br>
+            • Barrel% × Pull-Air% · season HR/PA · prior season blend<br>
+            • <b style="color:var(--t2)">Launch angle zone</b> — ideal 20–35° band · excess or deficit penalized<br>
+            • <b style="color:var(--t2)">Blast rate</b> (EV ≥ 95 mph + angle 20–35°) — best single-swing HR predictor<br>
+            • <b style="color:var(--t2)">Rolling EV trend</b> — L14 spike ≥2 mph above season avg → +4%/mph (cap ±7%)<br><br>
+
+            <b style="color:var(--amber)">🔀 Platoon (weight 0.10 — residual after Log5)</b><br>
+            Log5 already encodes the hand-specific HR/PA. This residual weight captures the <b style="color:var(--t2)">arsenal platoon interaction</b> — the pitcher's actual pitch mix effectiveness vs each hand (xwOBA 55% + ISO 45%) — a signal orthogonal to the raw split rate.<br>
+            • Population priors: LHB vs LHP 0.72× · RHB vs LHP 1.22×<br><br>
+
+            <b style="color:var(--amber)">⚾ Pitcher (weight 0.18 — residual after Log5)</b><br>
+            Log5 already encodes the pitcher's raw HR/PA allowed. This residual weight captures:<br>
+            • <b style="color:var(--t2)">Arsenal matchup</b> — batter xwOBA + ISO vs each pitch type vs league avg<br>
+            • <b style="color:var(--t2)">SP fly-ball rate</b> — GB% suppresses HR, extreme FB% adds exposure<br>
+            • <b style="color:var(--t2)">Recent form</b> — last 3 starts K/BB/HR trend → ±15%<br>
             • <b style="color:var(--t2)">Fatigue flag</b> — 100+ pitches last outing → +8%<br>
-            • Whiff rate · BB rate · Rest days<br><br>
+            • Whiff rate · BB rate · Rest days · Barrel% allowed<br><br>
 
             <b style="color:var(--amber)">🏟️ Park × Weather (weight 0.25)</b><br>
             • Park factor (per-ballpark, hand-adjusted) · Temperature<br>
             • Wind: direction + speed (blowing out ≥15 mph ≈ +18%)<br><br>
 
-            <b style="color:var(--amber)">📋 Situational</b><br>
-            • Career BvP vs today's SP — <b style="color:var(--t2)">recency weighted</b>: this season 1.0× · last season 0.55× · career 0.25×<br>
+            <b style="color:var(--amber)">📋 Situational Modifiers</b><br>
+            • <b style="color:var(--t2)">Team HR context</b> — team HR rate vs league avg (boosts stacks, flags cold lineups)<br>
+            • Career BvP — recency weighted: this season 1.0× · last season 0.55× · career 0.25×<br>
             • Times through order · Umpire HR rate<br>
-            • Confirmed lineup position · Home/Away splits<br>
+            • Confirmed lineup position (empirical PA by slot) · Home/Away splits<br>
             • Plate discipline · Bullpen exposure<br><br>
 
-            Range: <b style="color:var(--green)">5–22%</b> per game · MLB avg ~9%
+            <b style="color:var(--amber)">💰 EV Formula</b><br>
+            <span style="font-family:monospace;color:var(--blue);font-size:.60rem">Fair odds = ((1 − P) / P) × 100</span><br>
+            <span style="font-family:monospace;color:var(--blue);font-size:.60rem">EV% = (P × decimal odds) − 1</span><br>
+            Shown on every player detail card when FD odds are loaded.<br><br>
+
+            <b style="color:var(--amber)">📡 Auto-Backtest Panel (Results tab)</b><br>
+            Every slate prediction is silently logged. After games finish, the app fetches MLB box scores to auto-resolve outcomes and displays a calibration chart (model prob vs actual HR rate by probability bucket). 85–115% ratio = well-calibrated.<br><br>
+
+            Range: <b style="color:var(--green)">5–22%</b> per game · MLB avg ~3.5% HR/PA → ~9% per game
           </div>
         </div>
 
@@ -1604,6 +1623,22 @@ function logit(p){ p=clamp(p,0.001,0.999); return Math.log(p/(1-p)); }
 function sigmoid(x){ return 1/(1+Math.exp(-x)); }
 function logOddsAdj(mult){ return Math.log(Math.max(mult,0.01)); }
 
+// ── LOG5 (Bill James) ─────────────────────────────────────────────────────
+// Combines batter HR/PA + pitcher HR-allowed/PA against the league average
+// into a single matchup probability. More principled than additive logit
+// adjustments because it treats the two rates as joint probabilities, not
+// independent factors that stack multiplicatively.
+// Formula: P = (Pb×Pp/Pl) / ((Pb×Pp/Pl) + (1-Pb)(1-Pp)/(1-Pl))
+// Reference: Bill James 1983; validated extensively in baseball analytics.
+function log5(pBatter, pPitcher, pLeague){
+  const pL = clamp(pLeague, 0.001, 0.999);
+  const pB = clamp(pBatter, 0.001, 0.999);
+  const pP = clamp(pPitcher, 0.001, 0.999);
+  const num   = (pB * pP) / pL;
+  const denom = num + ((1-pB) * (1-pP)) / (1-pL);
+  return denom > 0 ? clamp(num/denom, 0.001, 0.999) : pL;
+}
+
 // ── ANCHOR v4: Statcast linear weights primary ───────────────────
 // Philosophy:
 //   barrel% × pull_air% → directly model HR skill, not outcomes
@@ -1903,6 +1938,47 @@ function calcPitcherMult(pitcherStats){
 function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const anchor = calcAnchor(batterStats);
 
+  // ── LOG5 BASE (Bill James, hand-specific splits) ─────────────────
+  // P_batter: batter's HR/PA rate vs THIS pitcher's throwing hand
+  //   (vsLHP or vsRHP split). Shrunk toward overall anchor by sample.
+  //   Minimum 50 split PA to influence; below that, uses overall anchor.
+  //   Full trust at 300 split PA. This bakes the platoon effect directly
+  //   into the base probability — the correct formula specification.
+  // P_pitcher: pitcher HR-allowed/PA from hr9_season (converted from /9).
+  //   Shrunk 45% toward league avg — pitcher HR/9 needs 15+ starts to stabilize.
+  // P_league: MLB_AVG = 0.035 per PA.
+  //
+  // Because Log5 now encodes BOTH the pitcher's raw HR/PA AND the
+  // batter's hand-specific rate, downstream weights are reduced:
+  //   Platoon mult: 0.22 → 0.10  (primary signal now in Log5)
+  //   Pitcher mult: 0.38 → 0.18  (HR/PA already in Log5; mult adds
+  //                                whiff, arsenal, form, fatigue)
+  const PA_PER_9 = MLB_AVG / LG_HR9; // ≈0.0259  (validates: 1.35/38.6 = 0.035)
+  let pitcherHrPA = MLB_AVG;
+  if(pitcherStats){
+    const hr9Raw = pitcherStats.hr9_season ?? pitcherStats.hr9_recent ?? null;
+    if(hr9Raw!=null && hr9Raw>0){
+      const rawPA = hr9Raw * PA_PER_9;
+      pitcherHrPA = rawPA * 0.55 + MLB_AVG * 0.45; // 55% raw, 45% league shrinkage
+    }
+    pitcherHrPA = clamp(pitcherHrPA, MLB_AVG*0.40, MLB_AVG*2.80);
+  }
+
+  // Hand-specific batter rate — the formula spec says to use the split
+  // for the pitcher's hand (vs-LHP if pitcher throws left, vs-RHP otherwise)
+  const _pitHand = pitcherStats?.pitHand || 'R';
+  const _splitRate = _pitHand==='L' ? batterStats.vsLHP : batterStats.vsRHP;
+  const _splitPA   = batterStats.platSample ?? 0;
+  let log5Batter = anchor; // default: overall anchor (no split available)
+  if(_splitRate!=null && _splitRate>0 && _splitPA>=50){
+    // Shrink split toward overall anchor by sample size.
+    // Split samples are typically 100-250 PA; full trust at 300+ PA.
+    const splitTrust = clamp(_splitPA / 300, 0.15, 0.85);
+    log5Batter = _splitRate * splitTrust + anchor * (1 - splitTrust);
+    log5Batter = clamp(log5Batter, MLB_AVG * 0.25, MLB_AVG * 4.5);
+  }
+  const log5Base = log5(log5Batter, pitcherHrPA, MLB_AVG);
+
   // ── ROLLING STATCAST (L14) — blend recent BIP quality into anchor ──────
   // If player is barreling at 18% last 14 days vs 9% season, that's signal
   // Weight = 0.20 (small — limited sample, not predictive like season barrel%)
@@ -1947,7 +2023,10 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     }
   }
 
-  let lo = logit(anchor);
+  // Start from Log5 base — already combines batter + pitcher HR/PA rates
+  // correctly against the league average. All downstream adjustments
+  // (platoon, park, weather, rolling, etc.) stack on top of this.
+  let lo = logit(log5Base);
   if(rollingAnchorAdj !== 0) lo += rollingAnchorAdj;
 
   const lineupPosForPA = batterStats.lineupPos;
@@ -1961,11 +2040,17 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const platRateGated = (batterStats.platSample>=50) ? batterStats.platRate : null;
   const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
     platRateGated, overallRate, arsenalPlatMod);
-  lo += logOddsAdj(platoon) * 0.22;
+  // Weight 0.22 → 0.10: hand-specific HR/PA rate is now already in the Log5
+  // base. This residual captures arsenal pitch-type interactions and the
+  // population platoon prior — orthogonal to the raw split rate.
+  lo += logOddsAdj(platoon) * 0.10;
 
-  // ── PITCHER (weight: 0.38, reduced from 0.55) ────────────────────
+  // ── PITCHER (weight: 0.18, reduced from 0.38) ────────────────────
+  // Log5 already encodes the pitcher's raw HR/PA in the starting logit.
+  // This remaining mult captures the signals orthogonal to simple HR/PA:
+  // arsenal match, whiff rate, walk rate, form trend, fatigue, barrel%.
   const pitcher = calcPitcherMult(pitcherStats);
-  lo += logOddsAdj(pitcher) * 0.38;
+  lo += logOddsAdj(pitcher) * 0.18;
 
   // ── TIMES THROUGH ORDER (weight: 0.28, reduced from 0.40) ────────
   const expIPForTTO = calcExpectedInnings(pitcherStats);
@@ -2593,8 +2678,9 @@ function detectAngles(r){
   const l3hr=g.slice(0,3).reduce((s,x)=>s+(x.hr||0),0);
   const l7hr=g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
   const l7pa=g.slice(0,7).reduce((s,x)=>s+(x.pa||x.ab||0),0);
-  const l15hr=r.l15hr||g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
-  const l15pa=g.slice(0,15).reduce((s,x)=>s+(x.pa||x.ab||0),0);
+  // Standardized to 14-game window — matches detail card, Scout, and calcHRProb intent
+  const l14hr=r.l14hr??g.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
+  const l14pa=g.slice(0,14).reduce((s,x)=>s+(x.pa||x.ab||0),0);
   const sznRate=r.szPA>20?r.szHR/r.szPA:null;
   const l7rate=l7pa>0?l7hr/l7pa:null;
 
@@ -2825,7 +2911,8 @@ function calcHeatScore(r){
 function detectNegativeAngles(r){
 
   const neg=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||r._wx||{};
-  const l15hr=r.l15hr||g.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
+  // Standardized to 14-game window — same as detail card, Scout, and calcHRProb
+  const l14hr=r.l14hr??g.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
   const l7hr=g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
   const l7ab=g.slice(0,7).reduce((s,x)=>s+(x.ab||0),0);
   const _szPA=r.szPA>30?r.szPA:(r.l30pa>15?r.l30pa*4.5:0);
@@ -2847,7 +2934,7 @@ function detectNegativeAngles(r){
   else if(isCrossHand2 && r.platoon!=null && r.platoon<0.90)
     neg.push({icon:'📊',label:'Bad Splits vs This Hand (-)',
       tip:`${bH2}HB vs ${pH2}HP is cross-hand but actual split data shows ${Math.round((1-r.platoon)*100)}% suppression — this batter historically struggles vs ${pH2}HP`});
-  if(l15hr===0) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in recent 15 games.`});
+  if(l14hr===0) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in last 14 games.`});
   else if(l7hr===0&&l7ab>=18) neg.push({icon:'❄️',label:'Ice Cold L7 (-)',tip:`0 HRs in last 7 games.`});
 
   if(r.barrel_pct!=null&&_szPA>15&&r.szHR>0){
@@ -2858,8 +2945,8 @@ function detectNegativeAngles(r){
     if(r.szHR>=xHR+3&&xHR>1) neg.push({icon:'📉',label:'HR Count Hot (-)',tip:`${r.szHR} HRs vs ~${xHR.toFixed(0)} expected from power profile — regression risk.`});
   }
 
-  const l15pa=g.slice(0,15).reduce((s,x)=>s+(x.ab||0),0);
-  if(l15pa>20&&l15hr>=5&&(l15hr/l15pa)>(r.anchor||0.035)*2.8) neg.push({icon:'📉',label:'Hot Streak May Cool (-)',tip:`${l15hr} HRs in last 15G well above power profile rate.`});
+  const l14pa=g.slice(0,14).reduce((s,x)=>s+(x.ab||0),0);
+  if(l14pa>20&&l14hr>=5&&(l14hr/l14pa)>(r.anchor||0.035)*2.8) neg.push({icon:'📉',label:'Hot Streak May Cool (-)',tip:`${l14hr} HRs in last 14G well above power profile rate.`});
   if(r.barrel_pct!=null&&r.barrel_pct<5) neg.push({icon:'🛢️',label:'Weak Barrel Rate (-)',tip:`${r.barrel_pct}% barrel — below lg avg 8%.`});
   // High chase rate = poor plate discipline = worse counts = fewer HRs
   if(r.chaseRate!=null&&r.chaseRate>=35)
@@ -2893,7 +2980,7 @@ function detectNegativeAngles(r){
   }
   if(r.pull_air_pct!=null&&r.pull_air_pct<9) neg.push({icon:'↙️',label:'Poor HR Shape (-)',tip:`${r.pull_air_pct.toFixed(1)}% pull-air — below lg avg 12.5%.`});
   if(r.fb_pct!=null&&r.fb_pct<24) neg.push({icon:'⬇️',label:'Ground Ball Hitter (-)',tip:`${r.fb_pct.toFixed(1)}% fly ball rate — below lg avg 34%.`});
-  if(l15hr===0&&l15pa>=30) neg.push({icon:'📉',label:'Low Recent Form (-)',tip:`No HRs in last 15 games with meaningful PA.`});
+  if(l14hr===0&&l14pa>=30) neg.push({icon:'📉',label:'Low Recent Form (-)',tip:`No HRs in last 14 games with meaningful PA.`});
 
   const seen=new Set();
   return neg.filter(n=>{if(seen.has(n.label))return false;seen.add(n.label);return true;});
@@ -11095,6 +11182,9 @@ async function loadGame(g){
         postponeRisk:    calcPostponementRisk(wx),
         spGBRate:        (key.endsWith('_away') ? hmBB : awBB)?.gbRate ?? null,
         spFBRate:        (key.endsWith('_away') ? hmBB : awBB)?.fbRate ?? null,
+        // L14 from game log — activates the rolling HR/PA blend in calcHRProb
+        l14HR: recent.slice(0,14).reduce((s,x)=>s+(x.hr||0),0),
+        l14PA: recent.slice(0,14).reduce((s,x)=>s+(x.pa||x.ab||0),0),
       };
 
       // Score batter vs SP arsenal — use a per-batter copy so Wood's score
@@ -11125,8 +11215,8 @@ async function loadGame(g){
       }
       const [grd, gc, gCls] = probGrade(res.prob);
 
-      // L15 HR count for display badge
-      const l15hr = recent.slice(0,15).reduce((s,x)=>s+(x.hr||0),0);
+      // L14 HR count — standard window across the whole app
+      const l14hr = recent.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
       // Convert per-PA → per-game probability to align with book pricing
       const lineupPos = batterStats.lineupPos || h.lineupPos || null;
       const gameProb = perPAtoGame(res.prob, lineupPos);
@@ -11164,7 +11254,13 @@ async function loadGame(g){
         _zoneMatch:   null,
         l30hr, l30pa,
         szHR, szPA,
-        l15hr,
+        l14hr,
+        // Surface key batterStats fields directly on r so angle/heat functions
+        // can read them without going through r._batterStats
+        xwoba:        batterStats.xwoba        ?? null,
+        xslg:         batterStats.xslg         ?? null,
+        rollingXwoba: batterStats.rollingXwoba ?? null,
+        rollingEV:    batterStats.rollingEV    ?? null,
         _pitcherStats: batterPitcherStats,
         _batterStats:  batterStats,
         _pf:           pf,
@@ -12469,7 +12565,7 @@ function renderHitterCard(r,showGame){
   const mCls=m=>m>=1.10?'up':m>=0.95?'flat':'dn';
 
   const gameTag=showGame?`<span style="font-size:.62rem;color:var(--t4);margin-left:4px">${r.game}</span>`:'';
-  const l15tag=r.l15hr?`<span style="color:var(--amber);margin-left:4px">🔥${r.l15hr}HR</span>`:'';
+  const l15tag=r.l14hr?`<span style="color:var(--amber);margin-left:4px">🔥${r.l14hr}HR</span>`:'';
 
   // FanDuel odds + edge
   const fdOdds = getFDOdds(r.name);
@@ -13373,8 +13469,72 @@ function renderDetail(r){
       })()}
       <div style="font-size:.70rem;color:var(--t4);font-family:'JetBrains Mono',monospace;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-top:8px;line-height:1.8">
         <div>Anchor <b style="color:var(--t2)">${(r.anchor*100).toFixed(1)}%</b>${r.platoon!==1?` · Platoon <b style="color:${r.platoon>=1?'var(--green)':'var(--red)'}">${r.platoon>=1?'+':''}${((r.platoon-1)*100).toFixed(0)}%</b>`:''}${r.pitcher!==1?` · SP <b style="color:${r.pitcher>=1?'var(--green)':'var(--red)'}">${r.pitcher>=1?'+':''}${((r.pitcher-1)*100).toFixed(0)}%</b>`:''}${r.parkwx!==1?` · Park/Wx <b style="color:${r.parkwx>=1?'var(--green)':'var(--red)'}">${r.parkwx>=1?'+':''}${((r.parkwx-1)*100).toFixed(0)}%</b>`:''}${r.momentum!==1?` · Form <b style="color:${r.momentum>=1?'var(--green)':'var(--red)'}">${r.momentum>=1?'+':''}${((r.momentum-1)*100).toFixed(0)}%</b>`:''}</div>
-        <div>→ Final: <b style="color:${gc}">${pct}%</b> (log-odds model)</div>
+        <div>→ Final: <b style="color:${gc}">${pct}%</b> · Log5 base + logit modifiers</div>
       </div>
+
+      ${(()=>{
+        // ── EV CARD (formula from Bill James / matchup probability doc) ──
+        // Fair American Odds = ((1 - P) / P) × 100
+        // EV% = (P × decimalOdds) - 1  [expressed per unit wagered]
+        const p  = r.prob;
+        const fairRaw = Math.round((1-p)/p*100);
+        const fairStr = `+${fairRaw}`;
+        const fdO = getFDOdds(r.name);
+        if(fdO!=null){
+          const dec    = fdO>0 ? fdO/100+1 : 100/Math.abs(fdO)+1;
+          const ev     = Math.round((p*dec - 1)*1000)/10;
+          const evClr  = ev>=5?'var(--green)':ev>=-5?'var(--amber)':'var(--red)';
+          const evLbl  = ev>=5?'✅ Bet':ev>=-5?'⚠️ Near fair':'❌ Pass';
+          const noVig  = (fdO>0?100/(fdO+100):Math.abs(fdO)/(Math.abs(fdO)+100))*0.91;
+          const edge   = Math.round((p-noVig)*1000)/10;
+          const fdDisp = `${fdO>0?'+':''}${fdO}`;
+          return `<div style="margin-top:8px;padding:10px 12px;border-radius:9px;
+            background:${ev>=0?'rgba(34,201,94,.07)':'rgba(224,80,74,.07)'};
+            border:1px solid ${ev>=0?'rgba(34,201,94,.22)':'rgba(224,80,74,.22)'}">
+            <div style="font-size:.60rem;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-family:sans-serif">
+              💰 Expected Value
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-family:sans-serif">
+              <div style="text-align:center;padding:6px;background:var(--bg3);border-radius:7px">
+                <div style="font-size:.62rem;color:var(--t4);margin-bottom:2px">Fair odds</div>
+                <div style="font-size:.90rem;font-weight:900;color:var(--t2)">${fairStr}</div>
+                <div style="font-size:.50rem;color:var(--t4)">no-vig</div>
+              </div>
+              <div style="text-align:center;padding:6px;background:var(--bg3);border-radius:7px">
+                <div style="font-size:.62rem;color:var(--t4);margin-bottom:2px">FD offers</div>
+                <div style="font-size:.90rem;font-weight:900;color:var(--t2)">${fdDisp}</div>
+                <div style="font-size:.50rem;color:var(--t4)">${edge>=0?'+':''}${edge}% edge</div>
+              </div>
+              <div style="text-align:center;padding:6px;border-radius:7px;
+                background:${ev>=0?'rgba(34,201,94,.12)':'rgba(224,80,74,.10)'};
+                border:1px solid ${ev>=0?'rgba(34,201,94,.3)':'rgba(224,80,74,.25)'}">
+                <div style="font-size:.62rem;color:var(--t4);margin-bottom:2px">EV per $100</div>
+                <div style="font-size:.90rem;font-weight:900;color:${evClr}">${ev>=0?'+':''}${ev}%</div>
+                <div style="font-size:.52rem;color:${evClr};font-weight:700">${evLbl}</div>
+              </div>
+            </div>
+            <div style="margin-top:7px;font-size:.55rem;color:var(--t4);font-family:sans-serif;line-height:1.5">
+              EV = (${(p*100).toFixed(1)}% × ${dec.toFixed(2)}) − 1 = <b style="color:${evClr}">${ev>=0?'+':''}${ev}%</b>
+              &nbsp;·&nbsp; Fair: ((1−${(p*100).toFixed(1)}%) ÷ ${(p*100).toFixed(1)}%) × 100 = ${fairStr}
+            </div>
+          </div>`;
+        } else {
+          return `<div style="margin-top:8px;padding:9px 12px;border-radius:9px;
+            background:var(--bg3);border:1px solid var(--bdr);font-family:sans-serif">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div style="font-size:.60rem;color:var(--t4);margin-bottom:2px">💰 Fair American Odds</div>
+                <div style="font-size:1.1rem;font-weight:900;color:var(--t2)">${fairStr}</div>
+                <div style="font-size:.52rem;color:var(--t4)">= ((1 − ${(p*100).toFixed(1)}%) ÷ ${(p*100).toFixed(1)}%) × 100</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px">EV%</div>
+                <div style="font-size:.68rem;color:var(--t4)">Load FD odds<br>to calculate</div>
+              </div>
+            </div>
+          </div>`;
+        }
+      })()}
     </div>
 
     ${(()=>{
@@ -14686,7 +14846,7 @@ function renderParlay(){
     const sel=S.parlaySelected.has(r.id);
     const pct=(r.prob*100).toFixed(1);
     const[,gc]=probGrade(r.prob);
-    const l14=r.l15hr?` 🔥${r.l15hr}HR`:'';
+    const l14=r.l14hr?` 🔥${r.l14hr}HR`:'';
     return`<div class="parlay-leg${sel?' selected':''}" onclick="toggleParlayLeg('${r.id}')">
       <div>
         <div class="pl-name">${r.name}${l14}</div>
