@@ -14994,44 +14994,39 @@ function calcBetEV(id,pctStr){
 //  "Stack Roles, Not Names. Value + Process = Cash."
 // ==================================================================
 
-// Classify a row as ANCHOR / VALUE / LONGSHOT using odds range, lineup
-// position, model probability, and power-profile signals.
+// Classify a row as ANCHOR / VALUE / LONGSHOT.
+//
+// When FD odds are loaded the market price is the ONLY determinant —
+// non-overlapping exclusive buckets matching the ULX framework:
+//   ANCHOR   +250 – +600   (market rates them as a top HR threat)
+//   VALUE    +601 – +950   (mid-tier odds, good profile, underpriced)
+//   LONGSHOT +951 – +2500  (overlooked bat, cheap price, high upside)
+//
+// When no odds are loaded, model probability + lineup position act as proxy.
 function classifyULXRole(r){
   const fdO=getFDOdds(r.name);
+
+  // ── Odds loaded: strict exclusive bucket, no secondary-signal overrides ──
+  if(fdO!=null&&fdO>0){
+    if(fdO<=600)  return 'ANCHOR';
+    if(fdO<=950)  return 'VALUE';
+    return 'LONGSHOT';
+  }
+
+  // ── No odds: model prob + lineup position proxy ──
+  // Model prob roughly maps to implied odds:
+  //   ≥13% ≈ +650 or shorter  → ANCHOR territory
+  //    8-13% ≈ +650–+1150     → VALUE territory (default)
+  //    <8%  ≈ +1150+           → LONGSHOT territory
   const pos=r._batterStats?.lineupPos||r.lineupPos||null;
-  let aS=0,vS=0,lS=0; // anchor / value / longshot scores
-
-  // Odds range — primary ULX signal (+300-+600 anchor, +500-+900 value, +900-+2000 longshot)
-  if(fdO!=null){
-    if(fdO>=250&&fdO<=700)  aS+=3;
-    if(fdO>=450&&fdO<=1050) vS+=3;
-    if(fdO>=800&&fdO<=2500) lS+=3;
-  } else {
-    // No odds loaded: proxy with model probability
-    if(r.prob>=0.13) aS+=2; else if(r.prob>=0.09) vS+=2; else lS+=2;
+  if(r.prob>=0.13) return 'ANCHOR';
+  if(r.prob>=0.08){
+    // Bottom-of-order hitters in this prob band skew longshot
+    if(pos!=null&&pos>=7) return 'LONGSHOT';
+    return 'VALUE';
   }
-
-  // Lineup position — middle order = anchor, lower order = value/longshot
-  if(pos!=null){
-    if(pos>=3&&pos<=5) aS+=2;
-    if(pos>=5&&pos<=7) vS+=2;
-    if(pos>=7&&pos<=9) lS+=2;
-  }
-
-  // Model probability (secondary confirmation)
-  if(r.prob>=0.13) aS+=1; else if(r.prob>=0.08) vS+=1; else lS+=1;
-
-  // Power profile signals
-  if((r.barrel_pct||0)>=10)    aS+=1;   // barrel machine = anchor trait
-  if((r.pull_air_pct||0)>=14)  lS+=1;   // pull-side power = longshot trait
-  if((r.hard_hit_pct||0)>=48)  vS+=1;   // hard-hit = value bat trait
-  if((r.platoon||1)>=1.08)    { aS+=1; vS+=1; } // platoon edge lifts both
-  if((r._pf||1)>=1.06)         lS+=1;   // good park = longshot environment boost
-  if((r.l14hr||0)>=2)          aS+=1;   // hot hand in great spot = anchor
-
-  const mx=Math.max(aS,vS,lS);
-  if(aS===mx) return 'ANCHOR';
-  if(vS===mx) return 'VALUE';
+  // Low-prob cleanup/middle hitter is still VALUE (situation drag, not low ceiling)
+  if(pos!=null&&pos<=5&&r.prob>=0.06) return 'VALUE';
   return 'LONGSHOT';
 }
 
