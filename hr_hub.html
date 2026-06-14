@@ -9762,8 +9762,106 @@ function renderDiscover(){
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 5. 🎰 PARLAY COMBOS — 2, 3, 4, and 5-leg combinations
-    //    All legs from different games for independence
+    // 5a. ⚓ ULX HR PARLAY BUILDER — Anchor + Value Bat + Longshot
+    //     "Stack Roles, Not Names. Value + Process = Cash."
+    // ══════════════════════════════════════════════════════════════
+    {
+      const ulxLegs=buildULXParlay();
+      if(ulxLegs){
+        const ulxRoles=ulxLegs.map(r=>classifyULXRole(r));
+        const ulxChecks=checkULXParlay(ulxLegs);
+        const passCt=ulxChecks.filter(c=>c.pass).length;
+        const green=passCt>=7;
+        const combP=ulxLegs.reduce((p,r)=>p*r.prob,1);
+        const fairStr=probToAmerican(combP);
+        const RCFG={
+          ANCHOR:  {icon:'⚓',color:'#ffd700',label:'ANCHOR',   sub:'Highest Confidence · Middle Order'},
+          VALUE:   {icon:'💰',color:'#22c95e',label:'VALUE BAT',sub:'Good Profile · Underpriced'},
+          LONGSHOT:{icon:'☢️',color:'#a78bfa',label:'LONGSHOT', sub:'Overlooked Bat · High Upside'},
+        };
+        html+=`<div style="margin-bottom:20px">
+          ${sHdr('⚓','ULX HR Parlay Builder',
+            'Anchor · Value Bat · Longshot — Stack Roles, Not Names',
+            green?'🟢 Green Light':passCt+'/10 ✓')}
+          <div style="border:1px solid ${green?'rgba(34,201,94,.35)':'rgba(255,215,0,.22)'};
+            border-radius:14px;overflow:hidden;background:var(--bg2)">
+
+            ${ulxLegs.map((r,i)=>{
+              const cfg=RCFG[ulxRoles[i]];
+              const fdO=getFDOdds(r.name);
+              const[,gc]=probGrade(r.prob);
+              const pos=r._batterStats?.lineupPos||r.lineupPos||null;
+              return `<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;
+                background:${cfg.color}08;border-bottom:1px solid ${cfg.color}18;cursor:pointer"
+                onclick="showDetail('${r.id}')">
+                <div style="width:38px;height:38px;border-radius:10px;background:${cfg.color}1e;
+                  border:1px solid ${cfg.color}38;display:flex;align-items:center;
+                  justify-content:center;font-size:1.15rem;flex-shrink:0">${cfg.icon}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px;flex-wrap:wrap">
+                    <span style="font-size:.58rem;font-weight:800;color:${cfg.color};
+                      padding:1px 7px;background:${cfg.color}22;border-radius:99px;white-space:nowrap">
+                      ${cfg.label}</span>
+                    <span style="font-size:.56rem;color:var(--t4)">${cfg.sub}</span>
+                  </div>
+                  <div style="font-size:.80rem;font-weight:800;color:var(--t1)">${r.name}</div>
+                  <div style="font-size:.58rem;color:var(--t4)">${r.team}${pos?' · #'+pos:''} · vs ${r.spNm||'SP'}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0">
+                  <div style="font-size:.95rem;font-weight:900;color:${gc}">${(r.prob*100).toFixed(1)}%</div>
+                  ${fdO!=null?`<div style="font-size:.62rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
+                </div>
+              </div>`;
+            }).join('')}
+
+            <div style="padding:11px 13px;background:var(--bg3)">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                <div style="flex:1">
+                  <div style="font-size:.58rem;color:var(--t4)">Fair parlay odds</div>
+                  <div style="font-size:1.1rem;font-weight:900;color:var(--amber)">${fairStr>0?'+':''}${fairStr}</div>
+                  <div style="font-size:.54rem;color:var(--t4)">${(combP*100).toFixed(3)}% combined prob</div>
+                </div>
+                <div style="text-align:center;flex-shrink:0">
+                  <div style="width:52px;height:52px;border-radius:50%;
+                    border:3px solid ${green?'var(--green)':'var(--amber)'};
+                    background:${green?'rgba(34,201,94,.1)':'rgba(255,165,0,.08)'};
+                    display:flex;flex-direction:column;align-items:center;justify-content:center;
+                    margin:0 auto">
+                    <div style="font-size:1.2rem;font-weight:900;line-height:1;
+                      color:${green?'var(--green)':'var(--amber)'}">${passCt}</div>
+                    <div style="font-size:.44rem;color:var(--t4)">/10</div>
+                  </div>
+                  <div style="font-size:.58rem;font-weight:700;margin-top:4px;
+                    color:${green?'var(--green)':'var(--amber)'}">
+                    ${green?'🟢 GO':'🟡 CAUTION'}</div>
+                </div>
+                <div style="flex:1;text-align:right">
+                  <div style="font-size:.58rem;font-weight:700;color:var(--t4);margin-bottom:3px">
+                    ULX RULE: ${green?'✅ Place It':'⚠️ Review First'}</div>
+                  <div style="font-size:.56rem;color:var(--t4);line-height:1.5">
+                    ${green
+                      ?'7+ checks — all signals aligned'
+                      :'Stack roles, not names.<br>Load odds for full checklist'}
+                  </div>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;
+                padding-top:8px;border-top:1px solid rgba(255,255,255,.06)">
+                ${ulxChecks.map(c=>`<div style="display:flex;align-items:center;gap:4px;
+                  font-size:.58rem;color:${c.pass?'var(--green)':'var(--t4)'}">
+                  <span style="font-weight:800;flex-shrink:0">${c.pass?'✓':'✗'}</span>
+                  <span style="opacity:${c.pass?1:0.5}">${c.label}</span>
+                </div>`).join('')}
+              </div>
+            </div>
+          </div>
+        </div>`;
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 5b. 🎰 PARLAY COMBOS — 2, 3, 4, and 5-leg combinations
+    //     All legs from different games for independence
     // ══════════════════════════════════════════════════════════════
     const parlayPool=S.allRows
       .filter(r=>r.prob>=0.07&&calcBetScore(r)>=8.0)
@@ -9828,11 +9926,18 @@ function renderDiscover(){
         ${legs.map(r=>{
           const[,gc2]=probGrade(r.prob);
           const fdO=getFDOdds(r.name);
+          const ulxR=classifyULXRole(r);
+          const ulxRC={ANCHOR:{i:'⚓',c:'#ffd700'},VALUE:{i:'💰',c:'#22c95e'},LONGSHOT:{i:'☢️',c:'#a78bfa'}}[ulxR];
           return `<div style="display:flex;align-items:center;justify-content:space-between;
             padding:5px 0;border-top:1px solid var(--bg3);cursor:pointer"
             onclick="showDetail('${r.id}')">
             <div style="flex:1;min-width:0">
-              <div style="font-size:.70rem;font-weight:700;color:var(--t1)">${r.name}</div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <span style="font-size:.70rem;font-weight:700;color:var(--t1)">${r.name}</span>
+                <span style="font-size:.50rem;font-weight:700;color:${ulxRC.c};
+                  padding:0px 5px;background:${ulxRC.c}1a;border-radius:99px;white-space:nowrap">
+                  ${ulxRC.i} ${ulxR}</span>
+              </div>
               <div style="font-size:.56rem;color:var(--t4);margin-top:1px">${r.team} · vs ${r.spNm||'SP'}</div>
             </div>
             <div style="text-align:right;flex-shrink:0;margin-left:8px">
@@ -13434,6 +13539,24 @@ function renderDetail(r){
           <div style="font-size:.8rem;color:var(--t3)">${grd} · Expected: ${fair}</div>
           <div class="detail-meta">${r.name} · ${r.team} · ${r.pos} · ${r.batHand}HB</div>
           <div class="detail-meta">vs ${r.spNm} (${r.oppHand}HP) · ${r.game}${r.gameTime?' · '+fmtGameTime(r.gameTime):''}</div>
+          ${(()=>{
+            const _ulxRole=classifyULXRole(r);
+            const _ulxCfg={
+              ANCHOR:  {icon:'⚓',color:'#ffd700',sub:'Highest Confidence · Middle Order'},
+              VALUE:   {icon:'💰',color:'#22c95e',sub:'Good Profile · Underpriced'},
+              LONGSHOT:{icon:'☢️',color:'#a78bfa',sub:'Overlooked Bat · High Upside'},
+            }[_ulxRole];
+            return `<div style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;
+              padding:3px 9px 3px 6px;background:${_ulxCfg.color}18;
+              border:1px solid ${_ulxCfg.color}38;border-radius:99px">
+              <span style="font-size:.9rem">${_ulxCfg.icon}</span>
+              <div>
+                <span style="font-size:.62rem;font-weight:800;color:${_ulxCfg.color}">
+                  ULX ${_ulxRole}</span>
+                <span style="font-size:.58rem;color:var(--t4);margin-left:4px">${_ulxCfg.sub}</span>
+              </div>
+            </div>`;
+          })()}
         </div>
       </div>
       ${(()=>{
@@ -14833,6 +14956,110 @@ function calcBetEV(id,pctStr){
     </div>`;
     console.error('[calcBetEV]',e);
   }
+}
+
+// ==================================================================
+//  ULX HR PARLAY FRAMEWORK
+//  Based on ULX Home Run Hunting: Anchor + Value Bat + Longshot
+//  "Stack Roles, Not Names. Value + Process = Cash."
+// ==================================================================
+
+// Classify a row as ANCHOR / VALUE / LONGSHOT using odds range, lineup
+// position, model probability, and power-profile signals.
+function classifyULXRole(r){
+  const fdO=getFDOdds(r.name);
+  const pos=r._batterStats?.lineupPos||r.lineupPos||null;
+  let aS=0,vS=0,lS=0; // anchor / value / longshot scores
+
+  // Odds range — primary ULX signal (+300-+600 anchor, +500-+900 value, +900-+2000 longshot)
+  if(fdO!=null){
+    if(fdO>=250&&fdO<=700)  aS+=3;
+    if(fdO>=450&&fdO<=1050) vS+=3;
+    if(fdO>=800&&fdO<=2500) lS+=3;
+  } else {
+    // No odds loaded: proxy with model probability
+    if(r.prob>=0.13) aS+=2; else if(r.prob>=0.09) vS+=2; else lS+=2;
+  }
+
+  // Lineup position — middle order = anchor, lower order = value/longshot
+  if(pos!=null){
+    if(pos>=3&&pos<=5) aS+=2;
+    if(pos>=5&&pos<=7) vS+=2;
+    if(pos>=7&&pos<=9) lS+=2;
+  }
+
+  // Model probability (secondary confirmation)
+  if(r.prob>=0.13) aS+=1; else if(r.prob>=0.08) vS+=1; else lS+=1;
+
+  // Power profile signals
+  if((r.barrel_pct||0)>=10)    aS+=1;   // barrel machine = anchor trait
+  if((r.pull_air_pct||0)>=14)  lS+=1;   // pull-side power = longshot trait
+  if((r.hard_hit_pct||0)>=48)  vS+=1;   // hard-hit = value bat trait
+  if((r.platoon||1)>=1.08)    { aS+=1; vS+=1; } // platoon edge lifts both
+  if((r._pf||1)>=1.06)         lS+=1;   // good park = longshot environment boost
+  if((r.l14hr||0)>=2)          aS+=1;   // hot hand in great spot = anchor
+
+  const mx=Math.max(aS,vS,lS);
+  if(aS===mx) return 'ANCHOR';
+  if(vS===mx) return 'VALUE';
+  return 'LONGSHOT';
+}
+
+// Run the 10-item ULX checklist against a set of legs.
+// Returns array of {label, pass} — 7+ passes = Green Light.
+function checkULXParlay(legs){
+  if(!legs||!legs.length) return [];
+  const roles=legs.map(r=>classifyULXRole(r));
+  const hands=legs.map(r=>r.batHand||r._batterStats?.batHand||null).filter(Boolean);
+  const allSameHand=hands.length>=2&&hands.every(h=>h===hands[0]);
+  const allPull=legs.every(r=>(r.pull_pct||0)>=50);
+  const positions=legs.map(r=>r._batterStats?.lineupPos||r.lineupPos||null).filter(Boolean);
+  const posGroups=positions.map(p=>p<=3?'top':p<=6?'mid':'bot');
+  const diffSpots=!positions.length||new Set(posGroups).size>=Math.min(2,posGroups.length);
+  const hasEdge=legs.some(r=>{
+    const f=getFDOdds(r.name); if(!f) return false;
+    const e=calcEdge(r.prob,f); return e&&e.edge>0;
+  });
+  const badEnvCt=legs.filter(r=>(r.parkwx||1)<0.90).length;
+  return [
+    {label:'Anchor identified',          pass:roles.includes('ANCHOR')},
+    {label:'Value bat found',            pass:roles.includes('VALUE')},
+    {label:'Longshot selected',          pass:roles.includes('LONGSHOT')},
+    {label:'Different archetypes',       pass:!allSameHand&&!allPull},
+    {label:'Different lineup spots',     pass:diffSpots},
+    {label:'Good matchups',              pass:legs.every(r=>(r.platoon||1)>=1.0)},
+    {label:'Favorable HR environment',   pass:legs.every(r=>(r.parkwx||1)>=0.88)},
+    {label:'Reasonable odds / value',    pass:hasEdge},
+    {label:'Recent form / hard contact', pass:legs.some(r=>(r.l14hr||0)>=1||(r.barrel_pct||0)>=8)},
+    {label:'No bad-environment stack',   pass:badEnvCt<2},
+  ];
+}
+
+// Find the best Anchor + Value Bat + Longshot combo from different games.
+// Maximises checklist score, then combined probability as tie-breaker.
+function buildULXParlay(){
+  const pool=S.allRows.filter(r=>r.prob>=0.05);
+  if(pool.length<3) return null;
+  const cls=pool.map(r=>({r,role:classifyULXRole(r)}));
+  const anchors  =cls.filter(x=>x.role==='ANCHOR'  ).sort((a,b)=>b.r.prob-a.r.prob).slice(0,6);
+  const values   =cls.filter(x=>x.role==='VALUE'   ).sort((a,b)=>b.r.prob-a.r.prob).slice(0,10);
+  const longshots=cls.filter(x=>x.role==='LONGSHOT').sort((a,b)=>b.r.prob-a.r.prob).slice(0,12);
+  if(!anchors.length||!values.length||!longshots.length) return null;
+  const gk=r=>r.gamePk||r.game||r.team;
+  let best=null,bestSc=-1,bestP=0;
+  for(const a of anchors){
+    for(const v of values){
+      if(gk(a.r)===gk(v.r)) continue;
+      for(const l of longshots){
+        if(gk(l.r)===gk(a.r)||gk(l.r)===gk(v.r)) continue;
+        const legs=[a.r,v.r,l.r];
+        const sc=checkULXParlay(legs).filter(c=>c.pass).length;
+        const cp=legs.reduce((p,r)=>p*r.prob,1);
+        if(sc>bestSc||(sc===bestSc&&cp>bestP)){ bestSc=sc; bestP=cp; best=legs; }
+      }
+    }
+  }
+  return best;
 }
 
 // ==================================================================
