@@ -9860,121 +9860,151 @@ function renderDiscover(){
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 5b. 🎰 PARLAY COMBOS — 2, 3, 4, and 5-leg combinations
-    //     All legs from different games for independence
+    // 5b. 🎰 ULX PARLAY COMBOS — Role-based 2/3/4/5-leg tickets
+    //     Each size built to a specific ULX archetype pattern
     // ══════════════════════════════════════════════════════════════
-    const parlayPool=S.allRows
-      .filter(r=>r.prob>=0.07&&calcBetScore(r)>=8.0)
-      .sort((a,b)=>b.prob-a.prob)
-      .slice(0,10); // top 10 candidates
+    {
+      // Wider pool than before — longshots are intentionally lower prob
+      const ulxPool2=S.allRows.filter(r=>r.prob>=0.04);
+      if(ulxPool2.length>=2){
+        const cls2=ulxPool2.map(r=>({r,role:classifyULXRole(r)}));
+        const ulxA=cls2.filter(x=>x.role==='ANCHOR'  ).sort((a,b)=>b.r.prob-a.r.prob).map(x=>x.r);
+        const ulxV=cls2.filter(x=>x.role==='VALUE'   ).sort((a,b)=>b.r.prob-a.r.prob).map(x=>x.r);
+        const ulxL=cls2.filter(x=>x.role==='LONGSHOT').sort((a,b)=>b.r.prob-a.r.prob).map(x=>x.r);
+        const gk2=r=>r.gamePk||r.game||r.team;
 
-    // Build all combos for a given leg count from different games
-    const buildCombos=(pool,legs)=>{
-      const result=[];
-      const pick=(chosen,start)=>{
-        if(chosen.length===legs){
-          const combProb=chosen.reduce((p,r)=>p*r.prob,1);
-          const fairDecOdds=1/combProb;
-          const fairOdds=fairDecOdds>=2
-            ? Math.round((fairDecOdds-1)*100)
-            : -Math.round(100/(fairDecOdds-1));
-          result.push({legs:[...chosen],combProb,fairOdds});
-          return;
-        }
-        for(let i=start;i<pool.length;i++){
-          // Must be from a different game than all chosen legs
-          const gameKey=pool[i].gamePk||pool[i].game||pool[i].team;
-          if(chosen.some(c=>(c.gamePk||c.game||c.team)===gameKey)) continue;
-          chosen.push(pool[i]);
-          pick(chosen,i+1);
-          chosen.pop();
-        }
-      };
-      pick([],0);
-      return result.sort((a,b)=>b.combProb-a.combProb);
-    };
+        // Find best combo matching a role pattern plus optional extra legs.
+        // rolePattern: e.g. ['ANCHOR','LONGSHOT'] — each element is a role name.
+        // extraLegs: how many additional legs to append (any role, different game).
+        const findULXCombo=(rolePattern,extraLegs=0)=>{
+          const pools=rolePattern.map(role=>role==='ANCHOR'?ulxA:role==='VALUE'?ulxV:ulxL);
+          let best=null,bestSc=-1,bestP=0;
+          const recurse=(chosen,ri)=>{
+            if(ri===rolePattern.length){
+              if(extraLegs===0){
+                const sc=checkULXParlay(chosen).filter(c=>c.pass).length;
+                const cp=chosen.reduce((p,r)=>p*r.prob,1);
+                if(sc>bestSc||(sc===bestSc&&cp>bestP)){bestSc=sc;bestP=cp;best=[...chosen];}
+                return;
+              }
+              // Pick best extraLegs from pool (any role), sorted by checklist contribution
+              const extras=ulxPool2.filter(r=>
+                !chosen.some(c=>c.id===r.id)&&chosen.every(c=>gk2(c)!==gk2(r))
+              ).sort((a,b)=>{
+                const sig=r=>((r.platoon||1)>=1.05?1:0)+((r.parkwx||1)>=1.05?1:0)+((r.l14hr||0)>=1?1:0);
+                return sig(b)-sig(a)||b.prob-a.prob;
+              });
+              const pickEx=(picked,idx)=>{
+                if(picked.length===extraLegs){
+                  const legs=[...chosen,...picked];
+                  const sc=checkULXParlay(legs).filter(c=>c.pass).length;
+                  const cp=legs.reduce((p,r)=>p*r.prob,1);
+                  if(sc>bestSc||(sc===bestSc&&cp>bestP)){bestSc=sc;bestP=cp;best=[...legs];}
+                  return;
+                }
+                for(let i=idx;i<Math.min(extras.length,15);i++){
+                  if(picked.every(p=>gk2(p)!==gk2(extras[i]))){
+                    picked.push(extras[i]); pickEx(picked,i+1); picked.pop();
+                  }
+                }
+              };
+              pickEx([],0);
+              return;
+            }
+            const pool=pools[ri];
+            for(let i=0;i<Math.min(pool.length,8);i++){
+              const r=pool[i];
+              if(chosen.some(c=>c.id===r.id)||chosen.some(c=>gk2(c)===gk2(r))) continue;
+              chosen.push(r); recurse(chosen,ri+1); chosen.pop();
+            }
+          };
+          recurse([],0);
+          if(!best) return null;
+          const cp=best.reduce((p,r)=>p*r.prob,1);
+          const dec=1/cp;
+          const fo=dec>=2?Math.round((dec-1)*100):-Math.round(100/(dec-1));
+          return {legs:best,combProb:cp,fairOdds:fo,ulxScore:bestSc};
+        };
 
-    const parlayCard=(legs,combProb,fairOdds,accent)=>{
-      const[,gc]=probGrade(combProb);
-      const nLegs=legs.length;
-      // Implied probability of finding this parlay at listed odds
-      const fdOddsArr=legs.map(r=>getFDOdds(r.name)).filter(Boolean);
-      let fdParlayOdds=null;
-      if(fdOddsArr.length===nLegs){
-        const fdCombDec=fdOddsArr.reduce((p,o)=>p*(o>0?o/100+1:100/Math.abs(o)+1),1);
-        fdParlayOdds=fdCombDec>=2
-          ?'+'+Math.round((fdCombDec-1)*100)
-          :('+'+Math.round((fdCombDec-1)*100));
-      }
-      return `<div style="border:1px solid ${accent}30;border-radius:12px;
-        padding:10px 12px;background:${accent}06;margin-bottom:7px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
-          <div style="display:flex;align-items:center;gap:7px">
-            <span style="font-size:.64rem;font-weight:800;color:${accent};padding:2px 8px;
-              border-radius:99px;background:${accent}18;border:1px solid ${accent}35">
-              ${nLegs}-Leg</span>
-            <span style="font-size:.62rem;color:var(--t4)">All different games</span>
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:.82rem;font-weight:900;color:${gc}">${(combProb*100).toFixed(2)}%</div>
-            <div style="font-size:.58rem;color:var(--t4)">
-              fair ${fairOdds>0?'+':''}${fairOdds}
-              ${fdParlayOdds?` · FD ${fdParlayOdds}`:''}
-            </div>
-          </div>
-        </div>
-        ${legs.map(r=>{
-          const[,gc2]=probGrade(r.prob);
-          const fdO=getFDOdds(r.name);
-          const ulxR=classifyULXRole(r);
-          const ulxRC={ANCHOR:{i:'⚓',c:'#ffd700'},VALUE:{i:'💰',c:'#22c95e'},LONGSHOT:{i:'☢️',c:'#a78bfa'}}[ulxR];
-          return `<div style="display:flex;align-items:center;justify-content:space-between;
-            padding:5px 0;border-top:1px solid var(--bg3);cursor:pointer"
-            onclick="showDetail('${r.id}')">
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;align-items:center;gap:4px">
-                <span style="font-size:.70rem;font-weight:700;color:var(--t1)">${r.name}</span>
-                <span style="font-size:.50rem;font-weight:700;color:${ulxRC.c};
-                  padding:0px 5px;background:${ulxRC.c}1a;border-radius:99px;white-space:nowrap">
-                  ${ulxRC.i} ${ulxR}</span>
+        // Render a ULX combo card
+        const ulxComboCard2=(result,accent,sizeLabel,roleLabel)=>{
+          if(!result) return '';
+          const{legs,combProb,fairOdds,ulxScore}=result;
+          const[,gc]=probGrade(combProb);
+          const green=ulxScore>=7;
+          const fdArr=legs.map(r=>getFDOdds(r.name)).filter(Boolean);
+          let fdParlayStr='';
+          if(fdArr.length===legs.length){
+            const dec=fdArr.reduce((p,o)=>p*(o>0?o/100+1:100/Math.abs(o)+1),1);
+            fdParlayStr=' · FD '+(dec>=2?'+'+Math.round((dec-1)*100):'-'+Math.round(100/(dec-1)));
+          }
+          return `<div style="border:1px solid ${accent}30;border-radius:12px;
+            padding:10px 12px;background:${accent}06;margin-bottom:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <span style="font-size:.64rem;font-weight:800;color:${accent};padding:2px 8px;
+                  border-radius:99px;background:${accent}18;border:1px solid ${accent}35">
+                  ${sizeLabel}</span>
+                <span style="font-size:.60rem;color:var(--t4)">${roleLabel}</span>
+                <span style="font-size:.58rem;font-weight:700;padding:1px 6px;border-radius:99px;
+                  background:${green?'rgba(34,201,94,.12)':'rgba(255,165,0,.1)'};
+                  color:${green?'var(--green)':'var(--amber)'}">
+                  ${green?'🟢':'🟡'} ${ulxScore}/10</span>
               </div>
-              <div style="font-size:.56rem;color:var(--t4);margin-top:1px">${r.team} · vs ${r.spNm||'SP'}</div>
+              <div style="text-align:right">
+                <div style="font-size:.82rem;font-weight:900;color:${gc}">${(combProb*100).toFixed(2)}%</div>
+                <div style="font-size:.58rem;color:var(--t4)">fair ${fairOdds>0?'+':''}${fairOdds}${fdParlayStr}</div>
+              </div>
             </div>
-            <div style="text-align:right;flex-shrink:0;margin-left:8px">
-              <div style="font-size:.75rem;font-weight:900;color:${gc2}">${(r.prob*100).toFixed(1)}%</div>
-              ${fdO!=null?`<div style="font-size:.56rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
-            </div>
+            ${legs.map(r=>{
+              const[,gc2]=probGrade(r.prob);
+              const fdO=getFDOdds(r.name);
+              const ulxR=classifyULXRole(r);
+              const ulxRC={ANCHOR:{i:'⚓',c:'#ffd700'},VALUE:{i:'💰',c:'#22c95e'},LONGSHOT:{i:'☢️',c:'#a78bfa'}}[ulxR];
+              return `<div style="display:flex;align-items:center;justify-content:space-between;
+                padding:5px 0;border-top:1px solid var(--bg3);cursor:pointer"
+                onclick="showDetail('${r.id}')">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <span style="font-size:.70rem;font-weight:700;color:var(--t1)">${r.name}</span>
+                    <span style="font-size:.50rem;font-weight:700;color:${ulxRC.c};
+                      padding:0px 5px;background:${ulxRC.c}1a;border-radius:99px;white-space:nowrap">
+                      ${ulxRC.i} ${ulxR}</span>
+                  </div>
+                  <div style="font-size:.56rem;color:var(--t4);margin-top:1px">${r.team} · vs ${r.spNm||'SP'}</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;margin-left:8px">
+                  <div style="font-size:.75rem;font-weight:900;color:${gc2}">${(r.prob*100).toFixed(1)}%</div>
+                  ${fdO!=null?`<div style="font-size:.56rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}
+                </div>
+              </div>`;
+            }).join('')}
           </div>`;
-        }).join('')}
-      </div>`;
-    };
+        };
 
-    // Generate best combo for each leg count 2-5
-    const parlaySections=[
-      {n:2,accent:'#94a3b8',label:'2-Leg'},
-      {n:3,accent:'#4ade80',label:'3-Leg'},
-      {n:4,accent:'#22c95e',label:'4-Leg'},
-      {n:5,accent:'#ffd700',label:'5-Leg'},
-    ];
-    const anyParlays=parlayPool.length>=2;
-    if(anyParlays){
-      const allParlayHtml=parlaySections.map(({n,accent,label})=>{
-        if(parlayPool.length<n) return ''; // not enough different-game plays
-        const combos=buildCombos(parlayPool,n);
-        if(!combos.length) return '';
-        // Show top 2 for 2-leg, top 1 for 3+
-        const show=n===2?combos.slice(0,2):combos.slice(0,1);
-        return show.map(({legs,combProb,fairOdds})=>parlayCard(legs,combProb,fairOdds,accent)).join('');
-      }).filter(Boolean).join('');
+        // Build one of each ULX combo pattern
+        const c2a=findULXCombo(['ANCHOR','LONGSHOT']);
+        const c2b=findULXCombo(['ANCHOR','VALUE']);
+        const c3 =findULXCombo(['ANCHOR','VALUE','LONGSHOT']);
+        const c4 =findULXCombo(['ANCHOR','VALUE','LONGSHOT'],1);
+        const c5 =findULXCombo(['ANCHOR','VALUE','LONGSHOT'],2);
 
-      if(allParlayHtml){
-        html+=`<div style="margin-bottom:18px">
-          ${sHdr('🎰','Parlay Combos',
-            `${parlayPool.length} qualifying plays · legs from different games only`,
-            parlaySections.filter(({n})=>parlayPool.length>=n&&buildCombos(parlayPool,n).length>0).length+' sizes'
-          )}
-          ${allParlayHtml}
-        </div>`;
+        const allULXHtml=[
+          ulxComboCard2(c2a,'#94a3b8','2-Leg','⚓ Anchor + ☢️ Longshot'),
+          ulxComboCard2(c2b,'#94a3b8','2-Leg','⚓ Anchor + 💰 Value'),
+          ulxComboCard2(c3, '#4ade80','3-Leg','⚓ + 💰 + ☢️  Classic ULX'),
+          ulxComboCard2(c4, '#22c95e','4-Leg','⚓ + 💰 + ☢️ + Best Add-On'),
+          ulxComboCard2(c5, '#ffd700','5-Leg','⚓ + 💰 + ☢️ + 2 Add-Ons'),
+        ].filter(Boolean).join('');
+
+        if(allULXHtml){
+          const ct=[c2a,c2b,c3,c4,c5].filter(Boolean).length;
+          html+=`<div style="margin-bottom:18px">
+            ${sHdr('🎰','ULX Parlay Combos',
+              'Role-based tickets — Anchor · Value · Longshot · different games only',ct+' combos')}
+            ${allULXHtml}
+          </div>`;
+        }
       }
     }
 
