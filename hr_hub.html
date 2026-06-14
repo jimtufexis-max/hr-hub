@@ -715,8 +715,8 @@ input:focus,textarea:focus{border-color:var(--amber)}
 
         <!-- Version -->
         <div style="text-align:center;padding:12px 14px 20px;font-size:.60rem;color:var(--t4);line-height:2">
-          DingerIQ v8 · 2026 Season · Model weights v8<br>
-          <span style="font-size:.56rem;opacity:.7">jHR Power Score · CLV Tracker · Calibration Dashboard</span>
+          DingerIQ v8.1 · 2026 Season · Model weights v8<br>
+          <span style="font-size:.56rem;opacity:.7">jHR Power Score · CLV Tracker · Calibration Dashboard · ULX Parlay Builder</span>
         </div>
 
       </div>
@@ -2934,8 +2934,8 @@ function detectNegativeAngles(r){
   else if(isCrossHand2 && r.platoon!=null && r.platoon<0.90)
     neg.push({icon:'📊',label:'Bad Splits vs This Hand (-)',
       tip:`${bH2}HB vs ${pH2}HP is cross-hand but actual split data shows ${Math.round((1-r.platoon)*100)}% suppression — this batter historically struggles vs ${pH2}HP`});
-  if(l14hr===0) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in last 14 games.`});
-  else if(l7hr===0&&l7ab>=18) neg.push({icon:'❄️',label:'Ice Cold L7 (-)',tip:`0 HRs in last 7 games.`});
+  if(l14hr===0&&l14pa>=10) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in last ${l14pa}PA over last 14 games.`});
+  else if(l7hr===0&&l7ab>=18) neg.push({icon:'❄️',label:'Ice Cold L7 (-)',tip:`0 HRs in last 7 games — but had HR(s) earlier in L14.`});
 
   if(r.barrel_pct!=null&&_szPA>15&&r.szHR>0){
     const xb=(r.barrel_pct/100)*_szPA*0.62;
@@ -2945,7 +2945,7 @@ function detectNegativeAngles(r){
     if(r.szHR>=xHR+3&&xHR>1) neg.push({icon:'📉',label:'HR Count Hot (-)',tip:`${r.szHR} HRs vs ~${xHR.toFixed(0)} expected from power profile — regression risk.`});
   }
 
-  const l14pa=g.slice(0,14).reduce((s,x)=>s+(x.ab||0),0);
+  const l14pa=g.slice(0,14).reduce((s,x)=>s+(x.pa||x.ab||0),0); // use pa||ab to match every other L14 calc
   if(l14pa>20&&l14hr>=5&&(l14hr/l14pa)>(r.anchor||0.035)*2.8) neg.push({icon:'📉',label:'Hot Streak May Cool (-)',tip:`${l14hr} HRs in last 14G well above power profile rate.`});
   if(r.barrel_pct!=null&&r.barrel_pct<5) neg.push({icon:'🛢️',label:'Weak Barrel Rate (-)',tip:`${r.barrel_pct}% barrel — below lg avg 8%.`});
   // High chase rate = poor plate discipline = worse counts = fewer HRs
@@ -2956,7 +2956,7 @@ function detectNegativeAngles(r){
   if(r.xwobaDiff!=null&&r.xwobaDiff<=-0.030)
     neg.push({icon:'🍀',label:'Outperforming Contact Quality (-)',
       tip:`wOBA ${r.woba?.toFixed(3)} is ${Math.round(Math.abs(r.xwobaDiff)*1000)}pts above xwOBA — results ahead of contact quality. Regression likely.`});
-  if(r.pitcher<0.82) neg.push({icon:'🧱',label:'Pitcher Suppressing HRs (-)',tip:`Pitcher multiplier ${r.pitcher.toFixed(2)}x — SP limiting HRs vs lg avg.`});
+  if((r.pitcher??1)<0.82) neg.push({icon:'🧱',label:'Pitcher Suppressing HRs (-)',tip:`Pitcher multiplier ${(r.pitcher??1).toFixed(2)}x — SP limiting HRs vs lg avg.`});
   // Arsenal weakness — only fire if primary pitch data doesn't contradict it
   if(pit._arsenalMult!=null&&pit._arsenalMult<=0.90&&pit._arsenalDesc){
     // Don't show unfavorable mix if batter actually crushes the primary pitch
@@ -2974,13 +2974,15 @@ function detectNegativeAngles(r){
   }
   if(pit.recentK9!=null&&pit.seasonK9!=null&&pit.recentK9>pit.seasonK9*1.18&&pit.seasonK9>=6) neg.push({icon:'📈',label:'SP Gaining Ks (-)',tip:`K/9 up ${pit.seasonK9.toFixed(1)} to ${pit.recentK9.toFixed(1)}.`});
   if(!isDomeGame){
-    if(r.parkwx<0.92){const why=r.pf<=0.94?'pitcher-friendly park':wx.wind>=8?`${Math.round(wx.wind)}mph headwind`:'cold conditions';neg.push({icon:'🏟️',label:'Conditions Against (-)',tip:`Park x weather ${r.parkwx.toFixed(2)}x — ${why}.`});}
-    else if(wx.wind>=12&&r.parkwx<0.97) neg.push({icon:'🌀',label:'Wind Blowing In (-)',tip:`${windLabel(wx.wind,wx.wdir)} — headwind.`});
+    const parkwxSafe=r.parkwx??1;
+    if(parkwxSafe<0.92){const why=(r.pf??1)<=0.94?'pitcher-friendly park':wx.wind>=8?`${Math.round(wx.wind)}mph headwind`:'cold conditions';neg.push({icon:'🏟️',label:'Conditions Against (-)',tip:`Park x weather ${parkwxSafe.toFixed(2)}x — ${why}.`});}
+    else if(wx.wind>=12&&parkwxSafe<0.97) neg.push({icon:'🌀',label:'Wind Blowing In (-)',tip:`${windLabel(wx.wind,wx.wdir)} — headwind.`});
     if(wx.rain>=50) neg.push({icon:'🌧️',label:'Rain Risk (-)',tip:`${Math.round(wx.rain)}% rain.`});
   }
   if(r.pull_air_pct!=null&&r.pull_air_pct<9) neg.push({icon:'↙️',label:'Poor HR Shape (-)',tip:`${r.pull_air_pct.toFixed(1)}% pull-air — below lg avg 12.5%.`});
   if(r.fb_pct!=null&&r.fb_pct<24) neg.push({icon:'⬇️',label:'Ground Ball Hitter (-)',tip:`${r.fb_pct.toFixed(1)}% fly ball rate — below lg avg 34%.`});
-  if(l14hr===0&&l14pa>=30) neg.push({icon:'📉',label:'Low Recent Form (-)',tip:`No HRs in last 14 games with meaningful PA.`});
+  // NOTE: "Low Recent Form" removed — fully covered by "HR Drought (-)" above.
+  // Both checked l14hr===0; showing both was a duplicate tag on the same condition.
 
   const seen=new Set();
   return neg.filter(n=>{if(seen.has(n.label))return false;seen.add(n.label);return true;});
@@ -6206,7 +6208,7 @@ function renderTagGuide(){
     'back-to-back':  ['🔥 Back-to-Back',  'var(--amber)',  '2 HRs in last 3 games',        'Strong recent form — 2 home runs in last 3 games. Elevated but not extreme. Used to boost model confidence rather than override base rates.'],
     'l7-surge':      ['⚡ L7 Pace Surge', 'var(--amber)',  'L7 HR rate 1.8x+ season rate', 'Last 7 games HR rate is running 1.8x or more above season average. Must have 15+ PA in the window to qualify. Signals genuine short-term momentum.'],
     'hot-streak':    ['🌡️ Quality Hot',   '#ffd700',       'L30 xwOBA 35+ pts above szn',  'Rolling 30-day xwOBA is 35+ points above season average AND above .380. This means the quality of contact — not just results — has genuinely improved recently. More reliable than raw HR streak.'],
-    'hr-drought':    ['🧊 HR Drought',    'var(--red)',    '0 HRs in last 15 games',       'Zero home runs in the last 30+ PA despite a solid season HR rate (4%+). Models this as positive regression pending — the power is there but results haven\'t come. Contrarian angle.'],
+    'hr-drought':    ['🧊 HR Drought',    'var(--red)',    '0 HRs in last 14 games (10+ PA)','Zero home runs across the last 14 games with at least 10 plate appearances. Fires as a negative angle — the player\'s recent results are cold regardless of season power profile. Only shows when actual PA data confirms meaningful exposure (10+ PA), so it never triggers for pitchers or newly promoted players with no recent starts.'],
     // POWER
     'barrel-king':   ['🛢️ Barrel King',   '#ffd700',       'Barrel% 15%+ (avg 8%)',        'Season barrel rate 15% or above, which is elite (top 5% of MLB). 20%+ is top 2%. Barrels are the single best predictor of home runs — they represent the ideal launch angle and exit velocity combination. Model weight: 0.042 per barrel%.'],
     'pull-air':      ['🎯 Pull-Air King', '#ffd700',       'Pull-air% 18%+ (avg 12.5%)',   'Pulled airball rate 18% or above. Pull-air% × barrel% interaction is the core of the HR model. A batter who pulls the ball in the air at an elite rate in a HR-friendly park is the ideal home run profile. Model weight: 0.018 per pull-air%.'],
@@ -6229,17 +6231,35 @@ function renderTagGuide(){
     'home-splits':   ['🏠 Home/Road Splits','var(--green)', 'Better HR rate home or away',  'Batter\'s HR rate is meaningfully higher (10%+) at home or on the road this season. Some hitters are genuine home/road splits players. Model weight: 0.20x.'],
     'hvh':           ['⚔️ HR vs This SP', '#ffd700',       '2+ HRs vs this specific SP',   'Batter has homered 2+ times against this specific pitcher at a rate well above their normal HR rate. BvP sample is small but when a hitter has demonstrably owned a pitcher it\'s a real signal.'],
     'lineup-top':    ['📋 Lineup Top 4',  'var(--green)',  'Batting 1-4 — most PA',        'Batting in the top 4 of the order ensures 4+ plate appearances in a typical game. Lineup position is critical for per-game probability since HR = per-PA × expected PA.'],
+    // ── RED FLAGS (negative angles) ──────────────────────────────────
+    'flag-drought':       ['🧊 HR Drought',          'var(--red)',    '0 HRs in L14, 10+ PA',         'Zero home runs in the last 14 games with at least 10 plate appearances. Data is sourced from the most recent game log and updated live after each background data load, so it always reflects the freshest available stats.'],
+    'flag-ice-cold-l7':   ['❄️ Ice Cold L7',          '#60a5fa',      '0 HRs in L7, had HR in L8-14', 'No home runs in the last 7 games, but the player did hit at least one HR earlier in the L14 window. Milder than a full HR Drought — the power showed up recently, it just went quiet the last week.'],
+    'flag-hot-may-cool':  ['📉 Hot Streak May Cool',  'var(--amber)',  'L14 HR rate 2.8x+ above profile','L14 home run rate is running 2.8x or more above the batter\'s season power profile. Historically, extreme short-term HR surges revert to the mean. This fires only with 5+ HRs in L14 and 20+ PA to avoid small-sample triggers.'],
+    'flag-hr-count-hot':  ['📉 HR Count Hot',         'var(--amber)',  'HRs ahead of Statcast projection','Season HR total is 3+ ahead of what Statcast barrel/pull-air profile predicts. When actual HRs significantly outpace expected HRs, some regression toward the mean is typical.'],
+    'flag-weak-barrel':   ['🛢️ Weak Barrel Rate',     'var(--red)',    'Barrel% below 5% (avg 8%)',     'Season barrel rate below 5% — well below the MLB average of ~8%. Barrels are the strongest predictor of home run capability. Low barrel rates severely limit the ceiling for HR probability.'],
+    'flag-free-swinger':  ['👁️ Free Swinger',          'var(--amber)',  'Chase rate 35%+ (avg 29%)',     'O-swing (chase) rate of 35% or above, well above the MLB average of ~29%. High chase rates lead to worse counts, more contact outside the zone, and fewer hard-hit balls in favorable spots.'],
+    'flag-contact-qual':  ['🍀 Outperforming Contact', 'var(--amber)',  'wOBA significantly > xwOBA',    'Actual wOBA is 30+ points above expected wOBA (based on quality of contact). The player is getting more out of their batted balls than contact quality alone justifies — some regression toward xwOBA is likely.'],
+    'flag-sp-suppress':   ['🧱 Pitcher Suppressing',   'var(--red)',    'Pitcher multiplier below 0.82x', 'The model\'s pitcher multiplier is below 0.82x — meaning this starting pitcher is a genuine HR suppressor, combining low HR/PA allowed, favorable GB% tendency, and strong recent outings. A meaningful headwind for hitters facing him.'],
+    'flag-bad-pitch-mix': ['🎵 Unfavorable Pitch Mix', 'var(--red)',    'SP arsenal suppresses this batter','The starting pitcher\'s primary pitch mix has historically produced below-average ISO and wOBA against batter profiles similar to this one. Combined with arsenal multiplier ≤0.90x.'],
+    'flag-sp-gaining-ks': ['📈 SP Gaining Ks',         'var(--amber)',  'Pitcher K rate trending up 18%+','The pitcher\'s recent K/9 is running 18%+ above their season average, suggesting the stuff is sharper recently. Elevated strikeout rates correlate with fewer batted balls and lower HR rates.'],
+    'flag-conditions':    ['🏟️ Conditions Against',    'var(--red)',    'Park×weather below 0.92x',      'Combined park factor × weather multiplier is below 0.92x. This means the combination of ballpark dimensions and today\'s conditions (cold, headwind, or pitcher-friendly park) meaningfully suppresses home run probability.'],
+    'flag-wind-in':       ['🌀 Wind Blowing In',        'var(--amber)',  '12+ mph headwind',              'Wind of 12+ mph blowing in from the outfield. Strong headwinds can push potential home runs back into the warning track. The effect is strongest when wind speed is 15+ mph and the park is already neutral or pitcher-friendly.'],
+    'flag-rain':          ['🌧️ Rain Risk',              '#60a5fa',      '50%+ precipitation chance',      '50% or greater chance of rain at game time. Rain can slow the ball, shorten the game, or cause delays. Raises the risk that a game doesn\'t go 5 full innings for bets to settle.'],
+    'flag-poor-shape':    ['↙️ Poor HR Shape',          'var(--red)',    'Pull-air% below 9% (avg 12.5%)', 'Pulled airball rate below 9%. Pull-air% is the most direct measure of HR shape — batters who consistently go the other way or hit the ball on the ground rarely generate home runs even with decent exit velocity.'],
+    'flag-groundball':    ['⬇️ Ground Ball Hitter',     'var(--amber)',  'Fly ball rate below 24% (avg 34%)','Season fly ball rate below 24%, versus the MLB average of ~34%. Ground balls almost never become home runs. Extreme ground ball hitters need elite barrel rates to compensate for low fly ball counts.'],
+    'flag-bad-splits':    ['📊 Bad Splits vs Hand',     'var(--amber)',  'Cross-hand but poor historical splits','Favorable handedness matchup on paper (cross-hand) but this batter\'s actual split data vs this pitcher\'s hand shows suppression of 10%+. The raw platoon edge expected by the model is not showing up in this batter\'s historical results.'],
   };
 
   // Build the guide
   const SECTIONS = [
-    {label:'COMBO',   keys:['elite-spot','prime-spot','sleeper','regression-due']},
-    {label:'HEATING', keys:['due','heating-up']},
-    {label:'PLATOON', keys:['platoon-king','platoon-edge','lvl-fade','rvr-fade']},
-    {label:'FORM',    keys:['on-fire','back-to-back','l7-surge','hot-streak','hr-drought']},
-    {label:'POWER',   keys:['barrel-king','pull-air','hr-machine','power-freak','luck-reg']},
-    {label:'PITCHER', keys:['dinger-machine','hr-prone-sp','shutdown-sp','crushes-pitch','weak-pitch']},
-    {label:'CONTEXT', keys:['hr-park','coors','wind-out','wind-in','career-sp','hr-ump','home-splits','hvh','lineup-top']},
+    {label:'COMBO',     keys:['elite-spot','prime-spot','sleeper','regression-due']},
+    {label:'HEATING',   keys:['due','heating-up']},
+    {label:'PLATOON',   keys:['platoon-king','platoon-edge','lvl-fade','rvr-fade']},
+    {label:'FORM',      keys:['on-fire','back-to-back','l7-surge','hot-streak','hr-drought']},
+    {label:'POWER',     keys:['barrel-king','pull-air','hr-machine','power-freak','luck-reg']},
+    {label:'PITCHER',   keys:['dinger-machine','hr-prone-sp','shutdown-sp','crushes-pitch','weak-pitch']},
+    {label:'CONTEXT',   keys:['hr-park','coors','wind-out','wind-in','career-sp','hr-ump','home-splits','hvh','lineup-top']},
+    {label:'🚨 RED FLAGS — what each negative tag means', keys:['flag-drought','flag-ice-cold-l7','flag-hot-may-cool','flag-hr-count-hot','flag-weak-barrel','flag-free-swinger','flag-contact-qual','flag-sp-suppress','flag-bad-pitch-mix','flag-sp-gaining-ks','flag-conditions','flag-wind-in','flag-rain','flag-poor-shape','flag-groundball','flag-bad-splits']},
   ];
 
   let html = '';
@@ -11416,7 +11436,11 @@ async function loadGame(g){
     Promise.allSettled(
       hitters.map(h=>getBatterRecentGames(String(h.id)).then(recent=>{
         const row=rows.find(r=>String(r.id)===String(h.id));
-        if(row&&recent?.length) row._recentGames=recent;
+        if(row&&recent?.length){
+          row._recentGames=recent;
+          // Sync l14hr so tags/angles always match the displayed L14 stats
+          row.l14hr=recent.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
+        }
       }))
     ).then(()=>{
       // Only re-render if this game is still selected
