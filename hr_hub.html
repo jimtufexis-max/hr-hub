@@ -2913,6 +2913,7 @@ function detectNegativeAngles(r){
   const neg=[],g=r._recentGames||[],pit=r._pitcherStats||{},wx=r.wx||r._wx||{};
   // Standardized to 14-game window — same as detail card, Scout, and calcHRProb
   const l14hr=r.l14hr??g.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
+  const l14pa=g.slice(0,14).reduce((s,x)=>s+(x.pa||x.ab||0),0); // declared early — used in HR Drought check below
   const l7hr=g.slice(0,7).reduce((s,x)=>s+(x.hr||0),0);
   const l7ab=g.slice(0,7).reduce((s,x)=>s+(x.ab||0),0);
   const _szPA=r.szPA>30?r.szPA:(r.l30pa>15?r.l30pa*4.5:0);
@@ -2945,7 +2946,6 @@ function detectNegativeAngles(r){
     if(r.szHR>=xHR+3&&xHR>1) neg.push({icon:'📉',label:'HR Count Hot (-)',tip:`${r.szHR} HRs vs ~${xHR.toFixed(0)} expected from power profile — regression risk.`});
   }
 
-  const l14pa=g.slice(0,14).reduce((s,x)=>s+(x.pa||x.ab||0),0); // use pa||ab to match every other L14 calc
   if(l14pa>20&&l14hr>=5&&(l14hr/l14pa)>(r.anchor||0.035)*2.8) neg.push({icon:'📉',label:'Hot Streak May Cool (-)',tip:`${l14hr} HRs in last 14G well above power profile rate.`});
   if(r.barrel_pct!=null&&r.barrel_pct<5) neg.push({icon:'🛢️',label:'Weak Barrel Rate (-)',tip:`${r.barrel_pct}% barrel — below lg avg 8%.`});
   // High chase rate = poor plate discipline = worse counts = fewer HRs
