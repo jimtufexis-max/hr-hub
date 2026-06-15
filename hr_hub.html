@@ -14965,11 +14965,11 @@ function renderDetail(r){
                   score:s, rating, ratingColor, spMark, spTendency, spTendencyLabel, contribs:zoneContribs(ri,ci) };
               }));
               window._lastHotZoneGrid = hzGrid;
-              const bvp = r.batVsPitch || r._batterStats?.batVsPitch || {};
+              const bvp = r._bvp || r.batVsPitch || r._batterStats?.batVsPitch || {};
               const PNAME={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Change',FS:'Split',KC:'K-Curv'};
-              // Pitch buttons: SP pitches >=8% usage where batter has >=5 PA of data
+              // Pitch buttons: SP pitches >=8% usage where batter has any PA data
               const spPitches = Object.entries(mix)
-                .filter(([pt,pct])=>pct>=8&&!pt.startsWith('_')&&(bvp[pt]?.pa||0)>=5)
+                .filter(([pt,pct])=>pct>=8&&!pt.startsWith('_')&&(bvp[pt]?.pa||0)>=1)
                 .sort((a,b)=>b[1]-a[1]);
               const hasPitchData = spPitches.length>0;
 
