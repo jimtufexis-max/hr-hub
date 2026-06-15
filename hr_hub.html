@@ -559,6 +559,11 @@ input:focus,textarea:focus{border-color:var(--amber)}
         <div id="discover-content"></div>
       </div>
 
+      <!-- DAY TRACKER -->
+      <div id="page-tracker" class="page">
+        <div id="tracker-content"></div>
+      </div>
+
       <!-- INFO -->
       <div id="page-info" class="page">
 
@@ -767,6 +772,10 @@ input:focus,textarea:focus{border-color:var(--amber)}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
       Results
     </button>
+    <button class="nav-btn" id="nav-tracker" onclick="showPage('tracker')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+      Tracker
+    </button>
   </nav>
 
 </div><!-- /app -->
@@ -917,6 +926,7 @@ function showPage(name){
     if(name==='kelly') renderKelly();
     if(name==='picks') renderBestBets();
     if(name==='discover') renderDiscover();
+    if(name==='tracker') renderTracker();
     if(name==='scout') renderScout();
     if(name==='ab') populateABSelect();
     if(name==='pl') populatePitcherSelect();
@@ -6362,6 +6372,7 @@ function renderDesktopNav(){
     {id:'results',label:'📊 Results'},
     {id:'kelly',  label:'📐 Kelly'},
     {id:'discover',label:'🔭 Discover'},
+    {id:'tracker', label:'📌 Tracker'},
     {id:'info',   label:'ℹ️ Info'},
   ];
   const nav = document.createElement('div');
@@ -13330,6 +13341,10 @@ function _newRenderHitterCard(r,showGame){
   const pulseClass=r.prob>=0.12?'pulse-gold':r.prob>=0.09?'pulse-green':'';
   const headshotUrl=`https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/${r.id}/headshot/67/current`;
   const trackTag=(()=>{const td=ds();const st=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');const al=st.find(x=>x.id===r.id&&x.date===td&&x.manualBet);if(al&&al.actual!==undefined)return`<span style="font-size:.58rem;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green)">${al.actual>0?'✅':'❌'}</span>`;if(al)return`<span style="font-size:.58rem;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.1);color:var(--amber)">📌</span>`;return'';})();
+  // Day Tracker cache + state
+  const _trackId = String(r._batPid||r.id);
+  (window._trackerRowCache=window._trackerRowCache||{})[_trackId]={name:r.name,team:r.team,opp:r.game||'',batHand:r.batHand||'R',oppHand:r.oppHand||'R',prob:r.prob||0,barrelPct:r.barrel_pct||null,avgEV:r.avg_ev||null};
+  const _isTracked = typeof trackerIsTrackedId==='function' && trackerIsTrackedId(_trackId);
 
   return`<div class="hitter-card grade-${gCls} ${pulseClass}" onclick="showDetail('${r.id}')">
 
@@ -13398,6 +13413,9 @@ function _newRenderHitterCard(r,showGame){
           background:var(--bg3);color:var(--t4);cursor:pointer;flex-shrink:0">📤</button>
       </div>`;
     })()}
+    <div style="display:flex;justify-content:flex-end;margin-top:5px">
+      <button onclick="event.stopPropagation();(function(b,id){if(typeof trackerToggleFromCache!=='function')return;const ok=trackerToggleFromCache(id);b.textContent=ok?'📌 Tracking':'📌 Track';b.style.color=ok?'var(--amber)':'var(--t4)';b.style.borderColor=ok?'rgba(240,165,0,.4)':'';b.style.background=ok?'rgba(240,165,0,.08)':'transparent'})(this,'${_trackId}')" style="font-size:.60rem;padding:4px 9px;border-radius:6px;border:1px solid ${_isTracked?'rgba(240,165,0,.4)':'var(--bdr)'};background:${_isTracked?'rgba(240,165,0,.08)':'transparent'};color:${_isTracked?'var(--amber)':'var(--t4)'};cursor:pointer">${_isTracked?'📌 Tracking':'📌 Track'}</button>
+    </div>
   </div>`;
 }
 
@@ -17205,6 +17223,201 @@ function initApp(){
 
   loadSlate();
 }
+
+// ══════════════════════════════════════════════════════════════
+// DAY TRACKER — pick players before games, auto-check HR outcomes
+// ══════════════════════════════════════════════════════════════
+(function(){
+  const KEY = 'dingeriq_tracker_v1';
+  function load(){ try{ return JSON.parse(localStorage.getItem(KEY)||'[]'); }catch{ return []; } }
+  function save(p){ localStorage.setItem(KEY, JSON.stringify(p)); }
+
+  window._trackerRowCache = window._trackerRowCache || {};
+
+  window.trackerToggleFromCache = function(id){
+    const row = window._trackerRowCache[id];
+    if(!row) return false;
+    const today = new Date().toISOString().slice(0,10);
+    const picks = load();
+    const idx = picks.findIndex(p=>p.id===id && p.date===today);
+    if(idx >= 0){ picks.splice(idx,1); save(picks); return false; }
+    picks.push({ id, date:today, name:row.name, team:row.team, opp:row.opp,
+      batHand:row.batHand, oppHand:row.oppHand, prob:row.prob,
+      barrelPct:row.barrelPct, avgEV:row.avgEV,
+      outcome:null, homersHit:null, checkedAt:null });
+    save(picks);
+    return true;
+  };
+
+  window.trackerIsTrackedId = function(id){
+    const today = new Date().toISOString().slice(0,10);
+    return load().some(p=>p.id===id && p.date===today);
+  };
+
+  window.trackerRemove = function(id, date){
+    save(load().filter(p=>!(p.id===id && p.date===date)));
+    if(typeof renderTracker==='function') renderTracker();
+  };
+
+  async function autoCheck(){
+    const picks = load();
+    const today = new Date().toISOString().slice(0,10);
+    const season = new Date().getFullYear();
+    const pending = picks.filter(p=>p.outcome===null && p.date < today);
+    if(!pending.length) return 0;
+    const byId = {};
+    pending.forEach(p=>{ (byId[p.id]=byId[p.id]||[]).push(p); });
+    let checked = 0;
+    for(const [pid, ppicks] of Object.entries(byId)){
+      try{
+        const res = await fetch(`https://statsapi.mlb.com/api/v1/people/${pid}/stats?stats=gameLog&season=${season}&sportId=1`);
+        if(!res.ok) continue;
+        const data = await res.json();
+        const splits = data.stats?.[0]?.splits || [];
+        for(const pick of ppicks){
+          const game = splits.find(s=>s.date===pick.date);
+          if(game){
+            pick.homersHit = game.stat?.homeRuns ?? 0;
+            pick.outcome = pick.homersHit > 0;
+            pick.checkedAt = Date.now();
+            checked++;
+          }
+        }
+      }catch(e){}
+    }
+    save(picks);
+    return checked;
+  }
+
+  window.trackerRunCheck = async function(){
+    const btn = document.getElementById('tracker-check-btn');
+    if(btn){ btn.textContent='⏳ Checking…'; btn.disabled=true; }
+    try{
+      await autoCheck();
+      if(typeof renderTracker==='function') renderTracker();
+    }catch(e){
+      if(btn){ btn.textContent='❌ Error'; btn.disabled=false; }
+    }
+  };
+
+  window.renderTracker = function(){
+    const el = document.getElementById('tracker-content');
+    if(!el) return;
+    const picks = load();
+
+    if(!picks.length){
+      el.innerHTML = `<div style="padding:50px 20px;text-align:center">
+        <div style="font-size:2.5rem;margin-bottom:14px">📌</div>
+        <div style="font-size:.85rem;font-weight:800;color:var(--t2);margin-bottom:8px">No players tracked yet</div>
+        <div style="font-size:.70rem;color:var(--t4);line-height:1.7">Tap <b style="color:var(--amber)">📌 Track</b> on any player card in Best Bets.<br>Come back after games — results auto-check via MLB API.</div>
+      </div>`;
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0,10);
+    const byDate = {};
+    picks.forEach(p=>{ (byDate[p.date]=byDate[p.date]||[]).push(p); });
+    const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
+    const pendingOld = picks.filter(p=>p.outcome===null && p.date < today).length;
+
+    let h = `<div style="padding:12px">`;
+    h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:.88rem;font-weight:800;color:var(--t1)">📌 Day Tracker</div>
+        <div style="font-size:.62rem;color:var(--t4)">Outcomes auto-fetched from MLB Stats API · ${picks.length} total picks</div>
+      </div>
+      <button id="tracker-check-btn" onclick="trackerRunCheck()"
+        style="padding:7px 14px;border-radius:8px;border:1px solid ${pendingOld?'rgba(240,165,0,.4)':'var(--bdr)'};
+        background:${pendingOld?'rgba(240,165,0,.08)':'var(--bg3)'};
+        color:${pendingOld?'var(--amber)':'var(--t4)'};font-size:.68rem;font-weight:700;cursor:pointer">
+        🔄 Check Results${pendingOld?` (${pendingOld})`:''}</button>
+    </div>`;
+
+    for(const date of dates){
+      const dp = byDate[date];
+      const isToday = date===today;
+      const hits = dp.filter(p=>p.outcome===true);
+      const misses = dp.filter(p=>p.outcome===false);
+      const resolved = hits.length + misses.length;
+      const pend = dp.filter(p=>p.outcome===null);
+      const acc = resolved ? Math.round(hits.length/resolved*100) : null;
+      const dLabel = isToday ? '📅 Today'
+        : new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+
+      h += `<div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:.72rem;font-weight:800;color:var(--t2)">${dLabel}</div>
+          <div style="font-size:.62rem;color:var(--t4)">${dp.length} picked${acc!==null?` · <span style="color:${acc>=35?'var(--green)':'var(--red)'};font-weight:700">${acc}% hit</span>`:pend.length?` · ${pend.length} pending`:''}</div>
+        </div>`;
+
+      for(const p of dp){
+        const bg  = p.outcome===true?'rgba(34,201,94,.10)':p.outcome===false?'rgba(224,80,74,.07)':'var(--bg2)';
+        const bdr = p.outcome===true?'rgba(34,201,94,.25)':p.outcome===false?'rgba(224,80,74,.18)':'var(--bdr)';
+        const tag = p.outcome===true
+          ? `<span style="font-size:.72rem">✅ ${p.homersHit} HR</span>`
+          : p.outcome===false
+          ? `<span style="font-size:.70rem;color:var(--red)">❌ 0 HR</span>`
+          : isToday ? `<span style="font-size:.62rem;color:var(--t4)">⏳ Pending</span>`
+          : `<span style="font-size:.62rem;color:var(--amber)">⏳ Fetching…</span>`;
+        const pc = p.prob>=0.12?'var(--green)':p.prob>=0.08?'var(--amber)':'var(--t3)';
+        h += `<div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;
+          background:${bg};border:1px solid ${bdr};margin-bottom:5px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.78rem;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div>
+            <div style="font-size:.60rem;color:var(--t4);margin-top:1px">${p.team}${p.batHand?` · ${p.batHand}HB`:''} ${p.opp?`vs ${p.opp}`:''}</div>
+          </div>
+          <div style="text-align:center;min-width:40px">
+            <div style="font-size:.85rem;font-weight:800;color:${pc}">${(p.prob*100).toFixed(1)}%</div>
+            <div style="font-size:.50rem;color:var(--t4)">model</div>
+          </div>
+          <div style="min-width:60px;text-align:right">${tag}</div>
+          <button onclick="trackerRemove('${p.id}','${p.date}')"
+            style="padding:3px 6px;border-radius:5px;border:1px solid var(--bdr);background:transparent;color:var(--t4);font-size:.62rem;cursor:pointer;flex-shrink:0">✕</button>
+        </div>`;
+      }
+      h += `</div>`;
+
+      // Signal study panel — only shown when there are both hits and misses
+      if(hits.length && misses.length){
+        const avg = (arr,k)=>{ const v=arr.filter(p=>p[k]!=null); return v.length?v.reduce((s,p)=>s+p[k],0)/v.length:null; };
+        const f1  = v=>v!=null?v.toFixed(1):'-';
+        const rows = [
+          ['Model Prob', (hits.reduce((s,p)=>s+p.prob,0)/hits.length*100).toFixed(1)+'%',
+                         (misses.reduce((s,p)=>s+p.prob,0)/misses.length*100).toFixed(1)+'%'],
+          ...(avg(hits,'barrelPct')!=null||avg(misses,'barrelPct')!=null
+              ? [['Barrel %', f1(avg(hits,'barrelPct'))+'%', f1(avg(misses,'barrelPct'))+'%']] : []),
+          ...(avg(hits,'avgEV')!=null||avg(misses,'avgEV')!=null
+              ? [['Avg EV', f1(avg(hits,'avgEV'))+' mph', f1(avg(misses,'avgEV'))+' mph']] : []),
+        ];
+        h += `<div style="background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;padding:12px;margin-bottom:18px">
+          <div style="font-size:.68rem;font-weight:800;color:var(--t2);margin-bottom:10px">🔬 Signal Study — ${dLabel}</div>
+          <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:5px 10px;align-items:center">
+            <div></div>
+            <div style="font-size:.60rem;font-weight:700;color:var(--green);text-align:right">✅ Hit (${hits.length})</div>
+            <div style="font-size:.60rem;font-weight:700;color:var(--red);text-align:right">❌ Miss (${misses.length})</div>
+            ${rows.map(([lbl,hv,mv])=>`
+            <div style="font-size:.60rem;color:var(--t4)">${lbl}</div>
+            <div style="font-size:.68rem;font-weight:700;color:var(--green);text-align:right;font-variant-numeric:tabular-nums">${hv}</div>
+            <div style="font-size:.68rem;font-weight:700;color:var(--red);text-align:right;font-variant-numeric:tabular-nums">${mv}</div>`).join('')}
+          </div>
+        </div>`;
+      }
+    }
+
+    h += `</div>`;
+    el.innerHTML = h;
+  };
+
+  // On load, silently auto-check any past pending picks in the background
+  window.addEventListener('load', ()=>{
+    const p = load();
+    if(p.some(x=>x.outcome===null && x.date < new Date().toISOString().slice(0,10))){
+      autoCheck().then(()=>{
+        if(document.getElementById('page-tracker')?.classList.contains('active')) renderTracker();
+      }).catch(()=>{});
+    }
+  });
+})(); // end Day Tracker IIFE
 
 if(document.readyState==='loading'){
   document.addEventListener('DOMContentLoaded', initApp);
