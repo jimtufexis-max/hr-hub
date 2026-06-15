@@ -123,6 +123,10 @@ body{
   0%,100%{box-shadow:0 0 0 0 rgba(34,201,94,0)}
   50%{box-shadow:0 0 10px 2px rgba(34,201,94,.20)}
 }
+@keyframes pulse-dot{
+  0%,100%{opacity:1;transform:scale(1)}
+  50%{opacity:.35;transform:scale(.65)}
+}
 
 /* ── Nav ─────────────────────────────────────────────────────── */
 #nav{
@@ -366,8 +370,11 @@ input:focus,textarea:focus{border-color:var(--amber)}
         </svg> <span id="odds-status">Add Odds</span>
       </button>
 
-      <!-- Right: theme + date -->
+      <!-- Right: live indicator + theme + date -->
       <div style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0">
+        <div id="live-indicator" style="display:none;align-items:center;gap:3px;padding:2px 7px;border-radius:99px;background:rgba(34,201,94,.12);border:1px solid rgba(34,201,94,.3);font-size:.60rem;font-weight:700;color:var(--green)">
+          <div style="width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse-dot 1.4s infinite"></div>LIVE
+        </div>
         <button id="theme-btn" onclick="toggleTheme()"
           style="background:none;border:none;color:var(--t4);font-size:1rem;cursor:pointer;padding:2px">🌙</button>
         <div id="header-date" style="font-size:.65rem;color:var(--t4);white-space:nowrap"></div>
@@ -634,7 +641,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
         <div class="card" style="margin-bottom:8px">
           <div class="slbl">🧮 How the Model Works</div>
           <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
-            <b style="color:var(--t2)">Log5 + Bayesian log-odds model v7</b> · 18 weighted signals<br><br>
+            <b style="color:var(--t2)">Log5 + Bayesian log-odds model v8.2</b> · 18 weighted signals<br><br>
 
             <b style="color:var(--amber)">⚓ Step 1 — Log5 Base Probability (Bill James)</b><br>
             The model starts with the <b style="color:var(--t2)">Log5 formula</b> — a statistically rigorous way to combine batter ability, pitcher ability, and league context into a single true matchup probability:<br>
@@ -653,7 +660,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
 
             <b style="color:var(--amber)">🔀 Platoon (weight 0.10 — residual after Log5)</b><br>
             Log5 already encodes the hand-specific HR/PA. This residual weight captures the <b style="color:var(--t2)">arsenal platoon interaction</b> — the pitcher's actual pitch mix effectiveness vs each hand (xwOBA 55% + ISO 45%) — a signal orthogonal to the raw split rate.<br>
-            • Population priors: LHB vs LHP 0.72× · RHB vs LHP 1.22×<br><br>
+            • Population priors: LHB vs LHP 0.72× · RHB vs LHP 1.22× · <b style="color:var(--t2)">Switch hitters 1.17×</b> (always bat cross-hand)<br><br>
 
             <b style="color:var(--amber)">⚾ Pitcher (weight 0.18 — residual after Log5)</b><br>
             Log5 already encodes the pitcher's raw HR/PA allowed. This residual weight captures:<br>
@@ -661,11 +668,13 @@ input:focus,textarea:focus{border-color:var(--amber)}
             • <b style="color:var(--t2)">SP fly-ball rate</b> — GB% suppresses HR, extreme FB% adds exposure<br>
             • <b style="color:var(--t2)">Recent form</b> — last 3 starts K/BB/HR trend → ±15%<br>
             • <b style="color:var(--t2)">Fatigue flag</b> — 100+ pitches last outing → +8%<br>
+            • <b style="color:var(--t2)">K% suppressor</b> — high-strikeout pitchers (K/9 &gt;9) generate fewer batted balls: −1.8% per extra K/9, capped −12%<br>
+            • <b style="color:var(--t2)">Sample-dependent trust</b> — early-season pitchers (≤5 starts) get 15-25% trust; full trust at 15-20 starts. Prevents over-reacting to small samples.<br>
             • Whiff rate · BB rate · Rest days · Barrel% allowed<br><br>
 
             <b style="color:var(--amber)">🏟️ Park × Weather (weight 0.25)</b><br>
             • Park factor (per-ballpark, hand-adjusted) · Temperature<br>
-            • Wind: direction + speed (blowing out ≥15 mph ≈ +18%)<br><br>
+            • Wind: direction + speed aligned to power alleys (blowing out ≥15 mph ≈ +18%)<br><br>
 
             <b style="color:var(--amber)">📋 Situational Modifiers</b><br>
             • <b style="color:var(--t2)">Team HR context</b> — team HR rate vs league avg (boosts stacks, flags cold lineups)<br>
@@ -715,7 +724,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
 
         <!-- Version -->
         <div style="text-align:center;padding:12px 14px 20px;font-size:.60rem;color:var(--t4);line-height:2">
-          DingerIQ v8.1 · 2026 Season · Model weights v8<br>
+          DingerIQ v8.4 · 2026 Season · Model weights v8.4<br>
           <span style="font-size:.56rem;opacity:.7">jHR Power Score · CLV Tracker · Calibration Dashboard · ULX Parlay Builder</span>
         </div>
 
@@ -1130,6 +1139,7 @@ async function getWeather(venue, gameTimeUTC){
     'Minute Maid Park':        [29.76,-95.36],
     'Angel Stadium':           [33.80,-117.88],
     'T-Mobile Park':           [47.59,-122.33],
+    'Athletics Ballpark':       [36.09,-115.17],
     'Oakland Coliseum':        [37.75,-122.20],
     'RingCentral Coliseum':    [37.75,-122.20],
     'Sutter Health Park':      [38.58,-121.50],
@@ -1193,6 +1203,7 @@ async function getWeather(venue, gameTimeUTC){
     const localHour = parseInt(localHourStr.split('T')[1])||18;
     const isNightGame = localHour >= 17;
 
+    const msToGame = gameTimeUTC ? Math.abs(new Date(gameTimeUTC) - Date.now()) : Infinity;
     return{
       temp: h.temperature_2m?.[idx]       ?? 72,
       rain: h.precipitation_probability?.[idx] ?? 0,
@@ -1203,6 +1214,7 @@ async function getWeather(venue, gameTimeUTC){
       isNight: isNightGame,
       isDome: false,
       venue,
+      isForecasted: msToGame < 48*3600000, // within 48h = real forecast
     };
   }catch{
     return { temp:72, rain:0, wind:0, wdir:0, humidity:50, isDome:false, isNight:true, venue };
@@ -1615,7 +1627,7 @@ var LW = {
   hard_hit:  0.003,  // marginal above barrel
   sweet_spot:0.001,  // very small incremental signal
   gb_penalty:-0.002, // GB suppression
-  intercept:  0.010, // calibrated baseline: typical bet → ~10%/game
+  intercept:  0.013, // calibrated baseline: corrected to match MLB avg HR/PA
 };
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v))}
@@ -1792,7 +1804,7 @@ function calcPlatoonMult(batHand, pitHand, platRate, overallRate, arsenalPlatMod
 }
 
 function getPlatoonPrior(batHand, pitHand){
-  if(batHand==='S') return 1.05;
+  if(batHand==='S') return 1.17; // switch hitters always bat cross-hand — full platoon advantage
   if(batHand==='L' && pitHand==='L') return 0.72;
   if(batHand==='L' && pitHand==='R') return 1.18;
   if(batHand==='R' && pitHand==='R') return 0.88;
@@ -1872,29 +1884,41 @@ function calcPitcherMult(pitcherStats){
   const{hr9_recent,hr9_season,hrFb,barrel_pct_allowed,_arsenalMult,_arsenalStrengths,totalStarts}=pitcherStats;
   const shrinkHR9=(r,c)=>r*c+1.0*(1-c);
 
+  // Sample-dependent shrinkage — trust scales with starts (each stat has its own stabilization point)
+  // At 3 starts: trust≈15%; at 15-20 starts: trust reaches max. Prevents early-season over-confidence.
+  const starts = totalStarts || 0;
+  const xfipTrust   = clamp(starts / 15, 0.15, 0.70); // xFIP/HR9 stabilizes ~15 starts
+  const barrelTrust = clamp(starts / 20, 0.15, 0.60); // barrel% allowed stabilizes ~20 starts
+  const hrfbTrust   = clamp(starts / 18, 0.15, 0.55); // HR/FB stabilizes ~18 starts
+  const hr9rTrust   = clamp(starts / 12, 0.15, 0.50); // recent HR/9 needs fewer starts
+
   const scores=[];
   if(hr9_season!=null&&totalStarts>=3){
     const xfipRatio = pitcherStats.fgStats?.xfip!=null
       ? pitcherStats.fgStats.xfip/4.20
       : hr9_season/LG_HR9;
-    scores.push([clamp(shrinkHR9(xfipRatio,0.70),0.65,1.50),0.35]);
+    scores.push([clamp(shrinkHR9(xfipRatio,xfipTrust),0.65,1.50),0.35]);
   }
   if(barrel_pct_allowed!=null){
     const bpct=barrel_pct_allowed>1?barrel_pct_allowed:barrel_pct_allowed*100;
-    scores.push([clamp(shrinkHR9(bpct/8.0,0.60),0.65,1.55),0.30]);
+    scores.push([clamp(shrinkHR9(bpct/8.0,barrelTrust),0.65,1.55),0.30]);
   }
   if(hrFb!=null){
-    scores.push([clamp(shrinkHR9(hrFb/LG_HR_FB,0.55),0.65,1.55),0.20]);
+    scores.push([clamp(shrinkHR9(hrFb/LG_HR_FB,hrfbTrust),0.65,1.55),0.20]);
   }
   if(hr9_recent!=null&&totalStarts>=2){
-    scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,0.50),0.65,1.55),0.15]);
+    scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,hr9rTrust),0.65,1.55),0.15]);
   }
 
   let quality=1.0;
   if(scores.length){const tw=scores.reduce((s,[,w])=>s+w,0);quality=clamp(scores.reduce((s,[m,w])=>s+m*w,0)/tw,0.65,1.50);}
 
+  // K% suppressor — high-strikeout pitchers generate fewer batted balls = fewer HR opportunities
+  // K/9 > 9.0 (MLB avg): each extra K/9 point suppresses by ~1.8%, capped at -12%
+  const k9 = pitcherStats.seasonK9 ?? pitcherStats.recentK9 ?? null;
+  const kSuppressor = k9!=null && k9>9.0 ? clamp(1.0-(k9-9.0)*0.018, 0.88, 1.0) : 1.0;
+
   // Arsenal BvP modifier — how well THIS batter hits THIS pitcher's mix
-  // This is the key fix: batter-specific pitcher interaction
   const restMod = clamp(1.0+(pitcherStats.restDays!=null?(pitcherStats.restDays<=3?0.08:pitcherStats.restDays>=6?-0.04:0):0),0.90,1.15);
   const whiffMod = pitcherStats.whiffRate!=null?clamp(1.0+(0.26-pitcherStats.whiffRate)*1.2,0.82,1.18):1.0;
   const bbMod = pitcherStats.bbRate!=null?clamp(1.0+(pitcherStats.bbRate-0.085)*1.5,0.90,1.15):1.0;
@@ -1912,20 +1936,17 @@ function calcPitcherMult(pitcherStats){
       const blended = quality*qualityWeight + arsenalAdjQuality*(1-qualityWeight);
       const floor = strongDominance ? 1.0+(signalStrength>=0.25?0.08:0.04) : 0.55;
       const ft1=pitcherStats.formTrend||0; const fm1=Math.max(0.88,Math.min(1.15,1.0-ft1*0.5)); const fat1=pitcherStats.fatigueMult||1.0;
-      return clamp(Math.max(blended, floor) * restMod * whiffMod * bbMod * fm1 * fat1, 0.55, 1.70);
+      return clamp(Math.max(blended, floor) * restMod * whiffMod * bbMod * fm1 * fat1 * kSuppressor, 0.55, 1.70);
     }
     const arsenalMod2 = clamp(1.0+rawAdj*0.55, 0.82, 1.22);
     const ft2=pitcherStats.formTrend||0; const fm2=Math.max(0.88,Math.min(1.15,1.0-ft2*0.5)); const fat2=pitcherStats.fatigueMult||1.0;
-    return clamp(quality * arsenalMod2 * restMod * whiffMod * bbMod * fm2 * fat2, 0.55, 1.70);
+    return clamp(quality * arsenalMod2 * restMod * whiffMod * bbMod * fm2 * fat2 * kSuppressor, 0.55, 1.70);
   }
-  // Recent form trend — boosts/reduces based on pitcher's last 3 starts
   const formTrend = pitcherStats.formTrend || 0;
   const formMod = clamp(1.0 - formTrend * 0.5, 0.88, 1.15);
-
-  // Fatigue — pitcher threw 100+ pitches last outing
   const fatigueMult = pitcherStats.fatigueMult || 1.0;
 
-  return clamp(quality * restMod * whiffMod * bbMod * formMod * fatigueMult, 0.55, 1.70);
+  return clamp(quality * restMod * whiffMod * bbMod * formMod * fatigueMult * kSuppressor, 0.55, 1.70);
 }
 
 // ── PROBABILITY v6: xSLG/xwOBA-enriched anchor + bat speed ───────────
@@ -1959,7 +1980,8 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     const hr9Raw = pitcherStats.hr9_season ?? pitcherStats.hr9_recent ?? null;
     if(hr9Raw!=null && hr9Raw>0){
       const rawPA = hr9Raw * PA_PER_9;
-      pitcherHrPA = rawPA * 0.55 + MLB_AVG * 0.45; // 55% raw, 45% league shrinkage
+      const pTrust = clamp((pitcherStats.totalStarts||0)/15, 0.15, 0.55); // sample-dependent: more starts = more trust
+      pitcherHrPA = rawPA * pTrust + MLB_AVG * (1 - pTrust);
     }
     pitcherHrPA = clamp(pitcherHrPA, MLB_AVG*0.40, MLB_AVG*2.80);
   }
@@ -2185,7 +2207,15 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   // Cap per-PA at 7% — realistic elite ceiling (Judge vs Wainwright in Coors)
   // Previous 10% cap was too high and caused per-game probs of 30%+
   const prob=clamp(sigmoid(lo),0.004,0.07);
-  return{prob,anchor,platoon,pitcher,parkwx,momentum:1.0,ttoMult,
+  const momentum = clamp(+Math.exp(rollingAnchorAdj).toFixed(3),0.80,1.25); // rolling quality-of-contact signal
+  // Confidence interval — wider when batter/pitcher sample is thin
+  const _bPA = batterStats.szPA || 0;
+  const _pSt = pitcherStats?.totalStarts || 0;
+  const _sampUnc = Math.sqrt(200 / Math.max(_bPA, 20)) * Math.sqrt(10 / Math.max(_pSt, 1));
+  const _hw = clamp(prob * 0.22 * _sampUnc, 0.0005, 0.022);
+  const probLow  = clamp(prob - _hw, 0.002, prob);
+  const probHigh = clamp(prob + _hw, prob, 0.068);
+  return{prob,probLow,probHigh,anchor,platoon,pitcher,parkwx,momentum,ttoMult,
          homeAwayMult,paMultiplier,umpMult,hvhMult};
 }
 
@@ -2217,8 +2247,12 @@ function calcParkWxMult(pf, wx, batHand){
 
   if(!wx) return clamp(parkMult, 0.85, 1.30);
 
-  // Temperature: every 10°F below 72 = ~2% fewer HRs, above 72 = ~1.5% more
-  const tempEffect = (wx.temp - 72) * 0.002;
+  // Temperature: quadratic curve — cold penalizes more than heat helps
+  // Peaks around 83°F; above that, humidity & batter fatigue offset ball-carry gain
+  const tempBase = wx.temp - 72;
+  const tempEffect = tempBase >= 0
+    ? clamp(tempBase * 0.0016 - tempBase * tempBase * 0.000020, 0, 0.030)
+    : clamp(tempBase * 0.0022, -0.050, 0);
 
   // Wind: direction relative to batter's power alley
   // 0=N, 90=E, 180=S, 270=W — wind is the direction it's blowing FROM
@@ -2230,7 +2264,7 @@ function calcParkWxMult(pf, wx, batHand){
     // Convert wind FROM direction to wind TO direction
     const windTo = (wdir + 180) % 360;
     // Power alley angle based on batter hand
-    const alleyAngle = (batHand==='L') ? 135 : 225;
+    const alleyAngle = (batHand==='L') ? 200 : 290; // aligned with detectAngles outDirs convention (SSW=RF, WNW=LF)
     const angleDiff = Math.abs(((windTo - alleyAngle + 180) % 360) - 180);
     // angleDiff=0 means blowing straight out to power alley (+max)
     // angleDiff=180 means blowing straight in (-max)
@@ -2247,7 +2281,12 @@ function calcParkWxMult(pf, wx, batHand){
   // Altitude × temperature interaction (Coors at 85°F = bigger bonus than Coors at 55°F)
   const altBonus = altitudeEffect(wx.venue||'', wx.temp||72);
 
-  const wxMult = clamp(1.0 + tempEffect + windEffect + rainEffect + humidityEffect + altBonus, 0.80, 1.35);
+  // Day game suppression: afternoon games have ~8-10% fewer HRs than night games
+  // Very hot day games (≥90°F) partially offset by heat increasing ball carry
+  const isDay = !wx.isNight && !wx.isDome;
+  const dayEffect = isDay ? (wx.temp>=90 ? -0.04 : wx.temp>=82 ? -0.06 : -0.08) : 0;
+
+  const wxMult = clamp(1.0 + tempEffect + windEffect + rainEffect + humidityEffect + dayEffect + altBonus, 0.80, 1.35);
 
   return clamp(parkMult * wxMult, 0.75, 1.45);
 }
@@ -2460,11 +2499,191 @@ async function getDayNightSplits(pid){
 }
 
 // ==================================================================
+//  CAREER VENUE STATS — aggregate HR/AB over last 3 seasons at park
+// ==================================================================
+async function getCareerVenueStats(pid, venueName){
+  if(!pid || !venueName) return null;
+  const slug = venueName.toLowerCase().replace(/[^a-z]/g,'_').slice(0,20);
+  const cacheKey = `cvs_${pid}_${slug}`;
+  if(!window._careerVenueCache) window._careerVenueCache = {};
+  if(window._careerVenueCache[cacheKey] !== undefined) return window._careerVenueCache[cacheKey];
+  window._careerVenueCache[cacheKey] = null; // mark pending
+  try{
+    const word1 = venueName.toLowerCase().replace(/[^a-z\s]/g,'').split(' ')[0];
+    let allGames = [];
+    for(const s of [SEASON, SEASON-1, SEASON-2]){
+      try{
+        const d = await fetchJSON(`${MLB}/people/${pid}/stats?stats=gameLog&group=hitting&season=${s}&gameType=R`);
+        const splits = (d.stats||[]).find(x=>x.type?.displayName==='gameLog')?.splits
+                    || d.stats?.[0]?.splits || [];
+        allGames = allGames.concat(splits);
+      }catch(e){}
+    }
+    const atPark = allGames.filter(g=>{
+      const gv = (g.game?.venue?.name || g.venue?.name || '').toLowerCase().replace(/[^a-z\s]/g,'');
+      return gv && word1.length>=3 && gv.includes(word1);
+    });
+    const result = {
+      games: atPark.length,
+      hr:  atPark.reduce((s,g)=>s+(parseInt(g.stat?.homeRuns)||0),0),
+      ab:  atPark.reduce((s,g)=>s+(parseInt(g.stat?.atBats)||0),0),
+      h:   atPark.reduce((s,g)=>s+(parseInt(g.stat?.hits)||0),0),
+      pa:  atPark.reduce((s,g)=>s+(parseInt(g.stat?.plateAppearances)||0),0),
+    };
+    result.avg  = result.ab>0  ? result.h/result.ab  : null;
+    result.hrPa = result.pa>0  ? result.hr/result.pa : null;
+    window._careerVenueCache[cacheKey] = result;
+    return result;
+  }catch(e){
+    window._careerVenueCache[cacheKey] = null;
+    return null;
+  }
+}
+
+// ==================================================================
+//  CATCHER FRAMING — Statcast framing runs → probability mult
+// ==================================================================
+async function loadCatcherFraming(){
+  if(_catcherFramingMap) return;
+  _catcherFramingMap = {};
+  try{
+    const r = await fetch(`https://baseballsavant.mlb.com/leaderboard/catcher-framing?year=${SEASON}&min=1&csv=true`);
+    if(!r.ok) return;
+    const txt = await r.text();
+    const rows = parseCSV(txt);
+    for(const row of rows){
+      const pid = parseInt(row.player_id||row.mlbam_id||row.id||0);
+      if(!pid) continue;
+      // runs_extra_strikes is RAA per season; ±10 runs = ~1.5% batter impact
+      const runs = parseFloat(row.runs_extra_strikes||row.framing_runs||row.runs_called_strikes_above_average||0)||0;
+      _catcherFramingMap[pid] = clamp(1.0 + runs * 0.0015, 0.93, 1.07);
+    }
+    console.log('[CatcherFraming] loaded', Object.keys(_catcherFramingMap).length, 'catchers');
+  }catch(e){ console.warn('[CatcherFraming]', e.message); }
+}
+
+// Post-process: assign each batter the opposing catcher's framing mult
+// Must run after S.allRows is populated (catchers are rows with pos='C')
+function applyCatcherFraming(rows){
+  if(!_catcherFramingMap || !Object.keys(_catcherFramingMap).length) return;
+  const gameCatchers = {};
+  for(const r of rows){
+    if(r.pos !== 'C') continue;
+    const gk = String(r.gamePk||r._gamePk||r.game||'');
+    if(!gameCatchers[gk]) gameCatchers[gk] = {};
+    gameCatchers[gk][r.team] = r.id;
+  }
+  for(const r of rows){
+    const gk = String(r.gamePk||r._gamePk||r.game||'');
+    const gc = gameCatchers[gk];
+    if(!gc) continue;
+    const oppEntry = Object.entries(gc).find(([t])=>t!==r.team);
+    if(!oppEntry) continue;
+    const oppCatcherId = oppEntry[1];
+    const fm = _catcherFramingMap[oppCatcherId] ?? 1.0;
+    if(fm === 1.0) continue;
+    r._catFrMult = fm;
+    if(r._batterStats) r._batterStats.catFrMult = fm;
+    // Apply the framing signal in log-odds space (weight 0.06, same as in-model)
+    const loAdj = Math.log(Math.max(fm, 0.01)) * 0.06;
+    const lo = Math.log(r.prob / Math.max(1 - r.prob, 0.001));
+    r.prob = clamp(1 / (1 + Math.exp(-(lo + loAdj))), 0.005, 0.60);
+  }
+}
+
+// ==================================================================
+//  INJURY REPORT — MLB transactions → IL flags + recent returns
+// ==================================================================
+async function loadInjuryReport(){
+  _injuredSet = new Set();
+  _recentILReturn = new Set();
+  try{
+    const today = new Date();
+    const start = new Date(today - 21*864e5);
+    const fmt = d => d.toISOString().slice(0,10);
+    const d = await fetchJSON(`${MLB}/transactions?startDate=${fmt(start)}&endDate=${fmt(today)}&sportId=1`);
+    const txns = d.transactions||[];
+    const placed    = new Map();
+    const activated = new Map();
+    for(const t of txns){
+      const pid = t.person?.id;
+      if(!pid) continue;
+      const desc = (t.description||t.typeDesc||t.typeName||'').toLowerCase();
+      const dateStr = t.date||t.effectiveDate||fmt(today);
+      if(desc.includes('placed on') && (desc.includes('injured') || desc.includes('-day il') || desc.includes('disabled')))
+        placed.set(pid, dateStr);
+      else if(desc.includes('activated') && (desc.includes('injured') || desc.includes('il')))
+        activated.set(pid, dateStr);
+    }
+    for(const [pid, pDate] of placed){
+      if(!activated.has(pid)){
+        _injuredSet.add(pid);
+      } else {
+        const daysBack = (today - new Date(activated.get(pid))) / 864e5;
+        if(daysBack <= 7) _recentILReturn.add(pid);
+      }
+    }
+    console.log('[Injuries] IL:', _injuredSet.size, 'recent returns:', _recentILReturn.size);
+  }catch(e){ console.warn('[Injuries]', e.message); }
+}
+
+// ==================================================================
+//  PERFORMANCE SPARKLINE — SVG chart for detail card
+// ==================================================================
+function renderPerfChart(recentGames){
+  const games = (recentGames||[]).slice(0,20).reverse();
+  if(games.length < 3) return '';
+  const W=272, H=68, pad=10;
+  const n = games.length;
+  const xStep = (W - 2*pad) / Math.max(n-1, 1);
+  const evMin=80, evMax=112;
+  let bars='', evPath='', dots='';
+  const evPoints=[];
+  games.forEach((g,i)=>{
+    const x = pad + i*xStep;
+    const hr = g.hr||0;
+    if(hr>0){
+      const barH = Math.min(hr*12, 24);
+      bars += `<rect x="${(x-4).toFixed(1)}" y="${(H/2-barH).toFixed(1)}" width="8" height="${barH}" rx="2" fill="#f0a500" opacity=".85"/>`;
+    }
+    const ev = g.ev??g.avgEV??null;
+    if(ev!=null){
+      const y = H-pad - ((clamp(ev,evMin,evMax)-evMin)/(evMax-evMin))*(H-2*pad);
+      dots += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${ev>=95?'var(--green)':ev>=90?'var(--amber)':'var(--t4)'}"/>`;
+      evPoints.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+    }
+  });
+  if(evPoints.length>1) evPath=`<polyline points="${evPoints.join(' ')}" fill="none" stroke="var(--blue)" stroke-width="1.5" opacity=".5"/>`;
+  const totalHR = games.reduce((s,g)=>s+(g.hr||0),0);
+  const hrGames = games.filter(g=>g.hr>0).length;
+  return `<div style="margin-top:14px">
+    <div style="font-size:.60rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">
+      📈 L${games.length} Games — ${totalHR} HR in ${hrGames} games</div>
+    <div style="background:var(--bg3);border-radius:10px;padding:10px;border:1px solid var(--bdr)">
+      <svg width="100%" viewBox="0 0 ${W} ${H}" style="overflow:visible;display:block">
+        <line x1="${pad}" y1="${H/2}" x2="${W-pad}" y2="${H/2}" stroke="var(--bdr)" stroke-width="1" stroke-dasharray="3,3"/>
+        ${evPath}${bars}${dots}
+      </svg>
+      <div style="display:flex;gap:12px;margin-top:4px;font-size:.58rem;color:var(--t4);justify-content:center">
+        <span>🟡 HR&nbsp;game</span>
+        <span style="color:var(--blue)">— Exit&nbsp;velo</span>
+        <span>← older · newer →</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ==================================================================
 //  FANDUEL ODDS (via The Odds API)
 // ==================================================================
 let _fdOdds = null;  // { normalizedName: {odds, rawName} }
 let _fdOddsLoaded = false;
 let _fdOddsTimestamp = null;
+let _fdOddsBaseline = null; // first-load snapshot for line movement tracking
+let _catcherFramingMap = null;  // catcherId → framing mult (0.94–1.06)
+let _injuredSet = new Set();    // playerIds currently on IL
+let _recentILReturn = new Set(); // playerIds activated from IL within 7 days
+let _lineupRefreshTimer = null;  // interval handle for live lineup polling
 
 async function loadFanDuelOdds(force=false){
   if(_fdOddsLoaded && !force && _fdOddsTimestamp && (Date.now()-_fdOddsTimestamp < 600000)) return;
@@ -2516,6 +2735,7 @@ async function loadFanDuelOdds(force=false){
       total++;
     }
     _fdOdds = map;
+    if(!_fdOddsBaseline) _fdOddsBaseline = Object.assign({}, map);
     const statusEl = document.getElementById('odds-status');
     if(statusEl) statusEl.textContent = `📊 ${total} props loaded`;
     console.log(`[Odds] ✅ Loaded ${total} consensus HR props (${books}).`);
@@ -2710,16 +2930,10 @@ function detectAngles(r){
     if(r.barrel_pct>=15) a.push({icon:'🛢️',cat:'barrel',tier:1,label:'Barrel King',color:'#ffd700',tip:`${r.barrel_pct}% barrel rate — elite (avg 8%)`});
     else if(r.barrel_pct>=11) a.push({icon:'🛢️',cat:'barrel',tier:2,label:'Barrel Threat',color:'var(--green)',tip:`${r.barrel_pct}% barrel — above average`});
   }
-  if(r.pull_air_pct!=null){
-    if(r.pull_air_pct>=18) a.push({icon:'🎯',cat:'pullAir',tier:1,label:'Pull-Air King',color:'#ffd700',tip:`${r.pull_air_pct.toFixed(1)}% pulled airballs — top 10%`});
-    else if(r.pull_air_pct>=15) a.push({icon:'↗️',cat:'pullAir',tier:2,label:'Pull-Air Edge',color:'#90c0ff',tip:`${r.pull_air_pct.toFixed(1)}% pulled airballs — above average`});
-  }
-  if(r.hr_fb_pct!=null&&r.hr_fb_pct>=22)
-    a.push({icon:'🚀',cat:'hrfb',tier:1,label:'HR Machine',color:'var(--green)',tip:`${r.hr_fb_pct.toFixed(1)}% HR/FB — top 15% (avg 13%)`});
-  if(r.iso!=null){
-    if(r.iso>=0.240) a.push({icon:'💣',cat:'iso',tier:1,label:'Power Freak',color:'#ffd700',tip:`ISO .${Math.round(r.iso*1000)} — elite power`});
-    else if(r.iso>=0.200) a.push({icon:'💪',cat:'iso',tier:2,label:'Solid Power',color:'#90c0ff',tip:`ISO .${Math.round(r.iso*1000)} — above average`});
-  }
+  if(r.pull_air_pct!=null&&r.pull_air_pct>=18)
+    a.push({icon:'🎯',cat:'pullAir',tier:1,label:'Pull-Air King',color:'#ffd700',tip:`${r.pull_air_pct.toFixed(1)}% pulled airballs — top 10%`});
+  if(r.iso!=null&&r.iso>=0.240)
+    a.push({icon:'💣',cat:'iso',tier:1,label:'Power Freak',color:'#ffd700',tip:`ISO .${Math.round(r.iso*1000)} — elite power`});
   if(r.xwobaDiff!=null&&r.xwobaDiff>=0.025)
     a.push({icon:'🍀',cat:'xwoba',tier:1,label:'Luck Regression',color:'var(--blue)',
       tip:`xwOBA ${r.xwoba?.toFixed(3)} vs wOBA ${r.woba?.toFixed(3)} — +${Math.round(r.xwobaDiff*1000)}pt gap`});
@@ -2779,20 +2993,6 @@ function detectAngles(r){
         tip:`0 HRs in ${hvh.pa}PA vs this pitcher`});
   }
 
-  // Umpire
-  const ump=r._umpData||r.umpData;
-  if(ump&&ump.hrFactor&&ump.hrFactor>=1.15)
-    a.push({icon:'👨‍⚖️',cat:'ump',tier:2,label:'HR-Friendly Ump',color:'#90c0ff',tip:`Umpire ${ump.name||''} historically +${Math.round((ump.hrFactor-1)*100)}% HR rate`});
-
-  // Home/away splits
-  if(r.homeAwaySplits){
-    const ha=r.homeAwaySplits;
-    const homeRate=ha.homeRate,awayRate=ha.awayRate;
-    if(r.isHome&&homeRate&&awayRate&&homeRate>=awayRate*1.15)
-      a.push({icon:'🏠',cat:'homeSplit',tier:2,label:'Home Splits',color:'var(--green)',tip:`HR rate ${(homeRate*100).toFixed(1)}% at home vs ${(awayRate*100).toFixed(1)}% away`});
-    else if(!r.isHome&&awayRate&&homeRate&&awayRate>=homeRate*1.15)
-      a.push({icon:'✈️',cat:'homeSplit',tier:2,label:'Road Warrior',color:'var(--green)',tip:`HR rate ${(awayRate*100).toFixed(1)}% away vs ${(homeRate*100).toFixed(1)}% home`});
-  }
 
   // Lineup position
   if((r.lineupPos||9)<=4)
@@ -2936,7 +3136,6 @@ function detectNegativeAngles(r){
     neg.push({icon:'📊',label:'Bad Splits vs This Hand (-)',
       tip:`${bH2}HB vs ${pH2}HP is cross-hand but actual split data shows ${Math.round((1-r.platoon)*100)}% suppression — this batter historically struggles vs ${pH2}HP`});
   if(l14hr===0&&l14pa>=10) neg.push({icon:'🧊',label:'HR Drought (-)',tip:`No HRs in last ${l14pa}PA over last 14 games.`});
-  else if(l7hr===0&&l7ab>=18) neg.push({icon:'❄️',label:'Ice Cold L7 (-)',tip:`0 HRs in last 7 games — but had HR(s) earlier in L14.`});
 
   if(r.barrel_pct!=null&&_szPA>15&&r.szHR>0){
     const xb=(r.barrel_pct/100)*_szPA*0.62;
@@ -2972,17 +3171,12 @@ function detectNegativeAngles(r){
       neg.push({icon:'🎵',label:'Unfavorable Pitch Mix (-)',
         tip:`${pit._arsenalDesc} — overall batter profile struggles vs this SP arsenal.`});
   }
-  if(pit.recentK9!=null&&pit.seasonK9!=null&&pit.recentK9>pit.seasonK9*1.18&&pit.seasonK9>=6) neg.push({icon:'📈',label:'SP Gaining Ks (-)',tip:`K/9 up ${pit.seasonK9.toFixed(1)} to ${pit.recentK9.toFixed(1)}.`});
   if(!isDomeGame){
     const parkwxSafe=r.parkwx??1;
     if(parkwxSafe<0.92){const why=(r.pf??1)<=0.94?'pitcher-friendly park':wx.wind>=8?`${Math.round(wx.wind)}mph headwind`:'cold conditions';neg.push({icon:'🏟️',label:'Conditions Against (-)',tip:`Park x weather ${parkwxSafe.toFixed(2)}x — ${why}.`});}
-    else if(wx.wind>=12&&parkwxSafe<0.97) neg.push({icon:'🌀',label:'Wind Blowing In (-)',tip:`${windLabel(wx.wind,wx.wdir)} — headwind.`});
     if(wx.rain>=50) neg.push({icon:'🌧️',label:'Rain Risk (-)',tip:`${Math.round(wx.rain)}% rain.`});
   }
   if(r.pull_air_pct!=null&&r.pull_air_pct<9) neg.push({icon:'↙️',label:'Poor HR Shape (-)',tip:`${r.pull_air_pct.toFixed(1)}% pull-air — below lg avg 12.5%.`});
-  if(r.fb_pct!=null&&r.fb_pct<24) neg.push({icon:'⬇️',label:'Ground Ball Hitter (-)',tip:`${r.fb_pct.toFixed(1)}% fly ball rate — below lg avg 34%.`});
-  // NOTE: "Low Recent Form" removed — fully covered by "HR Drought (-)" above.
-  // Both checked l14hr===0; showing both was a duplicate tag on the same condition.
 
   const seen=new Set();
   return neg.filter(n=>{if(seen.has(n.label))return false;seen.add(n.label);return true;});
@@ -3407,6 +3601,28 @@ async function refreshLineups(){
     : 'No lineups confirmed yet';
 }
 
+// Live lineup polling — starts when unconfirmed lineups exist, clears once all confirmed
+function startLineupAutoRefresh(){
+  stopLineupAutoRefresh(); // clear any existing timer
+  // Only run within 4h of first game
+  const nextGame = gamesCache.find(g=>g.gameTime);
+  if(!nextGame) return;
+  const msToGame = new Date(nextGame.gameTime) - Date.now();
+  if(msToGame > 4*3600000 || msToGame < -1*3600000) return; // too early or games over
+  const liveEl = document.getElementById('live-indicator');
+  if(liveEl) liveEl.style.display='inline-flex';
+  _lineupRefreshTimer = setInterval(async()=>{
+    const hasUnconfirmed = S.allRows.some(r=>!r.lineupConfirmed);
+    if(!hasUnconfirmed){ stopLineupAutoRefresh(); return; }
+    try{ await refreshLineups(); }catch(e){ console.warn('[AutoRefresh]',e.message); }
+  }, 5*60*1000); // every 5 minutes
+}
+function stopLineupAutoRefresh(){
+  if(_lineupRefreshTimer){ clearInterval(_lineupRefreshTimer); _lineupRefreshTimer=null; }
+  const liveEl = document.getElementById('live-indicator');
+  if(liveEl) liveEl.style.display='none';
+}
+
 async function loadSlate(){
   const dateLbl    = document.getElementById('date-label');
   const headerDate = document.getElementById('header-date');
@@ -3544,7 +3760,9 @@ async function loadSelectedGames(){
   showLoading();
   const el=document.getElementById('hitter-list');
   el.innerHTML='';
-  loadFanDuelOdds(); // fire and forget
+  loadFanDuelOdds();    // fire and forget
+  loadCatcherFraming(); // fire and forget
+  loadInjuryReport();   // fire and forget
 
   // Ensure core leaderboards are ready before loading game data
   await ensureLeaderboards();
@@ -3615,6 +3833,18 @@ async function loadSelectedGames(){
   }
   console.log(`[loadSelectedGames] total allRows: ${S.allRows.length}`);
 
+  // Apply catcher framing (async; re-render when data arrives)
+  if(_catcherFramingMap && Object.keys(_catcherFramingMap).length){
+    applyCatcherFraming(S.allRows);
+  } else {
+    loadCatcherFraming().then(()=>{
+      if(_catcherFramingMap && Object.keys(_catcherFramingMap).length && S.allRows.length){
+        applyCatcherFraming(S.allRows);
+        try{ renderSlate(); }catch(e){}
+      }
+    });
+  }
+
   // Weather strip for first game
   const firstG=gamesCache.find(g=>S.selPks.has(g.pk));
   if(firstG){
@@ -3631,7 +3861,13 @@ async function loadSelectedGames(){
     if(document.getElementById('page-pl')?.classList.contains('active')) populatePitcherSelect();
     // Auto-refresh lineups in background for any unconfirmed games
     const hasUnconfirmed = S.allRows.some(r=>!r.lineupConfirmed);
-    if(hasUnconfirmed) setTimeout(()=>refreshLineups(), 1500);
+    if(hasUnconfirmed){
+      setTimeout(()=>refreshLineups(), 1500);
+      // Start live polling every 5 min if within 4h of first game
+      startLineupAutoRefresh();
+    } else {
+      stopLineupAutoRefresh();
+    }
   }catch(renderErr){
     console.error('[renderSlate] CRASH:', renderErr.message, renderErr.stack);
     document.getElementById('hitter-list').innerHTML=
@@ -4807,7 +5043,7 @@ const PARK_HR_FACTOR_LR = {
   'CHC':  [1.08, 1.04], 'BOS': [1.05, 1.12], 'MIN': [1.06, 1.02],
   'MIL':  [1.02, 1.05], 'STL': [0.97, 0.99], 'MIA': [0.94, 0.96],
   'PIT':  [0.92, 0.94], 'SF':  [0.88, 0.85], 'SD':  [0.90, 0.92],
-  'SEA':  [0.91, 0.93], 'OAK': [0.94, 0.96], 'BAL': [1.03, 1.05],
+  'SEA':  [0.91, 0.93], 'OAK': [1.06, 1.07], 'BAL': [1.03, 1.05],
   'NYM':  [0.97, 0.99], 'TOR': [1.00, 1.02], 'DET': [0.96, 0.98],
   'CLE':  [0.97, 0.99], 'KC':  [0.98, 1.00], 'CHW': [1.04, 1.06],
   'TB':   [0.93, 0.95], 'WSH': [1.00, 1.02], 'LAA': [0.96, 0.98],
@@ -5856,6 +6092,7 @@ function saveAllOdds(){
 
   // Merge staged into saved (don't overwrite entire _fdOdds — keep existing saved props)
   _fdOdds = Object.assign({}, _fdOdds||{}, _oddsStaged);
+  if(!_fdOddsBaseline) _fdOddsBaseline = Object.assign({}, _fdOdds);
   _fdOddsLoaded = true;
   _fdOddsTimestamp = Date.now();
 
@@ -5888,7 +6125,7 @@ function clearStagedOdds(){
 }
 
 function clearSavedOdds(){
-  _fdOdds=null; _fdOddsLoaded=false;
+  _fdOdds=null; _fdOddsLoaded=false; _fdOddsBaseline=null;
   localStorage.removeItem('diq_fd_odds');
   const s = document.getElementById('odds-status');
   if(s) s.textContent = '📋 Enter Odds';
@@ -6256,10 +6493,10 @@ function renderTagGuide(){
     {label:'HEATING',   keys:['due','heating-up']},
     {label:'PLATOON',   keys:['platoon-king','platoon-edge','lvl-fade','rvr-fade']},
     {label:'FORM',      keys:['on-fire','back-to-back','l7-surge','hot-streak','hr-drought']},
-    {label:'POWER',     keys:['barrel-king','pull-air','hr-machine','power-freak','luck-reg']},
+    {label:'POWER',     keys:['barrel-king','pull-air','power-freak','luck-reg']},
     {label:'PITCHER',   keys:['dinger-machine','hr-prone-sp','shutdown-sp','crushes-pitch','weak-pitch']},
-    {label:'CONTEXT',   keys:['hr-park','coors','wind-out','wind-in','career-sp','hr-ump','home-splits','hvh','lineup-top']},
-    {label:'🚨 RED FLAGS — what each negative tag means', keys:['flag-drought','flag-ice-cold-l7','flag-hot-may-cool','flag-hr-count-hot','flag-weak-barrel','flag-free-swinger','flag-contact-qual','flag-sp-suppress','flag-bad-pitch-mix','flag-sp-gaining-ks','flag-conditions','flag-wind-in','flag-rain','flag-poor-shape','flag-groundball','flag-bad-splits']},
+    {label:'CONTEXT',   keys:['hr-park','coors','wind-out','wind-in','career-sp','hvh','lineup-top']},
+    {label:'🚨 RED FLAGS — what each negative tag means', keys:['flag-drought','flag-hot-may-cool','flag-hr-count-hot','flag-weak-barrel','flag-free-swinger','flag-contact-qual','flag-sp-suppress','flag-bad-pitch-mix','flag-conditions','flag-rain','flag-poor-shape','flag-bad-splits']},
   ];
 
   let html = '';
@@ -7444,7 +7681,7 @@ var STADIUM_DIMS = {
   'SD' :[334,396,322,12,11],'LAD':[330,395,330, 8, 8],'MIA':[344,418,335, 8,18],
   'TB' :[315,404,322, 7, 7],'BAL':[333,410,318, 7, 7],'DET':[345,422,330, 8, 8],
   'KC' :[330,410,330, 8, 8],'CLE':[325,405,325,19,11],'CHW':[330,400,335, 8, 8],
-  'OAK':[330,400,330, 8, 8],'SEA':[331,405,326, 8, 8],'LAA':[330,404,330, 8, 8],
+  'OAK':[328,398,328, 8, 8],'SEA':[331,405,326, 8, 8],'LAA':[330,404,330, 8, 8],
   'TOR':[328,400,328,12,10],'NYM':[335,408,330, 8, 8],'WSH':[336,402,335, 8, 8],
 };
 function getStadiumDimMult(homeTeam, batHand){
@@ -8352,7 +8589,7 @@ function renderParkHeatmap(homeTeam, batHand){
     STL:'Busch Stadium',PIT:'PNC Park',SF:'Oracle Park',SD:'Petco Park',
     LAD:'Dodger Stadium',MIA:'loanDepot Park',TB:'Tropicana Field',BAL:'Camden Yards',
     DET:'Comerica Park',KC:'Kauffman Stadium',CLE:'Progressive Field',CHW:'Guaranteed Rate',
-    OAK:'Sutter Health Park',SEA:'T-Mobile Park',LAA:'Angel Stadium',
+    OAK:'Athletics Ballpark',SEA:'T-Mobile Park',LAA:'Angel Stadium',
     TOR:'Rogers Centre',NYM:'Citi Field',WSH:'Nationals Park',
   };
 
@@ -11374,7 +11611,9 @@ async function loadGame(g){
       const l14hr = recent.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
       // Convert per-PA → per-game probability to align with book pricing
       const lineupPos = batterStats.lineupPos || h.lineupPos || null;
-      const gameProb = perPAtoGame(res.prob, lineupPos);
+      const gameProb     = perPAtoGame(res.prob,      lineupPos);
+      const gameProbLow  = res.probLow  ? perPAtoGame(res.probLow,  lineupPos) : null;
+      const gameProbHigh = res.probHigh ? perPAtoGame(res.probHigh, lineupPos) : null;
 
       rows.push({
         id:pid, name:h.name, team, pos:h.pos,
@@ -11384,6 +11623,8 @@ async function loadGame(g){
         spNm, oppHand, pf, wx,
         // Scores — gameProb is per-game (aligns with book lines)
         prob:     gameProb,
+        probLow:  gameProbLow,
+        probHigh: gameProbHigh,
         probPerPA: res.prob, // keep raw per-PA for internal calcs
         anchor:   res.anchor,
         platoon:  res.platoon,
@@ -12598,27 +12839,142 @@ function renderSlate(){
   // Suppress unconfirmed/postponement risk plays from Best Bet
   const eligibleRows=rows.filter(r=>r.lineupConfirmed!==false&&(r.postponeRisk||0)<0.40);
   const scoredRows=[...(eligibleRows.length?eligibleRows:rows)].sort((a,b)=>calcCompositeBetScore(b)-calcCompositeBetScore(a));
-  const bestBet=scoredRows[0];
-  const bestBetHTML=bestBet?(()=>{
-    const dc=calcDataConfidence(bestBet);
-    const angles=detectAngles(bestBet).filter(a=>a.tier<=2&&!a.label.endsWith('(-)'));
-    return`<div class="card" style="margin:0 0 10px;border-color:rgba(255,215,0,.4);background:rgba(255,215,0,.05)">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:.62rem;color:var(--amber);font-weight:700;letter-spacing:.08em;margin-bottom:3px">⭐ BEST BET TODAY</div>
-          <div style="font-size:.92rem;font-weight:800;color:var(--t1)">${bestBet.name}</div>
-          <div style="font-size:.66rem;color:var(--t4)">${bestBet.team} · ${bestBet.batHand}HB vs ${bestBet.oppHand}HP${bestBet.lineupPos?' · #'+bestBet.lineupPos:''}</div>
-          <div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
-            ${angles.slice(0,3).map(a=>`<span style="font-size:.60rem;padding:2px 6px;border-radius:99px;background:${a.color}22;border:1px solid ${a.color}44;color:${a.color}">${a.icon} ${a.label}</span>`).join('')}
+
+  // ── TOP PLAYS (replaces single Best Bet — shows top 3 side-by-side) ───────
+  const topPlaysHTML=(()=>{
+    if(!scoredRows.length) return '';
+    const top3=scoredRows.slice(0,3);
+    const tp=top3[0];
+    const dc=calcDataConfidence(tp);
+    const ang=detectAngles(tp).filter(a=>a.tier<=2&&!a.label.endsWith('(-)'));
+    const fdO0=getFDOdds(tp.name);
+    const edT0=fdO0?getEdgeTier(tp.prob,fdO0):null;
+    const hs0=`https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_120,q_auto:best/v1/people/${tp.id}/headshot/67/current`;
+    const [,gc0]=probGrade(tp.prob);
+    const supportCards=top3.slice(1).map(r=>{
+      const fdOs=getFDOdds(r.name);const edTs=fdOs?getEdgeTier(r.prob,fdOs):null;
+      const ang2=detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).slice(0,1);
+      const [,gc2]=probGrade(r.prob);
+      return`<div onclick="showDetail('${r.id}')" style="flex:1;background:var(--bg3);border-radius:10px;padding:8px;cursor:pointer;min-width:0;border:1px solid var(--bdr)">
+        <div style="font-size:.68rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name.split(' ').pop()}</div>
+        <div style="font-size:.55rem;color:var(--t4);margin-bottom:3px">${r.team}${r.lineupPos?' #'+r.lineupPos:''}</div>
+        <div style="font-size:1.05rem;font-weight:900;color:${gc2}">${(r.prob*100).toFixed(1)}%</div>
+        ${edTs&&edTs.tier!=='C'&&edTs.tier!=='F'?`<div style="font-size:.52rem;font-weight:800;color:${edTs.tier==='S'?'#ffd700':edTs.tier==='A'?'var(--green)':'var(--amber)'}">★${edTs.tier} ${fdOs>0?'+':''}${fdOs}</div>`:''}
+        ${ang2.length?`<div style="font-size:.52rem;color:${ang2[0].color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">${ang2[0].icon} ${ang2[0].label}</div>`:''}
+      </div>`;
+    }).join('');
+    return`<div class="card" style="margin:0 0 10px;border-color:rgba(255,215,0,.4);background:rgba(255,215,0,.04)">
+      <div style="font-size:.60rem;color:var(--amber);font-weight:700;letter-spacing:.08em;margin-bottom:8px">🔑 TOP PLAYS TODAY</div>
+      <div style="display:flex;gap:8px;align-items:stretch">
+        <div onclick="showDetail('${tp.id}')" style="flex:1.4;cursor:pointer;display:flex;gap:8px;align-items:center;background:rgba(255,215,0,.07);border-radius:10px;padding:9px;border:1px solid rgba(255,215,0,.2)">
+          <img src="${hs0}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--amber);background:var(--bg3);flex-shrink:0" onerror="this.style.display='none'">
+          <div style="min-width:0;flex:1">
+            <div style="font-size:.85rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${tp.name}</div>
+            <div style="font-size:.56rem;color:var(--t4);margin-bottom:3px">${tp.team}${tp.lineupPos?' · #'+tp.lineupPos:''} · ${tp.batHand}HB vs ${tp.oppHand}HP</div>
+            <div style="display:flex;align-items:baseline;gap:5px">
+              <span style="font-size:1.40rem;font-weight:900;color:${gc0}">${(tp.prob*100).toFixed(1)}%</span>
+              <span style="font-size:.55rem;color:${dc.color};font-weight:700">${dc.grade}</span>
+              ${edT0&&edT0.tier!=='C'&&edT0.tier!=='F'?`<span style="font-size:.58rem;font-weight:800;padding:1px 5px;border-radius:4px;background:${edT0.tier==='S'?'rgba(255,215,0,.25)':'rgba(34,201,94,.15)'};color:${edT0.tier==='S'?'#ffd700':'var(--green)'}">${edT0.tier}</span>`:''}
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">
+              ${ang.slice(0,2).map(a=>`<span style="font-size:.55rem;padding:1px 5px;border-radius:99px;background:${a.color}22;color:${a.color}">${a.icon} ${a.label}</span>`).join('')}
+            </div>
           </div>
         </div>
-        <div style="text-align:center;flex-shrink:0">
-          <div style="font-size:1.6rem;font-weight:900;color:var(--amber)">${(bestBet.prob*100).toFixed(1)}%</div>
-          <div style="font-size:.62rem;color:${dc.color};font-weight:700">${dc.grade} data</div>
-        </div>
+        ${top3.length>1?`<div style="display:flex;flex-direction:column;gap:6px;flex:1;min-width:0">${supportCards}</div>`:''}
       </div>
     </div>`;
-  })():'';
+  })();
+
+  // ── STACK FINDER ──────────────────────────────────────────────────────────
+  const stackHTML=(()=>{
+    const byTeamGame={};
+    for(const r of rows){
+      const gk=String(r._gamePk||r.gamePk||r.game||'');
+      const tk=r.team+'|'+gk;
+      if(!byTeamGame[tk]) byTeamGame[tk]=[];
+      byTeamGame[tk].push(r);
+    }
+    const stacks=[];
+    for(const [,players] of Object.entries(byTeamGame)){
+      const eligible=players.filter(r=>r.prob>=0.09&&r.lineupConfirmed!==false);
+      if(eligible.length>=2){
+        eligible.sort((a,b)=>b.prob-a.prob);
+        stacks.push({team:eligible[0].team,players:eligible.slice(0,4),game:eligible[0].game,spNm:eligible[0].spNm,oppHand:eligible[0].oppHand});
+      }
+    }
+    if(!stacks.length) return '';
+    stacks.sort((a,b)=>b.players.reduce((s,r)=>s+r.prob,0)-a.players.reduce((s,r)=>s+r.prob,0));
+    const cards=stacks.slice(0,2).map(st=>{
+      return`<div style="background:var(--bg3);border-radius:10px;padding:10px;border:1px solid var(--bdr)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px">
+          <div><span style="font-size:.75rem;font-weight:900;color:var(--t1)">${st.team}</span><span style="font-size:.60rem;color:var(--t4);margin-left:6px">vs ${st.spNm||st.oppHand+'HP'} · ${st.game}</span></div>
+          <div style="font-size:.60rem;font-weight:700;color:#a78bfa">${st.players.length} players 🔗</div>
+        </div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          ${st.players.map(r=>{const[,gc2]=probGrade(r.prob);const fdO=getFDOdds(r.name);return`<div onclick="showDetail('${r.id}')" style="cursor:pointer;background:var(--bg2);border-radius:8px;padding:5px 8px;border:1px solid var(--bdr)"><div style="font-size:.65rem;font-weight:700;color:var(--t1)">${r.name.split(' ').pop()}</div><div style="font-size:.85rem;font-weight:900;color:${gc2}">${(r.prob*100).toFixed(1)}%</div>${fdO!=null?`<div style="font-size:.55rem;color:var(--t4)">${fdO>0?'+':''}${fdO}</div>`:''}</div>`;}).join('')}
+        </div>
+      </div>`;
+    }).join('');
+    return`<div style="margin-bottom:12px;padding:12px;border-radius:12px;border:1px solid rgba(139,92,246,.3);background:rgba(139,92,246,.04)">
+      <div style="font-size:.68rem;font-weight:800;color:#a78bfa;letter-spacing:.06em;margin-bottom:8px">🔗 STACK FINDER — Same team, same pitcher</div>
+      <div style="display:flex;flex-direction:column;gap:8px">${cards}</div>
+    </div>`;
+  })();
+
+  // ── PARLAY OPTIMIZER ──────────────────────────────────────────────────────
+  const parlayHTML=(()=>{
+    if(!_fdOdds) return '';
+    const elig=rows.filter(r=>r.lineupConfirmed!==false&&(r.postponeRisk||0)<0.4&&getFDOdds(r.name)!=null&&r.prob>=0.07).sort((a,b)=>b.prob-a.prob).slice(0,8);
+    if(elig.length<2) return '';
+    const combos=[];
+    for(let i=0;i<elig.length;i++){
+      for(let j=i+1;j<elig.length;j++){
+        const a=elig[i],b=elig[j];
+        const aE=getOddsEntry(a.name),bE=getOddsEntry(b.name);
+        if(!aE||!bE||!aE.implied||!bE.implied) continue;
+        const trueProb=a.prob*b.prob;
+        const bookProb=aE.implied*bE.implied;
+        if(bookProb<=0) continue;
+        const aOdds=aE.odds,bOdds=bE.odds;
+        const aDec=aOdds>0?aOdds/100+1:100/Math.abs(aOdds)+1;
+        const bDec=bOdds>0?bOdds/100+1:100/Math.abs(bOdds)+1;
+        const cDec=aDec*bDec;
+        const cAmer=cDec>=2?Math.round((cDec-1)*100):Math.round(-100/(cDec-1));
+        const sameGame=(a._gamePk||a.gamePk||a.game)===(b._gamePk||b.gamePk||b.game);
+        const trueProbAdj=trueProb*(sameGame?0.85:1.0);
+        const edge=trueProbAdj-bookProb;
+        combos.push({legs:[a,b],trueProb:trueProbAdj,bookProb,edge,cAmer,sameGame});
+      }
+    }
+    combos.sort((a,b)=>b.edge-a.edge);
+    const top3c=combos.slice(0,3);
+    if(!top3c.length) return '';
+    const comboCards=top3c.map(combo=>{
+      const edgeClr=combo.edge>0.015?'var(--green)':combo.edge>0.005?'var(--amber)':'var(--t4)';
+      const ids=combo.legs.map(r=>`'${r.id}'`).join(',');
+      return`<div style="background:var(--bg3);border-radius:10px;padding:9px 10px;border:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.65rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${combo.legs.map(r=>r.name.split(' ').pop()).join(' + ')}</div>
+          <div style="display:flex;gap:8px;font-size:.58rem;color:var(--t4);margin-top:2px">
+            <span>True: ${(combo.trueProb*100).toFixed(1)}%</span>
+            <span>Book: ${(combo.bookProb*100).toFixed(1)}%</span>
+            <span style="color:${edgeClr};font-weight:700">+${(combo.edge*100).toFixed(1)}% edge</span>
+            ${combo.sameGame?'<span style="color:#818cf8">SGP</span>':''}
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <div style="font-size:.80rem;font-weight:900;color:var(--amber)">${combo.cAmer>0?'+':''}${combo.cAmer}</div>
+          <button onclick="event.stopPropagation();[${ids}].forEach(id=>toggleSlateParlay(id))" style="font-size:.58rem;padding:4px 8px;border-radius:6px;border:1px solid var(--green);background:rgba(34,201,94,.12);color:var(--green);cursor:pointer;white-space:nowrap">+Parlay</button>
+        </div>
+      </div>`;
+    }).join('');
+    return`<div style="margin-bottom:12px;padding:12px;border-radius:12px;border:1px solid rgba(34,197,94,.25);background:rgba(34,197,94,.03)">
+      <div style="font-size:.68rem;font-weight:800;color:var(--green);letter-spacing:.06em;margin-bottom:8px">🎰 PARLAY FINDER — Best 2-leg combos</div>
+      <div style="display:flex;flex-direction:column;gap:6px">${comboCards}</div>
+      <div style="font-size:.55rem;color:var(--t4);margin-top:7px;text-align:center">Tap +Parlay to add both legs · SGP = Same Game Parlay (corr. adjusted)</div>
+    </div>`;
+  })();
 
   let hitterHTML = '';
   try{
@@ -12628,7 +12984,7 @@ function renderSlate(){
     hitterHTML = `<div class="card" style="color:var(--red);padding:12px;font-size:.75rem">
       Card render error: ${cardErr.message}</div>`;
   }
-  document.getElementById('hitter-list').innerHTML=valueBand+bestBetHTML+hitterHTML;
+  document.getElementById('hitter-list').innerHTML=valueBand+topPlaysHTML+stackHTML+parlayHTML+hitterHTML;
   renderHRProjection();
   renderDailySummary();
   syncDesktopSidebar();
@@ -12789,7 +13145,7 @@ function renderHitterCard(r,showGame){
         ${r.lineupPos?`<div style="position:absolute;bottom:-3px;right:-3px;width:18px;height:18px;border-radius:50%;background:${r.lineupPos<=4?'var(--amber)':r.lineupPos<=6?'var(--t3)':'rgba(100,116,139,.7)'};border:2px solid var(--bg2);display:flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:900;color:#000">${r.lineupPos}</div>`:''}
       </div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:1.0rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}${(()=>{const td=ds();const st=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');const al=st.find(x=>x.id===r.id&&x.date===td&&x.manualBet);if(al&&al.actual!==undefined)return`<span style="font-size:.58rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green)">${al.actual>0?'✅':'❌'}</span>`;if(al)return`<span style="font-size:.58rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.1);color:var(--amber)">📌</span>`;return'';})()}</div>
+        <div style="font-size:1.0rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}${(()=>{const td=ds();const st=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');const al=st.find(x=>x.id===r.id&&x.date===td&&x.manualBet);if(al&&al.actual!==undefined)return`<span style="font-size:.58rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green)">${al.actual>0?'✅':'❌'}</span>`;if(al)return`<span style="font-size:.58rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.1);color:var(--amber)">📌</span>`;return'';})()}${(_injuredSet&&_injuredSet.has(r._batPid||r.id))?'<span style="font-size:.56rem;margin-left:4px;padding:1px 5px;border-radius:99px;background:rgba(224,80,74,.15);color:var(--red)">🤕 IL</span>':''}${(_recentILReturn&&_recentILReturn.has(r._batPid||r.id))?'<span style="font-size:.56rem;margin-left:4px;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.12);color:var(--amber)">⚕️ IL Ret</span>':''}</div>
         <div style="font-size:.63rem;color:var(--t4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <b style="color:var(--amber)">Bat ${r.lineupPos}</b>`:''}${gameTag?` · ${gameTag}`:''}${!r.lineupConfirmed?' <span style="color:var(--red)">⚠ unconfirmed</span>':''}${r.postponeRisk>=0.45?` <span style="color:#60a5fa">🌧 ${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
       </div>
       <div style="flex-shrink:0;text-align:center;min-width:56px">
@@ -12800,7 +13156,7 @@ function renderHitterCard(r,showGame){
     </div>
     ${cardAngles.length?`<div style="display:flex;gap:4px;margin-bottom:8px;overflow:hidden">${cardAngles.map(a=>`<span style="font-size:.63rem;font-weight:600;padding:2px 9px;border-radius:99px;background:${a.color}20;border:1px solid ${a.color}${a.tier===1?'60':'30'};color:${a.color};white-space:nowrap" title="${a.tip}">${a.icon} ${a.label}</span>`).join('')}${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length>3?`<span style="font-size:.60rem;color:var(--t4);align-self:center"> +${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length-3}</span>`:''}</div>`:''}
     <div style="display:flex;gap:3px;margin-bottom:7px">
-      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',(r.platoon??1).toFixed(2)+'×',r.platoon??1],['SP',(r.pitcher??1).toFixed(2)+'×',r.pitcher??1],['Park',(r.parkwx??1).toFixed(2)+'×',r.parkwx??1],['TTO',r.ttoMult!=null?r.ttoMult.toFixed(2)+'×':'—',r.ttoMult||1]].map(([lbl,val,m])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div></div>`).join('')}
+      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',(r.platoon??1).toFixed(2)+'×',r.platoon??1],['SP',(r.pitcher??1).toFixed(2)+'×',r.pitcher??1],['Park',(r.parkwx??1).toFixed(2)+'×',r.parkwx??1],['Form',(r.momentum??1).toFixed(2)+'×',r.momentum??1]].map(([lbl,val,m])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div></div>`).join('')}
     </div>
     <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;justify-content:center;margin-bottom:6px">
       <span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;opacity:.55">Szn</span>
@@ -12844,7 +13200,7 @@ function _newRenderHitterCard(r,showGame){
         ${r.lineupPos?`<div style="position:absolute;bottom:-3px;right:-3px;width:18px;height:18px;border-radius:50%;background:${r.lineupPos<=4?'var(--amber)':r.lineupPos<=6?'var(--t3)':'rgba(100,116,139,.7)'};border:2px solid var(--bg2);display:flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:900;color:#000">${r.lineupPos}</div>`:''}
       </div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:1.10rem;font-weight:800;color:var(--t1);line-height:1.2;word-break:break-word">${r.name}</div>
+        <div style="font-size:1.10rem;font-weight:800;color:var(--t1);line-height:1.2;word-break:break-word">${r.name}${(_injuredSet&&_injuredSet.has(r._batPid||r.id))?'<span style="font-size:.56rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(224,80,74,.15);color:var(--red);vertical-align:middle">🤕 IL</span>':''}${(_recentILReturn&&_recentILReturn.has(r._batPid||r.id))?'<span style="font-size:.56rem;margin-left:4px;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.12);color:var(--amber);vertical-align:middle">⚕️ IL Ret</span>':''}</div>
         <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:2px">
           ${edgeBadge}${zoneBadge}${trackTag}
         </div>
@@ -12857,8 +13213,9 @@ function _newRenderHitterCard(r,showGame){
       <div style="flex:1;background:${gc}14;border:1px solid ${gc}35;border-radius:10px;padding:8px 4px;text-align:center">
         <div style="font-size:.46rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">HR Prob</div>
         <div style="font-size:1.60rem;font-weight:900;line-height:1;color:${gc}">${pct}%</div>
-        <div style="font-size:.50rem;color:${gc};opacity:.85;margin-top:3px">${grd}</div>
-        ${fdOdds!=null?`<div style="font-size:.60rem;font-weight:700;margin-top:2px;color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'}">${fdOdds>0?'+':''}${fdOdds}</div>`:''}
+        ${(()=>{const pL=r.probLow?Math.round(r.probLow*100):null,pH=r.probHigh?Math.round(r.probHigh*100):null;return pL&&pH&&pL!==pH?`<div style="font-size:.44rem;color:${gc};opacity:.55;margin-top:1px">${pL}–${pH}%</div>`:''})()}
+        <div style="font-size:.50rem;color:${gc};opacity:.85;margin-top:2px">${grd}</div>
+        ${fdOdds!=null?`<div style="font-size:.60rem;font-weight:700;margin-top:2px;color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'}">${fdOdds>0?'+':''}${fdOdds}${(()=>{if(!_fdOddsBaseline)return'';const bk=normName(r.name);const bOdds=_fdOddsBaseline[bk]?.odds;if(bOdds==null)return'';const d=fdOdds-bOdds;if(Math.abs(d)<10)return'';return`<span style="font-size:.46rem;font-weight:900;margin-left:2px;color:${d>0?'var(--green)':'var(--red)'}">${d>0?'▲':'▼'}${Math.abs(d)}</span>`;})()}</div>`:''}
       </div>
       ${(()=>{ const t=calc2TBProb(r); if(!t) return ''; const c=t>=55?'#22c95e':t>=42?'#4ade80':t>=30?'#94a3b8':'#64748b'; return `<div style="flex:1;background:${c}10;border:1px solid ${c}30;border-radius:10px;padding:8px 4px;text-align:center"><div style="font-size:.46rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">2+ Bases</div><div style="font-size:1.60rem;font-weight:900;line-height:1;color:${c}">${t}%</div><div style="font-size:.50rem;color:${c};opacity:.85;margin-top:3px">2+TB</div></div>`; })()}
       ${(()=>{ const k=calcJHR(r); if(!k) return ''; const[g2,c]=jhrGrade(k); return `<div style="flex:1;background:${c}10;border:1px solid ${c}30;border-radius:10px;padding:8px 4px;text-align:center"><div style="font-size:.46rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">jHR</div><div style="font-size:1.60rem;font-weight:900;line-height:1;color:${c}">${k}</div><div style="font-size:.50rem;color:${c};opacity:.85;margin-top:3px">${g2}</div></div>`; })()}
@@ -12869,7 +13226,7 @@ function _newRenderHitterCard(r,showGame){
 
     <!-- ROW 4: model multiplier tiles -->
     <div style="display:flex;gap:3px;margin-bottom:7px">
-      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',(r.platoon??1).toFixed(2)+'×',r.platoon??1],['SP',(r.pitcher??1).toFixed(2)+'×',r.pitcher??1],['Park',(r.parkwx??1).toFixed(2)+'×',r.parkwx??1],['TTO',r.ttoMult!=null?r.ttoMult.toFixed(2)+'×':'—',r.ttoMult||1]].map(([lbl,val,m])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div></div>`).join('')}
+      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',(r.platoon??1).toFixed(2)+'×',r.platoon??1],['SP',(r.pitcher??1).toFixed(2)+'×',r.pitcher??1],['Park',(r.parkwx??1).toFixed(2)+'×',r.parkwx??1],['Form',(r.momentum??1).toFixed(2)+'×',r.momentum??1]].map(([lbl,val,m])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div></div>`).join('')}
     </div>
 
     <!-- ROW 5: season stat chips -->
@@ -13542,19 +13899,23 @@ function showDetail(id){
     }).catch(()=>{});
   }
 
-  // Lazy-load full splits
+  // Lazy-load full splits + career venue stats
   const needsPlat = !r.platoonSplits?.vsLFull && !r.platoonSplits?.vsRFull;
   const needsHA   = !r.homeAwaySplits?.homeFull && !r.homeAwaySplits?.awayFull;
   const needsDN   = !r._batterStats?.dayNightSplits;
-  if(needsPlat || needsHA || needsDN){
+  const _venueForPark = r._wx?.venue || STADIUM_NAMES?.[r.game?.split('@')?.[1]] || null;
+  const needsVS   = _venueForPark && !r._careerVenueStats;
+  if(needsPlat || needsHA || needsDN || needsVS){
     Promise.all([
       needsPlat ? getPlayerPlatoonSplits(String(batPid)) : Promise.resolve(r.platoonSplits),
       needsHA   ? getHomAwaySplits(String(batPid))       : Promise.resolve(r.homeAwaySplits),
       needsDN   ? getDayNightSplits(String(batPid))      : Promise.resolve(r._batterStats?.dayNightSplits),
-    ]).then(([plat, ha, dn])=>{
+      needsVS   ? getCareerVenueStats(String(batPid), _venueForPark) : Promise.resolve(r._careerVenueStats||null),
+    ]).then(([plat, ha, dn, vs])=>{
       if(plat) r.platoonSplits  = plat;
       if(ha)   r.homeAwaySplits = ha;
       if(dn && r._batterStats)  r._batterStats.dayNightSplits = dn;
+      if(vs)   r._careerVenueStats = vs;
       const cur = S.allRows.find(x=>x.id===id);
       if(cur && document.getElementById('page-detail')?.classList.contains('active')){
         renderDetail(cur);
@@ -13739,6 +14100,7 @@ function renderDetail(r){
       ${r.umpMult&&r.umpMult!==1?fbar(`Umpire (${r.umpire||'?'})`,r.umpMult,0.85,1.20):''}
       ${r.paMultiplier&&r.paMultiplier!==1?fbar(`Lineup Spot #${r.lineupPos}`,r.paMultiplier,0.95,1.06):''}
       ${r.teamMult&&r.teamMult!==1?fbar('Team HR Context',r.teamMult,0.80,1.35):''}
+      ${r._catFrMult&&r._catFrMult!==1?fbar('Catcher Framing',r._catFrMult,0.93,1.07):''}
       ${(()=>{
         // Note when platoon advantage coexists with arsenal weakness
         const platoonFav = (r.platoon||1) >= 1.10;
@@ -14340,6 +14702,122 @@ function renderDetail(r){
               }
             }
 
+            // ── Historical performance sparkline ─────────────────────
+            html += renderPerfChart(r._recentGames);
+
+            // ── Batter hot zone vs SP tendencies ─────────────────────
+            html += (()=>{
+              const bs = r._batterStats || {};
+              const pull = bs.pull_pct||bs.pull_air_pct||null;
+              const gb   = bs.gb_pct||null;
+              const fb   = bs.fb_pct||null;
+              const hrFB = bs.hr_fb_pct||null;
+              const hand = r.batHand||'R';
+              const spHand = r.oppHand||'R';
+              // 3×3 grid zones (catcher view): [row][col] → zone IDs 7-9 top, 1-3 bottom
+              // For a RHB: inner = left side of grid (zones 7,4,1), outer = right (9,6,3)
+              // Pull power = inner-middle zones (4,7 for RHB, 6,9 for LHB)
+              const zoneData = [
+                [7,8,9],
+                [4,5,6],
+                [1,2,3],
+              ];
+              // Score each zone for this batter
+              function zoneScore(row, col){
+                const isInner = hand==='R' ? col===0 : col===2;
+                const isOuter = hand==='R' ? col===2 : col===0;
+                const isHigh  = row===0;
+                const isMid   = row===1;
+                let score = 0.5; // neutral
+                if(pull!=null) score += (isInner ? (pull-30)*0.006 : isOuter ? -(pull-30)*0.003 : 0);
+                if(fb!=null)   score += (isHigh||isMid ? (fb-35)*0.005 : -(fb-35)*0.004);
+                if(gb!=null)   score -= (!isHigh ? (gb-45)*0.004 : 0);
+                if(hrFB!=null) score += (isMid&&isInner ? (hrFB-13)*0.010 : 0);
+                return clamp(score, 0.05, 0.95);
+              }
+              function zoneColor(s){
+                return s>=0.70?'rgba(34,201,94,.55)':s>=0.50?'rgba(240,165,0,.45)':s>=0.35?'rgba(224,80,74,.35)':'rgba(224,80,74,.55)';
+              }
+              // SP tendency: guess zone emphasis by pitch mix
+              const ars = r._pitcherStats?.arsenal||{};
+              const hasCutter = Object.values(ars).some(p=>p&&(p.type||'').toLowerCase().includes('cut'));
+              const hasCurve  = Object.values(ars).some(p=>p&&(p.type||'').toLowerCase().includes('curv'));
+              const spTendency = hasCutter ? (hand==='R'?'outer-high':'inner-high')
+                               : hasCurve  ? 'low-away'
+                               : 'middle';
+              function spZoneMark(row,col){
+                if(spTendency==='outer-high' && row===0 && (hand==='R'?col===2:col===0)) return true;
+                if(spTendency==='inner-high' && row===0 && (hand==='R'?col===0:col===2)) return true;
+                if(spTendency==='low-away'   && row===2 && (hand==='R'?col===2:col===0)) return true;
+                if(spTendency==='middle'     && row===1 && col===1) return true;
+                return false;
+              }
+              if(!pull && !gb && !fb && !hrFB) return '';
+              const rows2 = zoneData.map((row,ri)=>
+                `<div style="display:flex;gap:3px">${row.map((_z,ci)=>{
+                  const s=zoneScore(ri,ci);
+                  const spMark=spZoneMark(ri,ci);
+                  return`<div style="flex:1;height:32px;border-radius:5px;background:${zoneColor(s)};
+                    border:${spMark?'2px solid var(--blue)':'1px solid rgba(255,255,255,.08)'};
+                    position:relative;display:flex;align-items:center;justify-content:center">
+                    ${spMark?`<div style="font-size:.55rem;color:var(--blue);font-weight:800">SP</div>`:''}
+                  </div>`;
+                }).join('')}</div>`
+              ).join('');
+              const matchScore = zoneData.reduce((sum,row,ri)=>
+                sum+row.reduce((s2,_,ci)=>s2+(spZoneMark(ri,ci)?zoneScore(ri,ci):0),0),0);
+              const matchLabel = matchScore>=0.65?'🟢 Favorable zones overlap':matchScore>=0.45?'🟡 Neutral zone match':'🔴 SP targets batter weakness';
+              return `<div style="margin-top:14px">
+                <div style="font-size:.60rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">
+                  🎯 Hot Zone vs SP Tendencies</div>
+                <div style="background:var(--bg3);border-radius:10px;padding:10px;border:1px solid var(--bdr)">
+                  <div style="display:flex;gap:8px;align-items:flex-start">
+                    <div style="flex:0 0 auto">
+                      <div style="font-size:.55rem;color:var(--t4);margin-bottom:4px;text-align:center">
+                        Batter (${hand}HB) — catcher view</div>
+                      <div style="display:flex;flex-direction:column;gap:3px">${rows2}</div>
+                      <div style="display:flex;justify-content:space-between;font-size:.50rem;color:var(--t4);margin-top:3px">
+                        <span>${hand==='R'?'Inner':'Outer'}</span><span>Middle</span><span>${hand==='R'?'Outer':'Inner'}</span></div>
+                    </div>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:.62rem;font-weight:700;color:var(--t2);margin-bottom:4px">${matchLabel}</div>
+                      <div style="font-size:.58rem;color:var(--t4);line-height:1.5">
+                        <div>🟢 Strong zone&nbsp; 🟡 Neutral&nbsp; 🔴 Weak</div>
+                        <div style="margin-top:3px;color:var(--blue)">📍 Blue border = SP tendency</div>
+                        ${pull!=null?`<div style="margin-top:4px">Pull ${pull.toFixed(0)}% · GB ${gb?gb.toFixed(0)+'%':'—'} · FB ${fb?fb.toFixed(0)+'%':'—'}</div>`:''}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>`;
+            })();
+
+            // ── Career at this park ───────────────────────────────────
+            const cvs = r._careerVenueStats;
+            const parkName = r._wx?.venue || STADIUM_NAMES?.[r.game?.split('@')?.[1]];
+            if(parkName && (!cvs || cvs.games>0)){
+              if(!cvs){
+                html+=`<div style="font-size:.60rem;font-weight:700;color:var(--t4);
+                  text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;margin-top:14px">
+                  🏟️ At ${parkName} (L3 Seasons)</div>
+                  <div style="font-size:.64rem;color:var(--t4);padding:8px;background:var(--bg3);border-radius:8px">Loading career splits…</div>`;
+              } else if(cvs.games>=3){
+                const hrPaStr=cvs.hrPa?(cvs.hrPa*100).toFixed(1)+'%':'—';
+                const avgStr=cvs.avg?'.'+Math.round(cvs.avg*1000).toString().padStart(3,'0').slice(-3):'—';
+                const hrClr=cvs.hr>=5?'var(--amber)':cvs.hr>=2?'var(--green)':'var(--t2)';
+                html+=`<div style="font-size:.60rem;font-weight:700;color:var(--t4);
+                  text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;margin-top:14px">
+                  🏟️ At ${parkName} (L3 Seasons)</div>
+                  <div style="display:flex;gap:6px">
+                    ${[['G',cvs.games,'var(--t2)'],['HR',cvs.hr,hrClr],['AB',cvs.ab,'var(--t2)'],['AVG',avgStr,'var(--t2)'],['HR%',hrPaStr,cvs.hr>=3?'var(--amber)':'var(--t2)']].map(([l,v,c])=>`
+                    <div style="flex:1;background:var(--bg3);border-radius:8px;padding:6px 4px;text-align:center">
+                      <div style="font-size:.52rem;color:var(--t4)">${l}</div>
+                      <div style="font-size:.80rem;font-weight:800;color:${c}">${v}</div>
+                    </div>`).join('')}
+                  </div>`;
+              }
+            }
+
             // ── Venue weather card ────────────────────────────────────
             const wx = r._wx;
             if(wx && (wx.temp || wx.wind)){
@@ -14369,7 +14847,7 @@ function renderDetail(r){
                   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                     <div style="text-align:center;padding:8px;background:rgba(255,255,255,.03);border-radius:8px">
                       <div style="font-size:1.1rem;font-weight:900;color:${tempClr}">${wx.temp||'--'}°F</div>
-                      <div style="font-size:.58rem;color:var(--t4);margin-top:2px">Temperature</div>
+                      <div style="font-size:.58rem;color:var(--t4);margin-top:2px">${wx.isForecasted?'<span style="color:var(--green)">📡 Game-time forecast</span>':'Estimated'}</div>
                       <div style="font-size:.60rem;color:${tempClr};margin-top:3px">${tempEffect}</div>
                     </div>
                     <div style="text-align:center;padding:8px;background:rgba(255,255,255,.03);border-radius:8px">
