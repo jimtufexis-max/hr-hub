@@ -362,6 +362,12 @@ input:focus,textarea:focus{border-color:var(--amber)}
         </svg>
       </button>
 
+      <button onclick="showPage('tracker')"
+        style="background:none;border:1px solid rgba(240,165,0,.35);border-radius:7px;color:var(--amber);font-size:.70rem;font-weight:700;cursor:pointer;padding:5px 8px;display:flex;align-items:center;gap:4px;flex-shrink:0"
+        title="Day Tracker">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg> Tracker
+      </button>
+
       <button onclick="showManualOddsEntry()"
         style="background:none;border:1px solid rgba(240,165,0,.4);border-radius:7px;color:var(--amber);font-size:.70rem;font-weight:700;cursor:pointer;padding:5px 8px;display:flex;align-items:center;gap:4px;flex-shrink:0"
         title="Enter Odds">
@@ -771,10 +777,6 @@ input:focus,textarea:focus{border-color:var(--amber)}
     <button class="nav-btn" id="nav-results" onclick="showPage('results')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
       Results
-    </button>
-    <button class="nav-btn" id="nav-tracker" onclick="showPage('tracker')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
-      Tracker
     </button>
   </nav>
 
