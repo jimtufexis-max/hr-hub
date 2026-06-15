@@ -1252,6 +1252,12 @@ async function getSavantBatters(){
         k_pct:          parseF(row.k_percent ?? row['K%']),
         bb_pct:         parseF(row.bb_percent ?? row['BB%']),
         sprint_speed:   parseF(row.sprint_speed),
+        // Batted-ball rates — same columns as the pitcher statcast leaderboard
+        gb_pct:         parseF(row.groundballs_percent ?? row.gb_percent ?? row.ground_ball_rate),
+        fb_pct:         parseF(row.flyballs_percent    ?? row.fb_percent  ?? row.fly_ball_rate),
+        pull_pct:       parseF(row.pull_percent        ?? row.pull_rate),
+        pull_air_pct:   parseF(row.pull_air_percent    ?? row.pull_air_rate),
+        hr_fb_pct:      parseF(row.home_run_per_flyball?? row.hr_fb_rate  ?? row.hr_per_fb),
       };
     }
     console.log(`[Savant statcast] ${Object.keys(out).length} players`);
@@ -1293,11 +1299,15 @@ async function getSavantBatters(){
           const pid=String(row.id||row.player_id||'').replace(/\.0$/,'');
           if(!pid)continue;
           if(!out[pid])out[pid]={};
-          const pa=toP(row.pull_air_rate),fb=toP(row.fb_rate),pull=toP(row.pull_rate);
-          const hrfb=toP(row.home_run_per_flyball??row.hr_flyball??row.hr_per_fb);
+          const pa=toP(row.pull_air_rate??row.pull_air_percent??row.pa_rate);
+          const fb=toP(row.fb_rate??row.fly_ball_rate??row.fb_percent??row.flyballs_percent);
+          const pull=toP(row.pull_rate??row.pull_percent??row.pull_pct);
+          const gb=toP(row.gb_rate??row.ground_ball_rate??row.groundball_percent??row.groundballs_percent??row.gb_percent);
+          const hrfb=toP(row.home_run_per_flyball??row.hr_flyball??row.hr_per_fb??row.hr_fb_rate);
           if(pa!=null) out[pid].pull_air_pct=pa;
           if(fb!=null) out[pid].fb_pct=fb;
           if(pull!=null) out[pid].pull_pct=pull;
+          if(gb!=null) out[pid].gb_pct=gb;
           if(hrfb!=null) out[pid].hr_fb_pct=hrfb;
         }
         console.log(`[batted-ball] merged`);
@@ -10974,11 +10984,13 @@ function showHotZoneCell(el, ri, ci){
   const barFill  = `background:${z.ratingColor};width:${scoreBar}%;height:6px;border-radius:3px;transition:width .3s`;
   const barTrack = `background:var(--bg3);border-radius:3px;overflow:hidden;margin:4px 0 6px`;
 
-  const spNote = z.spMark
+  const spNote = z.spMark && z.spTendencyLabel
     ? `<div style="margin-top:6px;padding:5px 8px;border-radius:6px;background:rgba(96,165,250,.10);
         border:1px solid rgba(96,165,250,.25);color:#60a5fa;font-size:.60rem">
-        📍 SP tendency: <b>${z.spTendency.replace('-',' ')}</b> — pitcher targets this zone</div>`
-    : `<div style="margin-top:6px;font-size:.58rem;color:var(--t4)">No SP tendency signal for this zone</div>`;
+        📍 SP tendency: <b>${z.spTendencyLabel}</b></div>`
+    : z.spTendencyLabel
+      ? `<div style="margin-top:6px;font-size:.58rem;color:var(--t4)">SP tendency is <b>${z.spTendencyLabel}</b> — does not target this zone</div>`
+      : `<div style="margin-top:6px;font-size:.58rem;color:var(--t4)">No SP tendency detected (mixed arsenal)</div>`;
 
   const contribHTML = z.contribs.length
     ? z.contribs.map(c=>`
@@ -11596,7 +11608,7 @@ async function loadGame(g){
         obp:             mlbSt ? parseFloat(mlbSt.obp)||null : null,
         pull_air_pct:    savH.pull_air_pct  ?? null,
         sweet_spot_pct:  savH.sweetSpot     ?? savH.sweet_spot_pct ?? null,
-        gb_pct:          savH.gb_pct        ?? fgH.gbPct           ?? null,
+        gb_pct:          savH.gb_pct        ?? null,
         hr_fb_pct:       savH.hr_fb_pct     ?? null,
         pull_pct:        savH.pull_pct      ?? null,
         fb_pct:          savH.fb_pct        ?? null,
@@ -14797,10 +14809,11 @@ function renderDetail(r){
             // ── Batter hot zone vs SP tendencies ─────────────────────
             html += (()=>{
               const bs = r._batterStats || {};
-              const pull = bs.pull_pct||bs.pull_air_pct||null;
-              const gb   = bs.gb_pct||null;
-              const fb   = bs.fb_pct||null;
-              const hrFB = bs.hr_fb_pct||null;
+              // Read from row directly (copied from batterStats) then fall back to _batterStats
+              const pull = r.pull_pct || bs.pull_pct || r.pull_air_pct || bs.pull_air_pct || null;
+              const gb   = r.gb_pct   || bs.gb_pct   || null;
+              const fb   = r.fb_pct   || bs.fb_pct   || null;
+              const hrFB = r.hr_fb_pct|| bs.hr_fb_pct|| null;
               const hand = r.batHand||'R';
               const spHand = r.oppHand||'R';
               // 3×3 grid zones (catcher view): [row][col] → zone IDs 7-9 top, 1-3 bottom
@@ -14828,17 +14841,41 @@ function renderDetail(r){
                 return s>=0.70?'rgba(34,201,94,.55)':s>=0.50?'rgba(240,165,0,.45)':s>=0.35?'rgba(224,80,74,.35)':'rgba(224,80,74,.55)';
               }
               // SP tendency: guess zone emphasis by pitch mix
-              const ars = r._pitcherStats?.arsenal||{};
-              const hasCutter = Object.values(ars).some(p=>p&&(p.type||'').toLowerCase().includes('cut'));
-              const hasCurve  = Object.values(ars).some(p=>p&&(p.type||'').toLowerCase().includes('curv'));
-              const spTendency = hasCutter ? (hand==='R'?'outer-high':'inner-high')
-                               : hasCurve  ? 'low-away'
-                               : 'middle';
+              // Derive SP tendency from actual pitch-type mix codes (FF, FC, SL, ST, CU, SI, CH…)
+              const mix = r._pitcherStats?.arsenal?.mix || {};
+              const FC=(mix.FC||0), CU=(mix.CU||0)+(mix.KC||0), ST=(mix.ST||0);
+              const SL=(mix.SL||0), SI=(mix.SI||0), CH=(mix.CH||0)+(mix.FS||0), FF=(mix.FF||0);
+              // Priority: most distinctive pitch drives tendency
+              const spTendency =
+                FC>=12 ? (hand==='R'?'outer-high':'inner-high')  // cutter: glove-side edge
+              : ST>=15 ? (hand==='R'?'low-outer':'low-inner')    // sweeper: low & away
+              : CU>=12 ? 'low-down'                               // curve: drops straight down
+              : SL>=20 ? (hand==='R'?'low-outer':'low-inner')    // slider: low & away
+              : SI>=25 ? 'low-inner'                              // sinker: low & in
+              : CH>=18 ? (hand==='R'?'low-outer':'low-inner')    // changeup: arm-side low
+              : FF>=50 ? 'up-middle'                              // FB-heavy: elevated heat
+              : null;                                             // no clear tendency
+              // Describe tendency in readable form for popup
+              const spTendencyLabel = spTendency
+                ? ({
+                    'outer-high':'Cutter — glove-side edge (high)',
+                    'inner-high':'Cutter — arm-side edge (high)',
+                    'low-outer':'Sweeper/Slider — low & away',
+                    'low-inner':'Sinker — low & in',
+                    'low-down':'Curveball — drops straight down',
+                    'up-middle':'Fastball-heavy — elevated heat',
+                  }[spTendency]||spTendency)
+                : null;
               function spZoneMark(row,col){
-                if(spTendency==='outer-high' && row===0 && (hand==='R'?col===2:col===0)) return true;
-                if(spTendency==='inner-high' && row===0 && (hand==='R'?col===0:col===2)) return true;
-                if(spTendency==='low-away'   && row===2 && (hand==='R'?col===2:col===0)) return true;
-                if(spTendency==='middle'     && row===1 && col===1) return true;
+                if(!spTendency) return false;
+                const isOuter = hand==='R'?col===2:col===0;
+                const isInner = hand==='R'?col===0:col===2;
+                if(spTendency==='outer-high' && row===0 && isOuter) return true;
+                if(spTendency==='inner-high' && row===0 && isInner) return true;
+                if(spTendency==='low-outer'  && row===2 && isOuter) return true;
+                if(spTendency==='low-inner'  && row===2 && (isInner||col===1)) return true;
+                if(spTendency==='low-down'   && row===2) return true;
+                if(spTendency==='up-middle'  && row===0 && col===1) return true;
                 return false;
               }
               if(!pull && !gb && !fb && !hrFB) return '';
@@ -14886,7 +14923,7 @@ function renderDetail(r){
                 const rating = s>=0.70?'Strong':s>=0.50?'Neutral':s>=0.35?'Weak':'Very Weak';
                 const ratingColor = s>=0.70?'var(--green)':s>=0.50?'var(--amber)':s>=0.35?'rgba(224,80,74,.8)':'var(--red)';
                 return{ ri,ci, zoneId:zoneData[ri][ci], label:`${rowLabels[ri]} ${colLabel(ci)}`,
-                  score:s, rating, ratingColor, spMark, spTendency, contribs:zoneContribs(ri,ci) };
+                  score:s, rating, ratingColor, spMark, spTendency, spTendencyLabel, contribs:zoneContribs(ri,ci) };
               }));
               window._lastHotZoneGrid = hzGrid;
               const rows2 = zoneData.map((row,ri)=>
