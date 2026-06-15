@@ -10951,6 +10951,66 @@ function buildZoneGrids(zm, batHand, size=24, batPid, spPid){
   };
 }
 
+function showHotZoneCell(el, ri, ci){
+  const grid = window._lastHotZoneGrid;
+  if(!grid) return;
+  const z = grid.find(x=>x.ri===ri && x.ci===ci);
+  if(!z) return;
+  const pop = document.getElementById('hz-zone-popup');
+  if(!pop) return;
+
+  // Toggle off if same zone clicked twice
+  if(pop.dataset.open===`${ri}-${ci}` && pop.style.display!=='none'){
+    pop.style.display='none'; pop.dataset.open='';
+    el.style.outline='';
+    return;
+  }
+  // De-highlight all cells, highlight active
+  el.closest('.hz-grid-wrap')?.querySelectorAll('.hz-cell').forEach(c=>c.style.outline='');
+  el.style.outline='2px solid var(--t2)';
+  pop.dataset.open=`${ri}-${ci}`;
+
+  const scoreBar = Math.round(z.score * 100);
+  const barFill  = `background:${z.ratingColor};width:${scoreBar}%;height:6px;border-radius:3px;transition:width .3s`;
+  const barTrack = `background:var(--bg3);border-radius:3px;overflow:hidden;margin:4px 0 6px`;
+
+  const spNote = z.spMark
+    ? `<div style="margin-top:6px;padding:5px 8px;border-radius:6px;background:rgba(96,165,250,.10);
+        border:1px solid rgba(96,165,250,.25);color:#60a5fa;font-size:.60rem">
+        📍 SP tendency: <b>${z.spTendency.replace('-',' ')}</b> — pitcher targets this zone</div>`
+    : `<div style="margin-top:6px;font-size:.58rem;color:var(--t4)">No SP tendency signal for this zone</div>`;
+
+  const contribHTML = z.contribs.length
+    ? z.contribs.map(c=>`
+        <div style="display:flex;align-items:baseline;gap:6px;padding:3px 0;border-bottom:1px solid var(--bg3)">
+          <span style="font-size:.65rem;font-weight:800;color:${c.effect==='+'?'var(--green)':'var(--red)'}">
+            ${c.effect==='+'?'▲':'▼'}</span>
+          <div>
+            <span style="font-weight:700;color:var(--t1)">${c.stat}</span>
+            <span style="color:var(--t4);margin-left:4px;font-size:.58rem">${c.note}</span>
+          </div>
+        </div>`).join('')
+    : `<div style="color:var(--t4);font-size:.60rem;padding:4px 0">No strong stat signals for this zone</div>`;
+
+  pop.innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+      <span style="font-weight:800;color:var(--t1);font-size:.72rem">${z.label}</span>
+      <span style="font-weight:700;font-size:.66rem;color:${z.ratingColor};padding:1px 7px;
+        border-radius:99px;background:${z.ratingColor}18">${z.rating}</span>
+    </div>
+    <div style="${barTrack}"><div style="${barFill}"></div></div>
+    <div style="font-size:.58rem;color:var(--t4);margin-bottom:6px">
+      Power score: <b style="color:var(--t2)">${scoreBar}%</b> — Zone ${z.zoneId} (MLB standard)</div>
+    <div style="border-top:1px solid var(--bg3);padding-top:6px;margin-top:2px">
+      <div style="font-size:.58rem;font-weight:700;color:var(--t4);text-transform:uppercase;
+        letter-spacing:.05em;margin-bottom:4px">Stat drivers</div>
+      ${contribHTML}
+    </div>
+    ${spNote}`;
+  pop.style.display='block';
+  pop.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
 function showZonePopup(event, side, zone, label, xwoba, status, batHand){
   event.stopPropagation();
   document.getElementById('zone-popup')?.remove();
@@ -11679,8 +11739,37 @@ async function loadGame(g){
         const row=rows.find(r=>String(r.id)===String(h.id));
         if(row&&recent?.length){
           row._recentGames=recent;
+          const l14HR=recent.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
+          const l14PA=recent.slice(0,14).reduce((s,x)=>s+(x.pa||x.ab||0),0);
           // Sync l14hr so tags/angles always match the displayed L14 stats
-          row.l14hr=recent.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
+          row.l14hr=l14HR;
+          // Also update batterStats so calcHRProb is accurate on next detail open
+          if(row._batterStats){ row._batterStats.l14HR=l14HR; row._batterStats.l14PA=l14PA; }
+          // Recalculate momentum now that we have real game-log data
+          // (rows are built before recent-game fetches complete, so momentum was 1.00 at build time)
+          const anchor = row.anchor || 0;
+          let adj = 0;
+          if(l14PA >= 15 && anchor > 0){
+            const l14Rate = l14HR / l14PA;
+            const l14Ratio = l14Rate / anchor;
+            if(l14Ratio > 1.4 || l14Ratio < 0.5){
+              adj = clamp((l14Ratio - 1.0) * 0.15, -0.06, 0.06);
+            }
+          }
+          const bs = row._batterStats || {};
+          if(bs.rollingXwoba!=null && bs.xwoba!=null && bs.xwoba>0.200){
+            const xr = bs.rollingXwoba / bs.xwoba;
+            if(xr > 1.10 || xr < 0.88){
+              adj = clamp(adj + (xr - 1.0) * 0.30, -0.14, 0.14);
+            }
+          }
+          if(bs.rollingEV!=null && bs.avg_ev!=null && bs.avg_ev>85){
+            const evDiff = bs.rollingEV - bs.avg_ev;
+            if(Math.abs(evDiff) >= 1.5){
+              adj = clamp(adj + evDiff * 0.018, -0.16, 0.16);
+            }
+          }
+          if(adj !== 0) row.momentum = clamp(+Math.exp(adj).toFixed(3), 0.80, 1.25);
         }
       }))
     ).then(()=>{
@@ -14753,14 +14842,64 @@ function renderDetail(r){
                 return false;
               }
               if(!pull && !gb && !fb && !hrFB) return '';
+              // Build full zone info for click popups
+              const rowLabels = ['High','Mid','Low'];
+              const colLabel = (ci) => {
+                if(hand==='R') return ci===0?'Inner':ci===1?'Middle':'Outer';
+                return ci===0?'Outer':ci===1?'Middle':'Inner';
+              };
+              function zoneContribs(ri,ci){
+                const isInner = hand==='R' ? ci===0 : ci===2;
+                const isOuter = hand==='R' ? ci===2 : ci===0;
+                const isHigh  = ri===0, isMid = ri===1, isLow = ri===2;
+                const items = [];
+                if(pull!=null){
+                  const delta = isInner?(pull-30)*0.006:isOuter?-(pull-30)*0.003:0;
+                  if(Math.abs(delta)>=0.02)
+                    items.push({stat:`Pull ${pull.toFixed(0)}%`,effect:delta>0?'+':'−',
+                      note:isInner?'Pull hitters attack inner zones':'Pull hitters struggle outer'});
+                }
+                if(fb!=null){
+                  const delta = (isHigh||isMid)?(fb-35)*0.005:-(fb-35)*0.004;
+                  if(Math.abs(delta)>=0.02)
+                    items.push({stat:`FB ${fb.toFixed(0)}%`,effect:delta>0?'+':'−',
+                      note:(isHigh||isMid)?'Fly-ball swing elevates high/mid pitch':'Groundball tendency on low pitch'});
+                }
+                if(gb!=null && !isHigh){
+                  const delta = -(gb-45)*0.004;
+                  if(Math.abs(delta)>=0.01)
+                    items.push({stat:`GB ${gb.toFixed(0)}%`,effect:delta>0?'+':'−',
+                      note:delta<0?'High GB% → less loft on low pitches':'Low GB% helps elevate mid/low pitches'});
+                }
+                if(hrFB!=null && isMid && isInner){
+                  const delta = (hrFB-13)*0.010;
+                  if(Math.abs(delta)>=0.02)
+                    items.push({stat:`HR/FB ${hrFB.toFixed(0)}%`,effect:delta>0?'+':'−',
+                      note:delta>0?'Elite HR/FB confirms power in sweet spot':'Low HR/FB limits inner-mid damage'});
+                }
+                return items;
+              }
+              // Store all 9 zone infos globally so showHotZoneCell can read them
+              const hzGrid = zoneData.flatMap((row,ri)=>row.map((_z,ci)=>{
+                const s = zoneScore(ri,ci);
+                const spMark = spZoneMark(ri,ci);
+                const rating = s>=0.70?'Strong':s>=0.50?'Neutral':s>=0.35?'Weak':'Very Weak';
+                const ratingColor = s>=0.70?'var(--green)':s>=0.50?'var(--amber)':s>=0.35?'rgba(224,80,74,.8)':'var(--red)';
+                return{ ri,ci, zoneId:zoneData[ri][ci], label:`${rowLabels[ri]} ${colLabel(ci)}`,
+                  score:s, rating, ratingColor, spMark, spTendency, contribs:zoneContribs(ri,ci) };
+              }));
+              window._lastHotZoneGrid = hzGrid;
               const rows2 = zoneData.map((row,ri)=>
                 `<div style="display:flex;gap:3px">${row.map((_z,ci)=>{
                   const s=zoneScore(ri,ci);
                   const spMark=spZoneMark(ri,ci);
-                  return`<div style="flex:1;height:32px;border-radius:5px;background:${zoneColor(s)};
+                  return`<div onclick="showHotZoneCell(this,${ri},${ci})" style="flex:1;height:36px;border-radius:5px;background:${zoneColor(s)};
                     border:${spMark?'2px solid var(--blue)':'1px solid rgba(255,255,255,.08)'};
-                    position:relative;display:flex;align-items:center;justify-content:center">
-                    ${spMark?`<div style="font-size:.55rem;color:var(--blue);font-weight:800">SP</div>`:''}
+                    position:relative;display:flex;align-items:center;justify-content:center;
+                    cursor:pointer;transition:filter .15s,transform .15s" title="${rowLabels[ri]} ${colLabel(ci)} — click for details"
+                    onmouseenter="this.style.filter='brightness(1.3)';this.style.transform='scale(1.08)'"
+                    onmouseleave="this.style.filter='';this.style.transform=''">
+                    ${spMark?`<div style="font-size:.55rem;color:var(--blue);font-weight:800;pointer-events:none">SP</div>`:''}
                   </div>`;
                 }).join('')}</div>`
               ).join('');
@@ -14778,6 +14917,7 @@ function renderDetail(r){
                       <div style="display:flex;flex-direction:column;gap:3px">${rows2}</div>
                       <div style="display:flex;justify-content:space-between;font-size:.50rem;color:var(--t4);margin-top:3px">
                         <span>${hand==='R'?'Inner':'Outer'}</span><span>Middle</span><span>${hand==='R'?'Outer':'Inner'}</span></div>
+                      <div style="font-size:.50rem;color:var(--t4);margin-top:4px;text-align:center;opacity:.65">Tap zone for details</div>
                     </div>
                     <div style="flex:1;min-width:0">
                       <div style="font-size:.62rem;font-weight:700;color:var(--t2);margin-bottom:4px">${matchLabel}</div>
@@ -14788,6 +14928,8 @@ function renderDetail(r){
                       </div>
                     </div>
                   </div>
+                  <div id="hz-zone-popup" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;
+                    background:var(--bg2);border:1px solid var(--bdr);font-size:.62rem;animation:fadeIn .15s ease"></div>
                 </div>
               </div>`;
             })();
