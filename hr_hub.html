@@ -5418,15 +5418,31 @@ function logPrediction(rows){
       if(!r.id||!r._rawProb) continue;
       const uid = `${r.id}_${today}`;
       if(uidMap.has(uid)){
-        // Update prob if enrichment refined it since first log
+        // Update prob + all enriched signals when enrichment refines them
         const idx = uidMap.get(uid);
-        stored[idx].prob    = r.prob;
-        stored[idx].rawProb = r._rawProb;
+        stored[idx].prob      = r.prob;
+        stored[idx].rawProb   = r._rawProb;
+        stored[idx].grade     = r.grade     || stored[idx].grade;
+        stored[idx].barrel_pct= r.barrel_pct??stored[idx].barrel_pct;
+        stored[idx].avg_ev    = r.avg_ev    ??stored[idx].avg_ev;
+        stored[idx].iso       = r.iso       ??stored[idx].iso;
+        stored[idx].xwoba     = r.xwoba     ??stored[idx].xwoba;
+        stored[idx].platoon   = r.platoon   ??stored[idx].platoon;
+        stored[idx].pitcher   = r.pitcher   ??stored[idx].pitcher;
+        stored[idx].szHR      = r.szHR      ??stored[idx].szHR;
+        stored[idx].szPA      = r.szPA      ??stored[idx].szPA;
         continue;
       }
       stored.push({ uid, id:String(r.id), name:r.name,
         prob:r.prob, rawProb:r._rawProb, date:today,
-        logged:Date.now(), actual:null, resolvedAt:null });
+        logged:Date.now(), actual:null, resolvedAt:null,
+        team:r.team||'', pos:r.pos||'', game:r.game||'',
+        batHand:r.batHand||'', oppHand:r.oppHand||'',
+        grade:r.grade||'',
+        barrel_pct:r.barrel_pct??null, avg_ev:r.avg_ev??null,
+        iso:r.iso??null, xwoba:r.xwoba??null,
+        platoon:r.platoon??null, pitcher:r.pitcher??null,
+        szHR:r.szHR??null, szPA:r.szPA??null });
       uidMap.set(uid, stored.length-1);
       added++;
     }
@@ -17227,196 +17243,252 @@ function initApp(){
 }
 
 // ══════════════════════════════════════════════════════════════
-// DAY TRACKER — pick players before games, auto-check HR outcomes
+// DAY TRACKER — auto-snapshots full slate each day, checks HR outcomes,
+// surfaces common factors among HR hitters vs non-hitters
 // ══════════════════════════════════════════════════════════════
 (function(){
-  const KEY = 'dingeriq_tracker_v1';
-  function load(){ try{ return JSON.parse(localStorage.getItem(KEY)||'[]'); }catch{ return []; } }
-  function save(p){ localStorage.setItem(KEY, JSON.stringify(p)); }
+  // Legacy manual-pin key (kept for backward compat, not surfaced in UI)
+  const _LEGACY_KEY = 'dingeriq_tracker_v1';
+  // Main log shared with logPrediction / autoResolvePredictions
+  function load(){ try{ return JSON.parse(localStorage.getItem('diq_pred_log')||'[]'); }catch{ return []; } }
+  function save(p){ localStorage.setItem('diq_pred_log', JSON.stringify(p)); }
 
   window._trackerRowCache = window._trackerRowCache || {};
 
-  window.trackerToggleFromCache = function(id){
-    const row = window._trackerRowCache[id];
-    if(!row) return false;
-    const today = new Date().toISOString().slice(0,10);
-    const picks = load();
-    const idx = picks.findIndex(p=>p.id===id && p.date===today);
-    if(idx >= 0){ picks.splice(idx,1); save(picks); return false; }
-    picks.push({ id, date:today, name:row.name, team:row.team, opp:row.opp,
-      batHand:row.batHand, oppHand:row.oppHand, prob:row.prob,
-      barrelPct:row.barrelPct, avgEV:row.avgEV,
-      outcome:null, homersHit:null, checkedAt:null });
-    save(picks);
-    return true;
-  };
-
-  window.trackerIsTrackedId = function(id){
-    const today = new Date().toISOString().slice(0,10);
-    return load().some(p=>p.id===id && p.date===today);
-  };
-
-  window.trackerRemove = function(id, date){
-    save(load().filter(p=>!(p.id===id && p.date===date)));
-    if(typeof renderTracker==='function') renderTracker();
-  };
-
-  async function autoCheck(){
-    const picks = load();
-    const today = new Date().toISOString().slice(0,10);
-    const season = new Date().getFullYear();
-    const pending = picks.filter(p=>p.outcome===null && p.date < today);
-    if(!pending.length) return 0;
-    const byId = {};
-    pending.forEach(p=>{ (byId[p.id]=byId[p.id]||[]).push(p); });
-    let checked = 0;
-    for(const [pid, ppicks] of Object.entries(byId)){
-      try{
-        const res = await fetch(`https://statsapi.mlb.com/api/v1/people/${pid}/stats?stats=gameLog&season=${season}&sportId=1`);
-        if(!res.ok) continue;
-        const data = await res.json();
-        const splits = data.stats?.[0]?.splits || [];
-        for(const pick of ppicks){
-          const game = splits.find(s=>s.date===pick.date);
-          if(game){
-            pick.homersHit = game.stat?.homeRuns ?? 0;
-            pick.outcome = pick.homersHit > 0;
-            pick.checkedAt = Date.now();
-            checked++;
-          }
-        }
-      }catch(e){}
-    }
-    save(picks);
-    return checked;
+  // ── helpers ──────────────────────────────────────────────────
+  function avg(arr, k){
+    const v = arr.filter(p=>p[k]!=null);
+    return v.length ? v.reduce((s,p)=>s+p[k],0)/v.length : null;
   }
+  function fmt1(v){ return v!=null ? v.toFixed(1) : null; }
+  function fmt3(v){ return v!=null ? v.toFixed(3) : null; }
 
+  // ── check results via autoResolvePredictions ──────────────────
   window.trackerRunCheck = async function(){
     const btn = document.getElementById('tracker-check-btn');
     if(btn){ btn.textContent='⏳ Checking…'; btn.disabled=true; }
     try{
-      await autoCheck();
-      if(typeof renderTracker==='function') renderTracker();
+      if(typeof autoResolvePredictions === 'function') await autoResolvePredictions();
+      window.renderTracker();
     }catch(e){
       if(btn){ btn.textContent='❌ Error'; btn.disabled=false; }
     }
   };
 
+  // ── common factors across ALL resolved days ──────────────────
+  function buildCommonFactors(allEntries){
+    const hits   = allEntries.filter(p=>p.actual===1);
+    const misses = allEntries.filter(p=>p.actual===0);
+    if(!hits.length || !misses.length) return null;
+
+    const signals = [
+      { label:'Model Prob',   key:'prob',       fmt:v=>v!=null?(v*100).toFixed(1)+'%':'-',  better:'higher' },
+      { label:'Barrel %',     key:'barrel_pct', fmt:v=>v!=null?v.toFixed(1)+'%':'-',        better:'higher' },
+      { label:'Avg EV (mph)', key:'avg_ev',     fmt:v=>fmt1(v)??'-',                        better:'higher' },
+      { label:'ISO',          key:'iso',        fmt:v=>fmt3(v)??'-',                        better:'higher' },
+      { label:'xwOBA',        key:'xwoba',      fmt:v=>fmt3(v)??'-',                        better:'higher' },
+      { label:'Platoon Mult', key:'platoon',    fmt:v=>v!=null?v.toFixed(2)+'×':'-',        better:'higher' },
+      { label:'Pitcher Mult', key:'pitcher',    fmt:v=>v!=null?v.toFixed(2)+'×':'-',        better:'higher' },
+    ];
+
+    // Only include rows where at least hits OR misses have data
+    const rows = signals.filter(s=>{
+      return avg(hits,s.key)!=null || avg(misses,s.key)!=null;
+    }).map(s=>{
+      const hv = avg(hits,  s.key);
+      const mv = avg(misses,s.key);
+      const bigger = hv!=null && mv!=null ? (hv>mv?'hit':'miss') : null;
+      return { ...s, hv, mv, bigger };
+    });
+
+    // Hand matchup breakdown
+    const crossHand = p=>{
+      if(!p.batHand||!p.oppHand) return false;
+      return (p.batHand==='L'&&p.oppHand==='R')||(p.batHand==='R'&&p.oppHand==='L')||p.batHand==='S';
+    };
+    const hCross  = hits.length   ? Math.round(hits.filter(crossHand).length/hits.length*100)   : null;
+    const mCross  = misses.length ? Math.round(misses.filter(crossHand).length/misses.length*100): null;
+
+    // Grade breakdown
+    const gradePct = (arr, g) => arr.length ? Math.round(arr.filter(p=>p.grade===g).length/arr.length*100) : 0;
+
+    return { rows, hits, misses, hCross, mCross, gradePct };
+  }
+
+  // ── main render ──────────────────────────────────────────────
   window.renderTracker = function(){
     const el = document.getElementById('tracker-content');
     if(!el) return;
-    const picks = load();
+    const all = load();
 
-    if(!picks.length){
+    if(!all.length){
       el.innerHTML = `<div style="padding:50px 20px;text-align:center">
-        <div style="font-size:2.5rem;margin-bottom:14px">📌</div>
-        <div style="font-size:.85rem;font-weight:800;color:var(--t2);margin-bottom:8px">No players tracked yet</div>
-        <div style="font-size:.70rem;color:var(--t4);line-height:1.7">Tap <b style="color:var(--amber)">📌 Track</b> on any player card in Best Bets.<br>Come back after games — results auto-check via MLB API.</div>
+        <div style="font-size:2.5rem;margin-bottom:14px">⚾</div>
+        <div style="font-size:.85rem;font-weight:800;color:var(--t2);margin-bottom:8px">No data yet</div>
+        <div style="font-size:.70rem;color:var(--t4);line-height:1.8">
+          Load the <b style="color:var(--amber)">Best Bets</b> slate — every player is automatically<br>
+          snapshotted. Come back after games finish and tap<br>
+          <b style="color:var(--amber)">🔄 Check Results</b> to pull HR outcomes.
+        </div>
       </div>`;
       return;
     }
 
     const today = new Date().toISOString().slice(0,10);
     const byDate = {};
-    picks.forEach(p=>{ (byDate[p.date]=byDate[p.date]||[]).push(p); });
+    all.forEach(p=>{ (byDate[p.date]=byDate[p.date]||[]).push(p); });
     const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
-    const pendingOld = picks.filter(p=>p.outcome===null && p.date < today).length;
+
+    const totalResolved = all.filter(p=>p.actual!=null);
+    const pendingOld    = all.filter(p=>p.actual===null && p.date < today).length;
+
+    // ── Common Factors panel (cross-day, only when ≥10 resolved) ──
+    let cfHTML = '';
+    if(totalResolved.length >= 10){
+      const cf = buildCommonFactors(totalResolved);
+      if(cf){
+        const { rows, hits, misses, hCross, mCross } = cf;
+        const totalDays = Object.values(byDate).filter(dp=>dp.some(p=>p.actual!=null)).length;
+        cfHTML = `
+        <div style="background:var(--bg2);border:1px solid var(--bdr);border-radius:12px;padding:14px;margin-bottom:20px">
+          <div style="font-size:.82rem;font-weight:800;color:var(--t1);margin-bottom:4px">🔬 Common Factors</div>
+          <div style="font-size:.62rem;color:var(--t4);margin-bottom:12px">
+            Across ${totalDays} day${totalDays!==1?'s':''} · ${hits.length} HR hitters vs ${misses.length} non-hitters
+          </div>
+          <div style="display:grid;grid-template-columns:1fr auto auto;gap:6px 12px;align-items:center">
+            <div style="font-size:.60rem;color:var(--t4);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Signal</div>
+            <div style="font-size:.60rem;font-weight:800;color:var(--green);text-align:right">✅ Hit HR</div>
+            <div style="font-size:.60rem;font-weight:800;color:var(--red);text-align:right">❌ No HR</div>
+            ${rows.map(r=>{
+              const hWins = r.bigger==='hit';
+              const mWins = r.bigger==='miss';
+              return `
+            <div style="font-size:.62rem;color:var(--t3)">${r.label}</div>
+            <div style="font-size:.72rem;font-weight:${hWins?'800':'500'};color:${hWins?'var(--green)':'var(--t3)'};text-align:right;font-variant-numeric:tabular-nums">${r.fmt(r.hv)}</div>
+            <div style="font-size:.72rem;font-weight:${mWins?'800':'500'};color:${mWins?'var(--red)':'var(--t3)'};text-align:right;font-variant-numeric:tabular-nums">${r.fmt(r.mv)}</div>`;
+            }).join('')}
+            ${hCross!=null&&mCross!=null?`
+            <div style="font-size:.62rem;color:var(--t3)">Cross-hand %</div>
+            <div style="font-size:.72rem;font-weight:${hCross>mCross?'800':'500'};color:${hCross>mCross?'var(--green)':'var(--t3)'};text-align:right">${hCross}%</div>
+            <div style="font-size:.72rem;font-weight:${mCross>hCross?'800':'500'};color:${mCross>hCross?'var(--red)':'var(--t3)'};text-align:right">${mCross}%</div>`:''}
+          </div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr);font-size:.60rem;color:var(--t4);line-height:1.7">
+            <b style="color:var(--t2)">How to use:</b> Bold values are higher in that group. Signals where HR hitters consistently outperform are your strongest predictors.
+          </div>
+        </div>`;
+      }
+    } else if(totalResolved.length > 0){
+      const needed = 10 - totalResolved.length;
+      cfHTML = `<div style="background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;padding:12px;margin-bottom:16px;text-align:center">
+        <div style="font-size:.70rem;color:var(--t4)">🔬 Common Factors unlocks after <b style="color:var(--amber)">${needed} more</b> resolved outcomes</div>
+      </div>`;
+    }
 
     let h = `<div style="padding:12px">`;
-    h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+
+    // ── Header ──
+    h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
       <div>
-        <div style="font-size:.88rem;font-weight:800;color:var(--t1)">📌 Day Tracker</div>
-        <div style="font-size:.62rem;color:var(--t4)">Outcomes auto-fetched from MLB Stats API · ${picks.length} total picks</div>
+        <div style="font-size:.88rem;font-weight:800;color:var(--t1)">📊 Slate Tracker</div>
+        <div style="font-size:.62rem;color:var(--t4)">Every player auto-saved · outcomes fetched from MLB API</div>
       </div>
       <button id="tracker-check-btn" onclick="trackerRunCheck()"
-        style="padding:7px 14px;border-radius:8px;border:1px solid ${pendingOld?'rgba(240,165,0,.4)':'var(--bdr)'};
+        style="padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.68rem;font-weight:700;
+        border:1px solid ${pendingOld?'rgba(240,165,0,.4)':'var(--bdr)'};
         background:${pendingOld?'rgba(240,165,0,.08)':'var(--bg3)'};
-        color:${pendingOld?'var(--amber)':'var(--t4)'};font-size:.68rem;font-weight:700;cursor:pointer">
+        color:${pendingOld?'var(--amber)':'var(--t4)'}">
         🔄 Check Results${pendingOld?` (${pendingOld})`:''}</button>
     </div>`;
 
+    h += cfHTML;
+
+    // ── Per-day sections ──
     for(const date of dates){
-      const dp = byDate[date];
-      const isToday = date===today;
-      const hits = dp.filter(p=>p.outcome===true);
-      const misses = dp.filter(p=>p.outcome===false);
+      const dp = byDate[date].slice().sort((a,b)=>b.prob-a.prob);
+      const isToday  = date===today;
+      const hits     = dp.filter(p=>p.actual===1);
+      const misses   = dp.filter(p=>p.actual===0);
+      const pend     = dp.filter(p=>p.actual==null);
       const resolved = hits.length + misses.length;
-      const pend = dp.filter(p=>p.outcome===null);
-      const acc = resolved ? Math.round(hits.length/resolved*100) : null;
-      const dLabel = isToday ? '📅 Today'
+      const hitRate  = resolved ? Math.round(hits.length/resolved*100) : null;
+      const dLabel   = isToday ? '📅 Today'
         : new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
 
-      h += `<div style="margin-bottom:20px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <div style="font-size:.72rem;font-weight:800;color:var(--t2)">${dLabel}</div>
-          <div style="font-size:.62rem;color:var(--t4)">${dp.length} picked${acc!==null?` · <span style="color:${acc>=35?'var(--green)':'var(--red)'};font-weight:700">${acc}% hit</span>`:pend.length?` · ${pend.length} pending`:''}</div>
-        </div>`;
+      // Collapsed by default for dates older than yesterday
+      const yesterday = new Date(Date.now()-864e5).toISOString().slice(0,10);
+      const openAttr  = (isToday || date===yesterday) ? 'open' : '';
+
+      h += `<details ${openAttr} style="margin-bottom:12px">
+        <summary style="list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+          padding:9px 11px;border-radius:10px;background:var(--bg2);border:1px solid var(--bdr)">
+          <div style="font-size:.74rem;font-weight:800;color:var(--t2)">${dLabel}</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${hitRate!=null?`<span style="font-size:.65rem;font-weight:700;color:${hitRate>=35?'var(--green)':'var(--t4)'}">✅ ${hits.length}/${resolved} hit</span>`:''}
+            ${pend.length?`<span style="font-size:.62rem;color:var(--t4)">${pend.length} pending</span>`:''}
+            <span style="font-size:.68rem;color:var(--t4)">${dp.length} players</span>
+            <span style="font-size:.65rem;color:var(--t4)">▾</span>
+          </div>
+        </summary>
+        <div style="margin-top:6px">`;
 
       for(const p of dp){
-        const bg  = p.outcome===true?'rgba(34,201,94,.10)':p.outcome===false?'rgba(224,80,74,.07)':'var(--bg2)';
-        const bdr = p.outcome===true?'rgba(34,201,94,.25)':p.outcome===false?'rgba(224,80,74,.18)':'var(--bdr)';
-        const tag = p.outcome===true
-          ? `<span style="font-size:.72rem">✅ ${p.homersHit} HR</span>`
-          : p.outcome===false
-          ? `<span style="font-size:.70rem;color:var(--red)">❌ 0 HR</span>`
-          : isToday ? `<span style="font-size:.62rem;color:var(--t4)">⏳ Pending</span>`
-          : `<span style="font-size:.62rem;color:var(--amber)">⏳ Fetching…</span>`;
-        const pc = p.prob>=0.12?'var(--green)':p.prob>=0.08?'var(--amber)':'var(--t3)';
-        h += `<div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;
-          background:${bg};border:1px solid ${bdr};margin-bottom:5px">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:.78rem;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div>
-            <div style="font-size:.60rem;color:var(--t4);margin-top:1px">${p.team}${p.batHand?` · ${p.batHand}HB`:''} ${p.opp?`vs ${p.opp}`:''}</div>
-          </div>
-          <div style="text-align:center;min-width:40px">
-            <div style="font-size:.85rem;font-weight:800;color:${pc}">${(p.prob*100).toFixed(1)}%</div>
-            <div style="font-size:.50rem;color:var(--t4)">model</div>
-          </div>
-          <div style="min-width:60px;text-align:right">${tag}</div>
-          <button onclick="trackerRemove('${p.id}','${p.date}')"
-            style="padding:3px 6px;border-radius:5px;border:1px solid var(--bdr);background:transparent;color:var(--t4);font-size:.62rem;cursor:pointer;flex-shrink:0">✕</button>
-        </div>`;
-      }
-      h += `</div>`;
+        const isHit   = p.actual===1;
+        const isMiss  = p.actual===0;
+        const bg  = isHit?'rgba(34,201,94,.08)':isMiss?'rgba(224,80,74,.06)':'var(--bg2)';
+        const bdr = isHit?'rgba(34,201,94,.22)':isMiss?'rgba(224,80,74,.15)':'var(--bdr)';
+        const outTag = isHit
+          ? `<span style="font-size:.70rem;font-weight:700;color:var(--green)">✅ HR</span>`
+          : isMiss
+          ? `<span style="font-size:.68rem;color:var(--red)">❌</span>`
+          : isToday
+          ? `<span style="font-size:.60rem;color:var(--t4)">⏳</span>`
+          : `<span style="font-size:.60rem;color:var(--amber)">?</span>`;
+        const pc  = p.prob>=0.12?'var(--green)':p.prob>=0.08?'var(--amber)':'var(--t3)';
+        const gBg = p.grade==='A+'?'rgba(255,215,0,.18)':p.grade==='A'?'rgba(34,201,94,.15)':p.grade==='B'?'rgba(56,189,248,.12)':'var(--bg3)';
+        const gCl = p.grade==='A+'?'#ffd700':p.grade==='A'?'var(--green)':p.grade==='B'?'#38bdf8':'var(--t4)';
+        const sub = [
+          p.team||'',
+          p.batHand&&p.oppHand?`${p.batHand}HB vs ${p.oppHand}HP`:'',
+          p.barrel_pct!=null?`Brl ${p.barrel_pct.toFixed(0)}%`:'',
+          p.avg_ev!=null?`EV ${p.avg_ev.toFixed(0)}`:''
+        ].filter(Boolean).join(' · ');
 
-      // Signal study panel — only shown when there are both hits and misses
-      if(hits.length && misses.length){
-        const avg = (arr,k)=>{ const v=arr.filter(p=>p[k]!=null); return v.length?v.reduce((s,p)=>s+p[k],0)/v.length:null; };
-        const f1  = v=>v!=null?v.toFixed(1):'-';
-        const rows = [
-          ['Model Prob', (hits.reduce((s,p)=>s+p.prob,0)/hits.length*100).toFixed(1)+'%',
-                         (misses.reduce((s,p)=>s+p.prob,0)/misses.length*100).toFixed(1)+'%'],
-          ...(avg(hits,'barrelPct')!=null||avg(misses,'barrelPct')!=null
-              ? [['Barrel %', f1(avg(hits,'barrelPct'))+'%', f1(avg(misses,'barrelPct'))+'%']] : []),
-          ...(avg(hits,'avgEV')!=null||avg(misses,'avgEV')!=null
-              ? [['Avg EV', f1(avg(hits,'avgEV'))+' mph', f1(avg(misses,'avgEV'))+' mph']] : []),
-        ];
-        h += `<div style="background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;padding:12px;margin-bottom:18px">
-          <div style="font-size:.68rem;font-weight:800;color:var(--t2);margin-bottom:10px">🔬 Signal Study — ${dLabel}</div>
-          <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:5px 10px;align-items:center">
-            <div></div>
-            <div style="font-size:.60rem;font-weight:700;color:var(--green);text-align:right">✅ Hit (${hits.length})</div>
-            <div style="font-size:.60rem;font-weight:700;color:var(--red);text-align:right">❌ Miss (${misses.length})</div>
-            ${rows.map(([lbl,hv,mv])=>`
-            <div style="font-size:.60rem;color:var(--t4)">${lbl}</div>
-            <div style="font-size:.68rem;font-weight:700;color:var(--green);text-align:right;font-variant-numeric:tabular-nums">${hv}</div>
-            <div style="font-size:.68rem;font-weight:700;color:var(--red);text-align:right;font-variant-numeric:tabular-nums">${mv}</div>`).join('')}
+        h += `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;
+          background:${bg};border:1px solid ${bdr};margin-bottom:4px">
+          ${p.grade?`<div style="font-size:.60rem;font-weight:800;color:${gCl};background:${gBg};padding:2px 5px;border-radius:4px;flex-shrink:0">${p.grade}</div>`:''}
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.75rem;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div>
+            <div style="font-size:.58rem;color:var(--t4);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sub}</div>
           </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:.80rem;font-weight:800;color:${pc}">${(p.prob*100).toFixed(1)}%</div>
+            <div style="font-size:.50rem;color:var(--t4)">prob</div>
+          </div>
+          <div style="min-width:28px;text-align:center;flex-shrink:0">${outTag}</div>
         </div>`;
       }
+
+      h += `</div></details>`;
     }
 
     h += `</div>`;
     el.innerHTML = h;
   };
 
-  // On load, silently auto-check any past pending picks in the background
+  // On page show, render tracker
+  document.addEventListener('diq:pagechange', e=>{
+    if(e.detail==='tracker') window.renderTracker();
+  });
+
+  // On load, silently run autoResolve for any pending past days
   window.addEventListener('load', ()=>{
     const p = load();
-    if(p.some(x=>x.outcome===null && x.date < new Date().toISOString().slice(0,10))){
-      autoCheck().then(()=>{
-        if(document.getElementById('page-tracker')?.classList.contains('active')) renderTracker();
-      }).catch(()=>{});
+    const today = new Date().toISOString().slice(0,10);
+    if(p.some(x=>x.actual===null && x.date < today)){
+      (typeof autoResolvePredictions==='function' ? autoResolvePredictions() : Promise.resolve())
+        .then(()=>{
+          if(document.getElementById('page-tracker')?.classList.contains('active')) window.renderTracker();
+        }).catch(()=>{});
     }
   });
 })(); // end Day Tracker IIFE
