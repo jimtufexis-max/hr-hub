@@ -14869,12 +14869,42 @@ function renderDetail(r){
                 const isOuter = hand==='R' ? col===2 : col===0;
                 const isHigh  = row===0;
                 const isMid   = row===1;
-                let score = 0.5; // neutral
-                if(pull!=null) score += (isInner ? (pull-30)*0.006 : isOuter ? -(pull-30)*0.003 : 0);
-                if(fb!=null)   score += (isHigh||isMid ? (fb-35)*0.005 : -(fb-35)*0.004);
-                if(gb!=null)   score -= (!isHigh ? (gb-45)*0.004 : 0);
-                if(hrFB!=null) score += (isMid&&isInner ? (hrFB-13)*0.010 : 0);
-                return clamp(score, 0.05, 0.95);
+                // Base score from batted-ball profile (pull%, GB%, FB%, HR/FB%)
+                let baseScore = 0.5;
+                if(pull!=null) baseScore += (isInner ? (pull-30)*0.006 : isOuter ? -(pull-30)*0.003 : 0);
+                if(fb!=null)   baseScore += (isHigh||isMid ? (fb-35)*0.005 : -(fb-35)*0.004);
+                if(gb!=null)   baseScore -= (!isHigh ? (gb-45)*0.004 : 0);
+                if(hrFB!=null) baseScore += (isMid&&isInner ? (hrFB-13)*0.010 : 0);
+                baseScore = clamp(baseScore, 0.05, 0.95);
+                // BvP zone blend: weighted by SP pitch usage (bvp & mix available by call time)
+                let bvpWXwoba=0, bvpWt=0, bvpAB=0;
+                for(const [pt,pct] of Object.entries(mix)){
+                  if(pct<5||pt.startsWith('_')) continue;
+                  const pd=bvp[pt]; if(!pd) continue;
+                  const zAB=pd.zone3ab?.[row]?.[col]??0;
+                  const zXW=pd.zone3xwoba?.[row]?.[col]??0;
+                  if(zAB>=2&&zXW>0){ bvpWXwoba+=zXW*pct; bvpWt+=pct; bvpAB+=zAB; }
+                }
+                if(bvpWt>0){
+                  const xw=bvpWXwoba/bvpWt;
+                  // xwOBA scale: 0.200→0  0.320→0.5  0.480→1.0
+                  const bvpScore=clamp((xw-0.200)/0.280,0.05,0.95);
+                  const conf=Math.min(bvpAB/15,0.75);
+                  return bvpScore*conf+baseScore*(1-conf);
+                }
+                // Fallback: blend overall pitch-type xwOBA when no zone data
+                let oWXwoba=0, oWt=0;
+                for(const [pt,pct] of Object.entries(mix)){
+                  if(pct<5||pt.startsWith('_')) continue;
+                  const pd=bvp[pt]; if(!pd?.xwoba) continue;
+                  oWXwoba+=pd.xwoba*pct; oWt+=pct;
+                }
+                if(oWt>0){
+                  const xw=oWXwoba/oWt;
+                  const bvpScore=clamp((xw-0.200)/0.280,0.05,0.95);
+                  return bvpScore*0.45+baseScore*0.55;
+                }
+                return baseScore;
               }
               function zoneColor(s){
                 return s>=0.70?'rgba(34,201,94,.55)':s>=0.50?'rgba(240,165,0,.45)':s>=0.35?'rgba(224,80,74,.35)':'rgba(224,80,74,.55)';
@@ -14917,7 +14947,9 @@ function renderDetail(r){
                 if(spTendency==='up-middle'  && row===0 && col===1) return true;
                 return false;
               }
-              if(!pull && !gb && !fb && !hrFB) return '';
+              // bvp defined here so zoneScore (called below) can blend it in
+              const bvp = r._bvp || r.batVsPitch || r._batterStats?.batVsPitch || {};
+              if(!pull && !gb && !fb && !hrFB && !Object.keys(bvp).length) return '';
               // Build full zone info for click popups
               const rowLabels = ['High','Mid','Low'];
               const colLabel = (ci) => {
@@ -14965,7 +14997,6 @@ function renderDetail(r){
                   score:s, rating, ratingColor, spMark, spTendency, spTendencyLabel, contribs:zoneContribs(ri,ci) };
               }));
               window._lastHotZoneGrid = hzGrid;
-              const bvp = r._bvp || r.batVsPitch || r._batterStats?.batVsPitch || {};
               const PNAME={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Change',FS:'Split',KC:'K-Curv'};
               // Pitch buttons: SP pitches >=8% usage where batter has any PA data
               const spPitches = Object.entries(mix)
