@@ -17450,7 +17450,7 @@ function initApp(){
         const blob=new Blob([txt],{type:'text/plain'});
         const url=URL.createObjectURL(blob);
         const a=document.createElement('a');
-        a.href=url; a.download=`DingerIQ_${today}.txt`; a.click();
+        a.href=url; a.download=`DingerIQ_${ds()}.txt`; a.click();
         URL.revokeObjectURL(url);
         if(btn){ btn.textContent='📋 Copy Today'; btn.disabled=false; }
       }
@@ -17637,7 +17637,7 @@ function initApp(){
       team:r.team||'', pos:r.pos||'', game:r.game||'',
       batHand:r.batHand||'', oppHand:r.oppHand||'',
       grade:r.grade||'',
-      tags:(()=>{try{return detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).map(a=>a.label).join(', ');}catch{return r.tags||'';}})(),
+      tags:r.tags||'',
       barrel_pct:r.barrel_pct??null, avg_ev:r.avg_ev??null,
       iso:r.iso??null, xwoba:r.xwoba??null,
       platoon:r.platoon??null, pitcher:r.pitcher??null,
