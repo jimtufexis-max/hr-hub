@@ -764,7 +764,7 @@ input:focus,textarea:focus{border-color:var(--amber)}
     </button>
     <button class="nav-btn" id="nav-picks" onclick="showPage('picks')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
-      Picks
+      Best Bets
     </button>
     <button class="nav-btn" id="nav-discover" onclick="showPage('discover')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
@@ -928,7 +928,11 @@ function showPage(name){
     if(name==='kelly') renderKelly();
     if(name==='picks') renderBestBets();
     if(name==='discover') renderDiscover();
-    if(name==='tracker') renderTracker();
+    if(name==='tracker'){
+      renderTracker();
+      // If slate hasn't loaded yet, kick it off so the tracker populates automatically
+      if(!S.allRows.length) loadSlate();
+    }
     if(name==='scout') renderScout();
     if(name==='ab') populateABSelect();
     if(name==='pl') populatePitcherSelect();
@@ -3738,9 +3742,14 @@ function renderGameChips(){
     try{ timeStr = fmtGameTime(g.gameTime)||''; }catch{}
     return`<div class="chip${active?' active':''}${loaded&&!active?' loaded':''}"
       onclick="toggleGame('${g.pk}')"
-      style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
+      style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;position:relative">
       <div>${loaded?'✅ ':''}${g.away}@${g.home}${windBadge}</div>
       ${timeStr?`<div style="font-size:.55rem;color:var(--t4)">${timeStr}</div>`:''}
+      ${loaded&&active?`<button onclick="event.stopPropagation();copyGameData('${g.pk}','${g.away}@${g.home}')"
+        id="copy-btn-${g.pk}"
+        style="margin-top:3px;padding:2px 7px;border-radius:5px;border:1px solid rgba(99,179,237,.5);
+        background:rgba(99,179,237,.12);color:#63b3ed;font-size:.52rem;font-weight:700;cursor:pointer;
+        width:100%;text-align:center">📋 Copy Data</button>`:''}
     </div>`;
     }).join('');
   }catch(e){
@@ -3774,6 +3783,94 @@ async function toggleGame(pk){
     S.allRows=[];return;
   }
   await loadSelectedGames();
+}
+
+// ── Copy game player data to clipboard for AI analysis ──────────
+async function copyGameData(pk, gameLabel){
+  const btn = document.getElementById(`copy-btn-${pk}`);
+  if(btn){ btn.textContent='⏳ Building…'; btn.disabled=true; }
+  try{
+    const away = S.cache[`${pk}_away`]||[];
+    const home  = S.cache[`${pk}_home`]||[];
+    const all   = [...away,...home].sort((a,b)=>b.prob-a.prob);
+    if(!all.length){
+      if(btn){btn.textContent='❌ No data';setTimeout(()=>{btn.textContent='📋 Copy Data';btn.disabled=false;},2000);}
+      return;
+    }
+
+    const today = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+    const f1  = v => v!=null ? v.toFixed(1) : '—';
+    const f3  = v => v!=null ? v.toFixed(3) : '—';
+    const fp  = v => v!=null ? (v*100).toFixed(1)+'%' : '—';
+    const fm  = v => v!=null ? v.toFixed(2)+'×' : '—';
+
+    const SEP = '─'.repeat(88);
+    let txt = `=== DingerIQ Game Snapshot: ${gameLabel} ===\n`;
+    txt += `Date: ${today}  |  Players: ${all.length}\n`;
+    txt += `\n`;
+    txt += `HOW TO USE: After the game, reply with who actually hit a home run.\n`;
+    txt += `I'll analyze what signals and tags the HR hitters had in common.\n`;
+    txt += `\n${SEP}\n`;
+    txt += `COLUMNS: Grade | Model% | Barrel% | AvgEV | ISO | xwOBA | Platoon× | Pitcher× | Matchup | Tags\n`;
+    txt += `${SEP}\n\n`;
+
+    // Group by team
+    const byTeam = {};
+    all.forEach(r=>{
+      const t = r.team||'?';
+      if(!byTeam[t]) byTeam[t]=[];
+      byTeam[t].push(r);
+    });
+
+    for(const [team, players] of Object.entries(byTeam)){
+      const sp = players[0];
+      const spInfo = sp.spNm ? `vs SP: ${sp.spNm}${sp.oppHand?' ('+sp.oppHand+'HP)':''}` : '';
+      txt += `── ${team} ${spInfo} ──\n`;
+      for(const r of players){
+        const matchup = r.batHand&&r.oppHand ? `${r.batHand}HB vs ${r.oppHand}HP` : '';
+        let tags = '';
+        try{ tags = detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).map(a=>a.label).join(', '); }catch{}
+        const parts = [
+          (r.grade||'—').padEnd(3),
+          fp(r.prob).padStart(6),
+          r.barrel_pct!=null?r.barrel_pct.toFixed(1)+'%':'—',
+          r.avg_ev!=null?r.avg_ev.toFixed(1)+' mph':'—',
+          f3(r.iso),
+          f3(r.xwoba),
+          fm(r.platoon),
+          fm(r.pitcher),
+          matchup,
+          tags||'—'
+        ];
+        txt += `${r.name.padEnd(22)} | ${parts.join(' | ')}\n`;
+      }
+      txt += '\n';
+    }
+
+    txt += `${SEP}\n`;
+    txt += `SUGGESTED PROMPT AFTER THE GAME:\n`;
+    txt += `"The following players hit home runs: [list names]. Looking at the data above,\n`;
+    txt += ` what signals (Grade, Barrel%, EV, ISO, xwOBA, Platoon×, Pitcher×) and Tags\n`;
+    txt += ` did the HR hitters have in common? What thresholds separate them from the non-hitters?\n`;
+    txt += ` Give me a concise scouting rule I can apply to future slates."\n`;
+
+    try{
+      await navigator.clipboard.writeText(txt);
+      if(btn){btn.textContent='✅ Copied!';setTimeout(()=>{btn.textContent='📋 Copy Data';btn.disabled=false;},2500);}
+      showToast(`📋 ${gameLabel} data copied — paste into AI after the game`,null,4000);
+    }catch{
+      // Fallback download
+      const blob=new Blob([txt],{type:'text/plain'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;a.download=`DingerIQ_${gameLabel.replace('@','vs')}_${new Date().toISOString().slice(0,10)}.txt`;a.click();
+      URL.revokeObjectURL(url);
+      if(btn){btn.textContent='📋 Copy Data';btn.disabled=false;}
+    }
+  }catch(e){
+    console.error('[copyGameData]',e);
+    if(btn){btn.textContent='❌ Error';setTimeout(()=>{btn.textContent='📋 Copy Data';btn.disabled=false;},2000);}
+  }
 }
 
 // Bulk leaderboard data — load once per session via Worker proxy
@@ -5417,6 +5514,7 @@ function logPrediction(rows){
     for(const r of rows){
       if(!r.id||!r._rawProb) continue;
       const uid = `${r.id}_${today}`;
+      const _tags=(()=>{try{return detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).map(a=>a.label).join(', ');}catch{return '';}})();
       if(uidMap.has(uid)){
         // Update prob + all enriched signals when enrichment refines them
         const idx = uidMap.get(uid);
@@ -5431,6 +5529,7 @@ function logPrediction(rows){
         stored[idx].pitcher   = r.pitcher   ??stored[idx].pitcher;
         stored[idx].szHR      = r.szHR      ??stored[idx].szHR;
         stored[idx].szPA      = r.szPA      ??stored[idx].szPA;
+        if(_tags) stored[idx].tags = _tags;
         continue;
       }
       stored.push({ uid, id:String(r.id), name:r.name,
@@ -5438,7 +5537,7 @@ function logPrediction(rows){
         logged:Date.now(), actual:null, resolvedAt:null,
         team:r.team||'', pos:r.pos||'', game:r.game||'',
         batHand:r.batHand||'', oppHand:r.oppHand||'',
-        grade:r.grade||'',
+        grade:r.grade||'', tags:_tags,
         barrel_pct:r.barrel_pct??null, avg_ev:r.avg_ev??null,
         iso:r.iso??null, xwoba:r.xwoba??null,
         platoon:r.platoon??null, pitcher:r.pitcher??null,
@@ -5450,7 +5549,11 @@ function logPrediction(rows){
     const cutoff = ds(new Date(Date.now()-90*864e5));
     const trimmed = stored.filter(x=>x.date>=cutoff);
     localStorage.setItem('diq_pred_log', JSON.stringify(trimmed));
-    if(added) console.log(`[predLog] +${added} predictions`);
+    if(added){
+      console.log(`[predLog] +${added} predictions`);
+      // Re-render Tracker if it's open so new data appears without a manual refresh
+      if(typeof window.renderTracker==='function' && _currentPage==='tracker') window.renderTracker();
+    }
   }catch(e){ console.warn('[predLog]', e.message); }
 }
 
@@ -17263,6 +17366,117 @@ function initApp(){
   function fmt1(v){ return v!=null ? v.toFixed(1) : null; }
   function fmt3(v){ return v!=null ? v.toFixed(3) : null; }
 
+  // ── 7-day export for AI analysis ────────────────────────────
+  window.trackerExport = async function(){
+    const btn = document.getElementById('tracker-export-btn');
+    if(btn){ btn.textContent='⏳ Building…'; btn.disabled=true; }
+    try{
+      // Freshen outcomes first
+      if(typeof autoResolvePredictions==='function') await autoResolvePredictions();
+
+      const all   = load();
+      const today = new Date().toISOString().slice(0,10);
+      const cutoff= new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+      const rows  = all.filter(p=>p.date>=cutoff).sort((a,b)=>a.date.localeCompare(b.date)||b.prob-a.prob);
+
+      if(!rows.length){
+        alert('No data yet — load Best Bets for a few days first, then export.');
+        if(btn){ btn.textContent='📋 Export'; btn.disabled=false; }
+        return;
+      }
+
+      const resolved = rows.filter(p=>p.actual!=null);
+      const hits     = rows.filter(p=>p.actual===1);
+      const misses   = rows.filter(p=>p.actual===0);
+      const pending  = rows.filter(p=>p.actual==null);
+      const hrRate   = resolved.length ? (hits.length/resolved.length*100).toFixed(1) : '?';
+
+      const f1  = v => v!=null ? v.toFixed(1) : '—';
+      const f3  = v => v!=null ? v.toFixed(3) : '—';
+      const fp  = v => v!=null ? (v*100).toFixed(1)+'%' : '—';
+      const fm  = v => v!=null ? v.toFixed(2)+'×' : '—';
+
+      const dateRange = (()=>{
+        const ds = [...new Set(rows.map(p=>p.date))].sort();
+        const fmt = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        return ds.length===1 ? fmt(ds[0]) : `${fmt(ds[0])} – ${fmt(ds[ds.length-1])}`;
+      })();
+
+      const line = (p, outcome) => {
+        const matchup = p.batHand&&p.oppHand ? `${p.batHand}HB vs ${p.oppHand}HP` : '';
+        const parts = [
+          p.date,
+          p.name,
+          [p.team, p.pos, matchup].filter(Boolean).join(' '),
+          p.grade||'—',
+          fp(p.prob),
+          p.barrel_pct!=null ? p.barrel_pct.toFixed(1)+'%' : '—',
+          p.avg_ev!=null ? p.avg_ev.toFixed(1)+' mph' : '—',
+          f3(p.iso),
+          f3(p.xwoba),
+          fm(p.platoon),
+          fm(p.pitcher),
+          p.tags||'—'
+        ];
+        return parts.join(' | ');
+      };
+
+      const HDR = 'Date | Player | Team/Pos/Matchup | Grade | Prob | Barrel% | AvgEV | ISO | xwOBA | Platoon | Pitcher | Tags';
+      const SEP = '─'.repeat(90);
+
+      let txt = `=== DingerIQ 7-Day HR Tracker Export ===\n`;
+      txt += `Generated: ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}\n`;
+      txt += `Dates covered: ${dateRange}  |  Players tracked: ${rows.length}  |  Resolved: ${resolved.length}  |  Pending: ${pending.length}\n`;
+      txt += `HR hitters: ${hits.length}  |  Non-hitters: ${misses.length}  |  HR rate: ${hrRate}%\n`;
+      txt += `\n`;
+      txt += `HOW TO USE: Paste this into an AI chat. Ask it to find common signals among the ✅ HR hitters\n`;
+      txt += `compared to the ❌ non-hitters — especially in Tags, Grade, Barrel%, EV, and matchup.\n`;
+      txt += `\n${SEP}\n`;
+      txt += `✅ HR HITTERS (${hits.length})\n`;
+      txt += `${SEP}\n`;
+      txt += `${HDR}\n`;
+      hits.forEach(p=>{ txt += line(p,'HR')+'\n'; });
+
+      txt += `\n${SEP}\n`;
+      txt += `❌ NO HR (${misses.length})\n`;
+      txt += `${SEP}\n`;
+      txt += `${HDR}\n`;
+      misses.forEach(p=>{ txt += line(p,'no HR')+'\n'; });
+
+      if(pending.length){
+        txt += `\n${SEP}\n`;
+        txt += `⏳ PENDING / GAME NOT YET PLAYED (${pending.length})\n`;
+        txt += `${SEP}\n`;
+        txt += `${HDR}\n`;
+        pending.forEach(p=>{ txt += line(p,'pending')+'\n'; });
+      }
+
+      txt += `\n${SEP}\n`;
+      txt += `SUGGESTED PROMPT:\n`;
+      txt += `"Look at the HR Hitters section vs the No HR section. What signals or tags appear most\n`;
+      txt += ` frequently among the HR hitters? What Grade, Barrel%, EV, Platoon, and Pitcher multiplier\n`;
+      txt += ` thresholds separate the hitters from the non-hitters? What Tags show up most on HR hitters?\n`;
+      txt += ` Give me a concise set of criteria I should look for when picking HR props."\n`;
+
+      // Copy to clipboard
+      try{
+        await navigator.clipboard.writeText(txt);
+        if(btn){ btn.textContent='✅ Copied!'; setTimeout(()=>{ if(btn){btn.textContent='📋 Export';btn.disabled=false;} },2500); }
+      }catch{
+        // Fallback: download as file
+        const blob = new Blob([txt],{type:'text/plain'});
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = `DingerIQ_7day_${today}.txt`; a.click();
+        URL.revokeObjectURL(url);
+        if(btn){ btn.textContent='📋 Export'; btn.disabled=false; }
+      }
+    }catch(e){
+      console.error('[trackerExport]',e);
+      if(btn){ btn.textContent='❌ Error'; btn.disabled=false; }
+    }
+  };
+
   // ── check results via autoResolvePredictions ──────────────────
   window.trackerRunCheck = async function(){
     const btn = document.getElementById('tracker-check-btn');
@@ -17322,14 +17536,23 @@ function initApp(){
     const all = load();
 
     if(!all.length){
+      // Are we mid-load? Show spinner if slate is actively loading
+      const isLoading = (S.allRows.length===0 && document.getElementById('hitter-list')?.innerHTML.includes('Loading'));
       el.innerHTML = `<div style="padding:50px 20px;text-align:center">
-        <div style="font-size:2.5rem;margin-bottom:14px">⚾</div>
-        <div style="font-size:.85rem;font-weight:800;color:var(--t2);margin-bottom:8px">No data yet</div>
-        <div style="font-size:.70rem;color:var(--t4);line-height:1.8">
-          Load the <b style="color:var(--amber)">Best Bets</b> slate — every player is automatically<br>
-          snapshotted. Come back after games finish and tap<br>
-          <b style="color:var(--amber)">🔄 Check Results</b> to pull HR outcomes.
+        <div style="font-size:2.2rem;margin-bottom:14px">${isLoading?'⏳':'⚾'}</div>
+        <div style="font-size:.85rem;font-weight:800;color:var(--t2);margin-bottom:10px">
+          ${isLoading?'Loading today\'s players…':'Fetching today\'s slate…'}
         </div>
+        <div style="font-size:.70rem;color:var(--t4);line-height:1.9;margin-bottom:18px">
+          Every player on the slate is <b style="color:var(--t2)">automatically saved</b> each day.<br>
+          After games finish, tap <b style="color:var(--amber)">🔄 Check Results</b> to pull<br>
+          HR outcomes and unlock the <b style="color:var(--green)">Common Factors</b> analysis.
+        </div>
+        <button onclick="loadSlate();this.disabled=true;this.textContent='Loading…'"
+          style="padding:9px 20px;border-radius:9px;border:1px solid rgba(240,165,0,.4);
+          background:rgba(240,165,0,.1);color:var(--amber);font-size:.72rem;font-weight:700;cursor:pointer">
+          📅 Load Today's Players
+        </button>
       </div>`;
       return;
     }
@@ -17387,17 +17610,33 @@ function initApp(){
     let h = `<div style="padding:12px">`;
 
     // ── Header ──
-    h += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-      <div>
-        <div style="font-size:.88rem;font-weight:800;color:var(--t1)">📊 Slate Tracker</div>
-        <div style="font-size:.62rem;color:var(--t4)">Every player auto-saved · outcomes fetched from MLB API</div>
+    h += `<div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div>
+          <div style="font-size:.88rem;font-weight:800;color:var(--t1)">📊 Slate Tracker</div>
+          <div style="font-size:.62rem;color:var(--t4)">Every player auto-saved · outcomes fetched from MLB API</div>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <button id="tracker-check-btn" onclick="trackerRunCheck()"
+            style="padding:7px 12px;border-radius:8px;cursor:pointer;font-size:.68rem;font-weight:700;
+            border:1px solid ${pendingOld?'rgba(240,165,0,.4)':'var(--bdr)'};
+            background:${pendingOld?'rgba(240,165,0,.08)':'var(--bg3)'};
+            color:${pendingOld?'var(--amber)':'var(--t4)'}">
+            🔄 Check Results${pendingOld?` (${pendingOld})`:''}</button>
+          <button id="tracker-export-btn" onclick="trackerExport()"
+            style="padding:7px 12px;border-radius:8px;cursor:pointer;font-size:.68rem;font-weight:700;
+            border:1px solid rgba(99,179,237,.4);background:rgba(99,179,237,.08);color:#63b3ed">
+            📋 Export 7-Day</button>
+        </div>
       </div>
-      <button id="tracker-check-btn" onclick="trackerRunCheck()"
-        style="padding:7px 14px;border-radius:8px;cursor:pointer;font-size:.68rem;font-weight:700;
-        border:1px solid ${pendingOld?'rgba(240,165,0,.4)':'var(--bdr)'};
-        background:${pendingOld?'rgba(240,165,0,.08)':'var(--bg3)'};
-        color:${pendingOld?'var(--amber)':'var(--t4)'}">
-        🔄 Check Results${pendingOld?` (${pendingOld})`:''}</button>
+      <div style="background:rgba(99,179,237,.07);border:1px solid rgba(99,179,237,.2);border-radius:8px;
+        padding:9px 12px;font-size:.62rem;color:var(--t4);line-height:1.7">
+        💡 <b style="color:var(--t2)">How it works:</b>
+        Load Best Bets each day — all players auto-save.
+        After games end, tap <b style="color:var(--amber)">🔄 Check Results</b> to pull HR outcomes.
+        After a few days, tap <b style="color:#63b3ed">📋 Export 7-Day</b> to copy a report you can paste into
+        an AI (ChatGPT, Claude, etc.) to find which tags &amp; signals predict HRs in your sample.
+      </div>
     </div>`;
 
     h += cfHTML;
