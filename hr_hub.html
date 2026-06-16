@@ -17383,8 +17383,8 @@ function initApp(){
     if(btn){ btn.textContent='⏳ Building…'; btn.disabled=true; }
     try{
       const all   = load();
-      const today = new Date().toISOString().slice(0,10);
-      const rows  = all.filter(p=>p.date===today).sort((a,b)=>b.prob-a.prob);
+      const t// Read directly from S.allRows — same source as renderTracker uses for today
+      const rows = (S.allRows||[]).slice().sort((a,b)=>b.prob-a.prob);
 
       if(!rows.length){
         if(btn){ btn.textContent='📋 Copy Today'; btn.disabled=false; }
@@ -17627,33 +17627,51 @@ function initApp(){
   window.renderTracker = function(){
     const el = document.getElementById('tracker-content');
     if(!el) return;
-    const all = load();
+
+    // TODAY: read directly from S.allRows — no localStorage dependency
+    const todayStr = ds();
+    const liveEntries = (S.allRows||[]).map(r=>({
+      uid:`${r.id}_${todayStr}`, id:String(r.id), name:r.name,
+      prob:r.prob, rawProb:r._rawProb||r.prob, date:todayStr,
+      actual:null, resolvedAt:null,
+      team:r.team||'', pos:r.pos||'', game:r.game||'',
+      batHand:r.batHand||'', oppHand:r.oppHand||'',
+      grade:r.grade||'',
+      tags:(()=>{try{return detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).map(a=>a.label).join(', ');}catch{return r.tags||'';}})(),
+      barrel_pct:r.barrel_pct??null, avg_ev:r.avg_ev??null,
+      iso:r.iso??null, xwoba:r.xwoba??null,
+      platoon:r.platoon??null, pitcher:r.pitcher??null,
+      szHR:r.szHR??null, szPA:r.szPA??null,
+    }));
+
+    // PAST DAYS: from localStorage, excluding today (live data takes precedence)
+    const storedAll = load().filter(p=>p.date!==todayStr);
+
+    // Merge: live today + stored past
+    const all = [...liveEntries, ...storedAll];
 
     if(!all.length){
-      // Are we mid-load? Show spinner if slate is actively loading
-      const isLoading = (S.allRows.length===0 && document.getElementById('hitter-list')?.innerHTML.includes('Loading'));
+      const isLoading = document.getElementById('hitter-list')?.innerHTML.includes('Loading');
       el.innerHTML = `<div style="padding:50px 20px;text-align:center">
         <div style="font-size:2.2rem;margin-bottom:14px">${isLoading?'⏳':'⚾'}</div>
         <div style="font-size:.85rem;font-weight:800;color:var(--t2);margin-bottom:10px">
-          ${isLoading?'Loading today\'s players…':'Fetching today\'s slate…'}
+          ${isLoading?'Loading today\'s players…':'No games loaded yet'}
         </div>
         <div style="font-size:.70rem;color:var(--t4);line-height:1.9;margin-bottom:18px">
-          Every player on the slate is <b style="color:var(--t2)">automatically saved</b> each day.<br>
-          After games finish, tap <b style="color:var(--amber)">🔄 Check Results</b> to pull<br>
-          HR outcomes and unlock the <b style="color:var(--green)">Common Factors</b> analysis.
+          Tap game chips on the <b style="color:var(--t2)">Slate tab</b> to load players.<br>
+          They appear here instantly — then tap <b style="color:var(--green)">📋 Copy Today</b><br>
+          to export for AI analysis.
         </div>
-        <button onclick="(async()=>{this.disabled=true;this.textContent='Loading…';try{if(S.allRows.length){try{logPrediction(S.allRows);}catch{}renderTracker();}else{await loadSlate();if(S.allRows.length){try{logPrediction(S.allRows);}catch{}renderTracker();}else{this.disabled=false;this.textContent='📅 Load Today\'s Players';}}}catch(e){this.disabled=false;this.textContent='📅 Load Today\'s Players';}})()"
+        <button onclick="showPage('slate')"
           style="padding:9px 20px;border-radius:9px;border:1px solid rgba(240,165,0,.4);
           background:rgba(240,165,0,.1);color:var(--amber);font-size:.72rem;font-weight:700;cursor:pointer">
-          📅 Load Today's Players
+          ⚾ Go to Slate
         </button>
       </div>`;
       return;
     }
 
-    const today = new Date().toISOString().slice(0,10);
-    const byDate = {};
-    all.forEach(p=>{ (byDate[p.date]=byDate[p.date]||[]).push(p); });
+    const today = todayStrrEach(p=>{ (byDate[p.date]=byDate[p.date]||[]).push(p); });
     const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
 
     const totalResolved = all.filter(p=>p.actual!=null);
