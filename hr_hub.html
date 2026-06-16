@@ -929,8 +929,10 @@ function showPage(name){
     if(name==='picks') renderBestBets();
     if(name==='discover') renderDiscover();
     if(name==='tracker'){
+      // If players are loaded but not yet snapshotted, do it now so tracker has data
+      if(S.allRows.length) try{ logPrediction(S.allRows); }catch{}
       renderTracker();
-      // If slate hasn't loaded yet, kick it off so the tracker populates automatically
+      // If slate hasn't loaded at all, kick it off
       if(!S.allRows.length) loadSlate();
     }
     if(name==='scout') renderScout();
@@ -17552,7 +17554,7 @@ function initApp(){
           After games finish, tap <b style="color:var(--amber)">🔄 Check Results</b> to pull<br>
           HR outcomes and unlock the <b style="color:var(--green)">Common Factors</b> analysis.
         </div>
-        <button onclick="loadSlate();this.disabled=true;this.textContent='Loading…'"
+        <button onclick="(async()=>{this.disabled=true;this.textContent='Loading…';try{if(S.allRows.length){try{logPrediction(S.allRows);}catch{}renderTracker();}else{await loadSlate();if(S.allRows.length){try{logPrediction(S.allRows);}catch{}renderTracker();}else{this.disabled=false;this.textContent='📅 Load Today\'s Players';}}}catch(e){this.disabled=false;this.textContent='📅 Load Today\'s Players';}})()"
           style="padding:9px 20px;border-radius:9px;border:1px solid rgba(240,165,0,.4);
           background:rgba(240,165,0,.1);color:var(--amber);font-size:.72rem;font-weight:700;cursor:pointer">
           📅 Load Today's Players
