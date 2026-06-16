@@ -3914,6 +3914,8 @@ async function loadSelectedGames(){
       return;
     }
     try{ renderSlate(); renderDailySummary(); }catch(e){ console.error('[render from cache]',e); }
+    // Snapshot to tracker immediately — cache-hit path
+    try{ logPrediction(S.allRows); }catch{}
     return;
   }
 
@@ -3956,6 +3958,9 @@ async function loadSelectedGames(){
     }
   }
   console.log(`[loadSelectedGames] total allRows: ${S.allRows.length}`);
+
+  // Snapshot all loaded players to tracker storage immediately
+  try{ logPrediction(S.allRows); }catch{}
 
   // Apply catcher framing (async; re-render when data arrives)
   if(_catcherFramingMap && Object.keys(_catcherFramingMap).length){
@@ -17372,6 +17377,89 @@ function initApp(){
   function fmt1(v){ return v!=null ? v.toFixed(1) : null; }
   function fmt3(v){ return v!=null ? v.toFixed(3) : null; }
 
+  // ── Copy today's players for AI analysis ────────────────────
+  window.trackerCopyToday = async function(){
+    const btn = document.getElementById('tracker-copy-today-btn');
+    if(btn){ btn.textContent='⏳ Building…'; btn.disabled=true; }
+    try{
+      const all   = load();
+      const today = new Date().toISOString().slice(0,10);
+      const rows  = all.filter(p=>p.date===today).sort((a,b)=>b.prob-a.prob);
+
+      if(!rows.length){
+        if(btn){ btn.textContent='📋 Copy Today'; btn.disabled=false; }
+        showToast('No players saved yet — tap game chips on the Slate tab first',null,3500);
+        return;
+      }
+
+      const dateStr = new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+      const fp  = v => v!=null ? (v*100).toFixed(1)+'%' : '—';
+      const f1  = v => v!=null ? v.toFixed(1) : '—';
+      const f3  = v => v!=null ? v.toFixed(3) : '—';
+      const fm  = v => v!=null ? v.toFixed(2)+'×' : '—';
+      const SEP = '─'.repeat(90);
+
+      let txt = `=== DingerIQ Today's Slate: ${dateStr} ===\n`;
+      txt += `Players: ${rows.length}  |  Games: ${[...new Set(rows.map(r=>r.game).filter(Boolean))].join(', ')}\n\n`;
+      txt += `HOW TO USE: After games finish, reply with who hit home runs.\n`;
+      txt += `I'll find the signals and tags that separated HR hitters from non-hitters.\n\n`;
+      txt += `${SEP}\n`;
+      txt += `COLUMNS: Grade | Model% | Barrel% | AvgEV | ISO | xwOBA | Platoon× | Pitcher× | Matchup | Tags\n`;
+      txt += `${SEP}\n\n`;
+
+      // Group by game
+      const byGame = {};
+      rows.forEach(r=>{ const g=r.game||'?'; (byGame[g]=byGame[g]||[]).push(r); });
+
+      for(const [game, players] of Object.entries(byGame)){
+        const sp = players[0];
+        txt += `── ${game}${sp.pitcher?' · SP: '+sp.pitcher:''} ──\n`;
+        for(const r of players){
+          const matchup = r.batHand&&r.oppHand ? `${r.batHand}HB vs ${r.oppHand}HP` : '';
+          let tags = '';
+          try{ tags = (r.tags||[]).filter(t=>t&&!t.endsWith('(-)')).join(', '); }catch{}
+          const cols = [
+            (r.grade||'—').padEnd(3),
+            fp(r.prob).padStart(6),
+            r.barrel_pct!=null?r.barrel_pct.toFixed(1)+'%':'—',
+            r.avg_ev!=null?r.avg_ev.toFixed(1)+' mph':'—',
+            f3(r.iso),
+            f3(r.xwoba),
+            fm(r.platoon),
+            fm(r.pitcher!=null&&typeof r.pitcher==='number'?r.pitcher:null),
+            matchup,
+            tags||'—'
+          ];
+          txt += `${(r.name||'?').padEnd(22)} | ${cols.join(' | ')}\n`;
+        }
+        txt += '\n';
+      }
+
+      txt += `${SEP}\n`;
+      txt += `SUGGESTED PROMPT AFTER GAMES:\n`;
+      txt += `"These players hit home runs today: [list names here].\n`;
+      txt += ` Looking at the data above, what Grade, Barrel%, EV, ISO, xwOBA, Platoon×,\n`;
+      txt += ` Pitcher× and Tags did the HR hitters have in common vs the non-hitters?\n`;
+      txt += ` Give me a scouting rule I can apply to future slates."\n`;
+
+      try{
+        await navigator.clipboard.writeText(txt);
+        if(btn){ btn.textContent='✅ Copied!'; setTimeout(()=>{ btn.textContent='📋 Copy Today'; btn.disabled=false; },2500); }
+        showToast(`📋 ${rows.length} players copied — paste into AI after the games`,null,4000);
+      }catch{
+        const blob=new Blob([txt],{type:'text/plain'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url; a.download=`DingerIQ_${today}.txt`; a.click();
+        URL.revokeObjectURL(url);
+        if(btn){ btn.textContent='📋 Copy Today'; btn.disabled=false; }
+      }
+    }catch(e){
+      console.error('[trackerCopyToday]',e);
+      if(btn){ btn.textContent='📋 Copy Today'; btn.disabled=false; }
+    }
+  };
+
   // ── 7-day export for AI analysis ────────────────────────────
   window.trackerExport = async function(){
     const btn = document.getElementById('tracker-export-btn');
@@ -17623,6 +17711,10 @@ function initApp(){
           <div style="font-size:.62rem;color:var(--t4)">Every player auto-saved · outcomes fetched from MLB API</div>
         </div>
         <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <button id="tracker-copy-today-btn" onclick="trackerCopyToday()"
+            style="padding:7px 12px;border-radius:8px;cursor:pointer;font-size:.68rem;font-weight:700;
+            border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.08);color:var(--green)">
+            📋 Copy Today</button>
           <button id="tracker-check-btn" onclick="trackerRunCheck()"
             style="padding:7px 12px;border-radius:8px;cursor:pointer;font-size:.68rem;font-weight:700;
             border:1px solid ${pendingOld?'rgba(240,165,0,.4)':'var(--bdr)'};
@@ -17638,10 +17730,10 @@ function initApp(){
       <div style="background:rgba(99,179,237,.07);border:1px solid rgba(99,179,237,.2);border-radius:8px;
         padding:9px 12px;font-size:.62rem;color:var(--t4);line-height:1.7">
         💡 <b style="color:var(--t2)">How it works:</b>
-        Load Best Bets each day — all players auto-save.
-        After games end, tap <b style="color:var(--amber)">🔄 Check Results</b> to pull HR outcomes.
-        After a few days, tap <b style="color:#63b3ed">📋 Export 7-Day</b> to copy a report you can paste into
-        an AI (ChatGPT, Claude, etc.) to find which tags &amp; signals predict HRs in your sample.
+        On the Slate tab, tap each game chip to load players — they auto-save here instantly.
+        Load as many games as you want, then tap <b style="color:var(--green)">📋 Copy Today</b> to copy all
+        of today's players for AI analysis. After games end, tap <b style="color:var(--amber)">🔄 Check Results</b>
+        to pull HR outcomes and unlock the Common Factors panel.
       </div>
     </div>`;
 
