@@ -323,12 +323,12 @@ input:focus,textarea:focus{border-color:var(--amber)}
 }
 
 #scroll-top-btn{
-  position:fixed;bottom:80px;right:14px;
+  position:fixed;bottom:calc(64px + env(safe-area-inset-bottom, 0px) + 10px);right:14px;
   width:36px;height:36px;border-radius:50%;
   background:var(--bg2);border:1px solid var(--bdr);
   color:var(--t3);font-size:.80rem;cursor:pointer;
   display:none;align-items:center;justify-content:center;
-  z-index:15;box-shadow:0 2px 12px rgba(0,0,0,.3)
+  z-index:25;box-shadow:0 2px 12px rgba(0,0,0,.3)
 }
 </style>
 </head>
@@ -397,6 +397,10 @@ input:focus,textarea:focus{border-color:var(--amber)}
           <button class="date-nav-btn" onclick="shiftDate(-1)">◀</button>
           <div id="date-label">Today</div>
           <button id="today-btn" onclick="goToday()">Today</button>
+          <button id="slate-tracker-btn" onclick="showPage('tracker')"
+            style="display:none;font-size:.62rem;padding:4px 10px;border-radius:6px;
+            border:1px solid rgba(99,179,237,.4);background:rgba(99,179,237,.10);
+            color:#63b3ed;cursor:pointer;font-weight:700">📊 Tracker</button>
           <button class="date-nav-btn" onclick="shiftDate(1)">▶</button>
         </div>
         <div id="game-chips"></div>
@@ -623,6 +627,31 @@ input:focus,textarea:focus{border-color:var(--amber)}
           </div>
         </div>
 
+        <!-- Zone Fit Score -->
+        <div class="card" style="margin-bottom:8px">
+          <div class="slbl">🗺️ Zone Fit Score</div>
+          <div style="font-size:.65rem;color:var(--t3);line-height:1.75">
+            Measures how well a batter's <b style="color:var(--t2)">HR power zones</b> align with where the starting pitcher gives up damage — combining zone overlap quality and pitch domain fit into a single 0–100 score.<br><br>
+            <b style="color:var(--amber)">How it's calculated</b><br>
+            <b style="color:var(--t2)">Primary (80%):</b> Are the batter's top power zones hitting the zones where this SP bleeds? Zone Domination (2+ hot zone overlaps) scores highest. Zone Mismatch (batter's power zones hit SP's strongest spots) penalizes.<br>
+            <b style="color:var(--t2)">xwOBA bonus:</b> Up to +12 pts if the overlapping zones have elite contact quality (.420+ xwOBA).<br>
+            <b style="color:var(--t2)">Secondary (20%):</b> Pitch domain fit — does the batter hit well in the zones this SP targets with his pitch mix?<br><br>
+            <b style="color:var(--amber)">Grade scale</b>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(255,215,0,.15);color:#ffd700;border:1px solid rgba(255,215,0,.3)">S &nbsp;90–100</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(255,215,0,.10);color:#ffd700;border:1px solid rgba(255,215,0,.2)">A+ 82–89</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(34,201,94,.12);color:var(--green);border:1px solid rgba(34,201,94,.3)">A &nbsp;72–81</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(74,222,128,.1);color:#4ade80;border:1px solid rgba(74,222,128,.25)">B+ 62–71</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(245,158,11,.1);color:var(--amber);border:1px solid rgba(245,158,11,.25)">B &nbsp;50–61</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(148,163,184,.1);color:#94a3b8;border:1px solid rgba(148,163,184,.25)">C &nbsp;38–49</span>
+              <span style="padding:3px 9px;border-radius:99px;font-size:.60rem;font-weight:700;background:rgba(224,80,74,.1);color:var(--red);border:1px solid rgba(224,80,74,.25)">D &nbsp;&lt;38</span>
+            </div>
+            <div style="margin-top:8px;font-size:.62rem;color:var(--t4);line-height:1.6">
+              💡 Zone data loads when you open a player's detail card. The Zone tile in the stat row updates automatically once Statcast zone maps are fetched. Hover the tile for a one-line explanation of the grade.
+            </div>
+          </div>
+        </div>
+
         <!-- CLV + Calibration — moved up -->
         <div class="card" style="margin-bottom:8px">
           <div class="slbl">📊 CLV &amp; Model Calibration</div>
@@ -804,7 +833,7 @@ const S = {
   cache:    {},          // pk_away / pk_home → [rows]
   allRows:  [],          // merged deduped rows
   sortKey:  'prob',
-  activeFilter: null,    // quick filter chip key
+  activeFilters: new Set(),  // quick filter chips — multi-select, AND logic
   abRows:   [],
   parlaySelected: new Set(),  // player ids in parlay
 };
@@ -830,10 +859,14 @@ var PROXY = 'https://hr-hub-worker.jimtufexis.workers.dev/?url=';
 // The Odds API key — get free at https://the-odds-api.com (500 req/month free)
 // Enables FanDuel live HR prop odds + edge on every hitter card
 const ODDS_API_KEY = ''; // <-- paste your key between these quotes
+// Overall park HR factors (park-relative, all batters combined).
+// ATH = Sacramento Sutter Health Park (A's temporary home through ~2028; neutral park).
+// TEX Globe Life Field is a retractable dome — listed here for lineup/platoon calcs
+// but weather is always neutral (handled by DOME_TEAMS).
 const PARK   = {COL:1.18,CIN:1.10,PHI:1.09,BOS:1.08,NYY:1.07,MIL:1.05,HOU:1.04,
-  ATL:1.04,CHC:1.03,TEX:1.03,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
-  WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.97,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
-  BAL:0.95,TBR:0.95,TB:0.95,KCR:0.95,KC:0.95,LAA:0.94,CHW:0.94,SDP:0.93,SD:0.93};
+  ATL:1.04,CHC:1.03,TEX:1.02,LAD:1.02,STL:1.01,ARI:1.01,MIN:1.00,TOR:1.00,DET:1.00,
+  WSH:0.99,MIA:0.98,NYM:0.98,ATH:0.98,SEA:0.97,SFG:0.96,SF:0.96,PIT:0.96,CLE:0.96,
+  BAL:0.96,TBR:0.95,TB:0.95,KCR:0.95,KC:0.95,LAA:0.94,CHW:0.94,SDP:0.93,SD:0.93};
 const PITCH_NAMES = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',CU:'Curve',
   CH:'Change',FS:'Split',KC:'KnuckleCrv',ST:'Sweeper',SV:'Slurve',KN:'Knuckle'};
 const PITCH_COLORS = {FF:'#dc2626',SI:'#b91c1c',FC:'#ea580c',SL:'#2563eb',ST:'#1d4ed8',
@@ -849,8 +882,21 @@ function dlbl(d=S.date){
   if(diff===0)return'Today';if(diff===-1)return'Yesterday';if(diff===1)return'Tomorrow';
   return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
 }
-function shiftDate(n){S.date.setDate(S.date.getDate()+n);S.selPks.clear();S.allRows=[];const si=document.getElementById('search-input');if(si)si.value='';loadSlate()}
-function goToday(){S.date=new Date();S.selPks.clear();S.allRows=[];const si=document.getElementById('search-input');if(si)si.value='';loadSlate()}
+function _updateSlateTrackerBtn(){
+  const btn=document.getElementById('slate-tracker-btn');
+  if(!btn) return;
+  const today=new Date(); today.setHours(0,0,0,0);
+  const d=new Date(S.date); d.setHours(0,0,0,0);
+  btn.style.display = d<today ? '' : 'none';
+}
+function shiftDate(n){S.date.setDate(S.date.getDate()+n);S.selPks.clear();S.allRows=[];const si=document.getElementById('search-input');if(si)si.value='';loadSlate();_updateSlateTrackerBtn();}
+function goToday(){S.date=new Date();S.selPks.clear();S.allRows=[];const si=document.getElementById('search-input');if(si)si.value='';loadSlate();_updateSlateTrackerBtn();}
+function jumpTrackerDate(date){
+  const el=document.getElementById('tracker-day-'+date);
+  if(!el) return;
+  el.open=true;
+  setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'start'}),50);
+}
 
 // ==================================================================
 //  NAVIGATION
@@ -1125,10 +1171,11 @@ async function getRoster(abbr){
 }
 
 // Domes and retractable roofs — weather never affects these games
-var DOME_TEAMS = new Set(['TB','TOR','MIA','HOU','SEA','ARI','MIL','MIN']);
+var DOME_TEAMS = new Set(['TB','TOR','MIA','HOU','SEA','ARI','MIL','MIN','TEX']);
 var DOME_VENUES = new Set([
   'Rogers Centre','Tropicana Field','loanDepot park','LoanDepot Park','Marlins Park',
   'Minute Maid Park','T-Mobile Park','Chase Field','American Family Field','Target Field',
+  'Globe Life Field',
 ]);
 
 async function getWeather(venue, gameTimeUTC){
@@ -1196,16 +1243,21 @@ async function getWeather(venue, gameTimeUTC){
     // Find the hour index closest to game start time
     // Open-Meteo returns local time strings — compare directly to game UTC
     let hourIdx = 18; // default 6pm
+    // Open-Meteo returns LOCAL time strings ("2026-06-17T19:00") when timezone=auto.
+    // To match them against the game's UTC start time we shift the game time to local
+    // using the API-provided utc_offset_seconds, then compare both as plain numbers.
+    const utcOffsetMs = (d.utc_offset_seconds || 0) * 1000;
     if(gameTimeUTC && times.length){
       try{
-        const gameDate = new Date(gameTimeUTC);
-        // Find the time slot closest to but not after game start
+        const gameDate    = new Date(gameTimeUTC);
+        // gameLocalEquiv: game UTC shifted to local — comparable to local time strings
+        const gameLocalEquiv = new Date(gameDate.getTime() + utcOffsetMs);
         let bestIdx = 18;
         let bestDiff = Infinity;
         times.forEach((t,i)=>{
-          const slotDate = new Date(t + ':00Z'); // treat as UTC-ish for comparison
-          // Better: compare UTC hour of game to UTC hour of slot using timezone offset from API
-          const diff = Math.abs(gameDate - slotDate);
+          // Parse local time string as fake-UTC (append Z so JS treats digits literally)
+          const slotEquiv = new Date(t + ':00Z');
+          const diff = Math.abs(gameLocalEquiv - slotEquiv);
           if(diff < bestDiff){ bestDiff=diff; bestIdx=i; }
         });
         hourIdx = bestIdx;
@@ -1215,9 +1267,12 @@ async function getWeather(venue, gameTimeUTC){
     const idx = h.temperature_2m?.[hourIdx] != null ? hourIdx :
                 h.temperature_2m?.[hourIdx-1] != null ? hourIdx-1 : 13;
 
-    const localHourStr = times[idx]||'';
-    const localHour = parseInt(localHourStr.split('T')[1])||18;
-    const isNightGame = localHour >= 17;
+    // Day/night: derive from game's LOCAL hour using the UTC offset.
+    // Falls back to the local time string when no game time is available.
+    const gameLocalHour = gameTimeUTC
+      ? new Date(new Date(gameTimeUTC).getTime() + utcOffsetMs).getUTCHours()
+      : parseInt((times[idx]||'').split('T')[1]) || 18;
+    const isNightGame = gameLocalHour >= 17;
 
     const msToGame = gameTimeUTC ? Math.abs(new Date(gameTimeUTC) - Date.now()) : Infinity;
     return{
@@ -1262,7 +1317,7 @@ async function getSavantBatters(){
         hard_hit_pct:   parseF(row.ev95percent ?? row.hard_hit_percent),
         avg_ev:         parseF(row.avg_hit_speed ?? row.avg_exit_velocity ?? row.launch_speed),
         avg_la:         parseF(row.avg_hit_angle ?? row.avg_launch_angle),
-        sweet_spot_pct: parseF(row.sweet_spot_percent ?? row.sweet_spot),
+        sweet_spot_pct: parseF(row.anglesweetspotpercent ?? row.sweet_spot_percent ?? row.sweet_spot),
         whiff_pct:      parseF(row.whiff_percent ?? row.whiff_rate),
         chase_pct:      parseF(row.oz_swing_percent ?? row.o_swing_percent ?? row.chase_rate),
         k_pct:          parseF(row.k_percent ?? row['K%']),
@@ -1273,7 +1328,7 @@ async function getSavantBatters(){
         fb_pct:         parseF(row.flyballs_percent    ?? row.fb_percent  ?? row.fly_ball_rate),
         pull_pct:       parseF(row.pull_percent        ?? row.pull_rate),
         pull_air_pct:   parseF(row.pull_air_percent    ?? row.pull_air_rate),
-        hr_fb_pct:      parseF(row.home_run_per_flyball?? row.hr_fb_rate  ?? row.hr_per_fb),
+        hr_fb_pct:      (v=>{const f=parseF(v);return f==null?null:f>1?Math.round(f*10)/10:Math.round(f*1000)/10;})(row.home_run_per_flyball??row.hr_fb_rate??row.hr_per_fb??row.hr_flyball),
       };
     }
     console.log(`[Savant statcast] ${Object.keys(out).length} players`);
@@ -1310,7 +1365,8 @@ async function getSavantBatters(){
     try{
       if(bbResp.status==='fulfilled' && bbResp.value.ok){
         const rows2=parseCSVText(await bbResp.value.text());
-        const toP=v=>{const f=parseFloat(v);return isNaN(f)?null:Math.round(f*1000)/10;};
+        // Smart scale: Savant sometimes returns decimals (0.153) sometimes percentages (15.3)
+        const toP=v=>{const f=parseFloat(v);if(isNaN(f))return null;if(f>1)return Math.round(f*10)/10;return Math.round(f*1000)/10;};
         for(const row of rows2){
           const pid=String(row.id||row.player_id||'').replace(/\.0$/,'');
           if(!pid)continue;
@@ -1337,9 +1393,9 @@ async function getSavantBatters(){
 
 async function getFGBatters(){
   try{
-    const url=`https://www.fangraphs.com/api/leaders/major-league/data?pos=all&stats=bat&lg=all&qual=0&season=${SEASON}&season1=${SEASON}&ind=0&team=0&rost=0&players=0&type=8&month=0&pageitems=2000&pagenum=1`;
-    const ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),12000);
-    const r = await fetch(PROXY + encodeURIComponent(url),{signal:ctrl.signal});
+    // Fetch via our own server endpoint — browser proxy blocks fangraphs.com
+    const ctrl=new AbortController(); setTimeout(()=>ctrl.abort(),15000);
+    const r = await fetch(`/api/fg-batters?season=${SEASON}`,{signal:ctrl.signal});
     if(!r.ok)throw new Error(`fg batters ${r.status}`);
     const d=await r.json(); const out={};
     out.__byName = {};
@@ -1355,7 +1411,10 @@ async function getFGBatters(){
         hard:  parsePct(row['HardHit%']),
         avgEV: parseF(row['AvgEV']),
         iso:   parseF(row['ISO']),
+        avg:   parseF(row['AVG']),
+        slg:   parseF(row['SLG']),
         ops:   parseF(row['OPS']),
+        hr_fb: parsePct(row['HR/FB']||row.hrfb||row.hr_fb),
       };
 
       // Pull-Air% = Pull% × FB%
@@ -1684,7 +1743,8 @@ function log5(pBatter, pPitcher, pLeague){
 //   Interaction: barrel × pull_air synergy (power hitters who pull)
 function calcAnchor(stats){
   const{szHR,szPA,careerHR,careerPA,barrel_pct,hard_hit_pct,
-        iso,pull_air_pct,sweet_spot_pct,gb_pct,priorSeasonRate}=stats;
+        iso,pull_air_pct,sweet_spot_pct,gb_pct,priorSeasonRate,
+        hr_fb_pct,fb_pct}=stats;
 
   const shrink=(rate,pa,target)=>{
     if(rate==null||pa==null) return null;
@@ -1732,14 +1792,36 @@ function calcAnchor(stats){
       statcastEst += xwobaAdj;
     }
 
-    statcastEst = clamp(statcastEst, 0.005, 0.115);
+    // HR/FB rate — direct power-on-contact signal. LG avg ~13%.
+    // Stabilises in ~150 fly ball attempts (≈400 PA). Shrunk toward LG avg by sample.
+    // A 20% HR/FB batter vs 8% HR/FB batter is a 12-pt gap worth ~+1.5% HR/PA.
+    if(hr_fb_pct!=null){
+      const hrFbTrust = clamp((szPA||0)/400, 0, 1.0);
+      const hrFbShrunken = (hr_fb_pct/100)*hrFbTrust + 0.13*(1-hrFbTrust);
+      statcastEst += clamp((hrFbShrunken - 0.13)*0.12, -0.008, 0.015);
+    }
+
+    // Fly-ball rate — more balls in the air = more HR opportunities per PA.
+    // LG avg ~36.5%. Modest weight; barrel% already captures the best fly balls,
+    // but GB-heavy hitters (≤25% FB) are penalised even when barrel% looks OK.
+    // Stabilises in ~150 PA. Shrunk toward LG avg by sample.
+    if(fb_pct!=null){
+      const fbTrust = clamp((szPA||0)/200, 0, 1.0);
+      const fbShrunken = (fb_pct/100)*fbTrust + 0.365*(1-fbTrust);
+      statcastEst += clamp((fbShrunken - 0.365)*0.035, -0.005, 0.007);
+    }
+
+    statcastEst = clamp(statcastEst, 0.005, 0.120);
   }
 
   // ── 2. Outcome-based rate (secondary — trust grows with PA) ──────
-  const sznRaw = szPA>=80 ? szHR/szPA : null;
+  // Gate lowered 80→30 PA: let the shrink function handle small samples rather than
+  // a hard cliff. Stabilisation targets raised (HR/PA is a rare event — 300 PA was
+  // too aggressive; 500/600 PA better matches empirical stabilisation research).
+  const sznRaw = szPA>=30 ? szHR/szPA : null;
   const carRaw = careerPA>=200 ? careerHR/careerPA : null;
-  const sznRate  = shrink(sznRaw,  szPA||0, 300);
-  const carRate  = shrink(carRaw,  careerPA||0, 400);
+  const sznRate  = shrink(sznRaw,  szPA||0, 500);
+  const carRate  = shrink(carRaw,  careerPA||0, 600);
   const priorRate= priorSeasonRate ? shrink(priorSeasonRate,350,400) : null;
 
   let outcomeRate;
@@ -1789,7 +1871,11 @@ function calcAnchor(stats){
   let anchor;
   if(statcastEst!=null){
     const pa = szPA||0;
-    const outcomeTrust = Math.min(pa/350, 0.60); // max 60% outcome trust
+    // Improved blend: more patient about trusting raw outcomes (HR/PA is noisy at <300 PA),
+    // but allows up to 82% outcome trust when sample is genuinely large (500+ PA).
+    // Old: lin ramp to 75% cap at 400 PA. New: lin ramp to 82% cap at 500 PA.
+    // At 200 PA: 40% outcome (was 50%). At 300 PA: 60% (was 75%). At 500+: 82%.
+    const outcomeTrust = clamp(pa/500, 0, 0.82);
     anchor = statcastEst*(1-outcomeTrust) + outcomeRate*outcomeTrust;
   } else {
     anchor = outcomeRate;
@@ -1806,24 +1892,29 @@ function calcAnchor(stats){
 
 
 // ── PLATOON: batter handedness vs pitcher handedness ──────────────
-function calcPlatoonMult(batHand, pitHand, platRate, overallRate, arsenalPlatMod){
+// Fix 1: Log5 base already uses the hand-specific split rate (vsLHP/vsRHP), which
+// fully encodes the personal platoon signal. Applying a separate platoon mult derived
+// from the same split data is double-counting.
+// Resolution: use population prior ONLY when log5 had to fall back to overall anchor
+// (no split, or platSample < 50). When log5 has the split, base = 1.0 (no extra platoon).
+// Fix 3: arsenal platoon weight scales DOWN when pitcher _arsenalMult is already strong —
+// same batVsPitch data feeding calcPitcherMult and arsenalPlatMod simultaneously.
+function calcPlatoonMult(batHand, pitHand, log5UsedSplit, arsenalPlatMod, pitcherArsenalMult){
   const popPrior = getPlatoonPrior(batHand, pitHand);
 
-  // Base platoon signal — player's actual split vs population prior
-  let base;
-  if(platRate!=null && overallRate!=null && overallRate>0){
-    const ratio = platRate / overallRate;
-    base = ratio*0.60 + popPrior*0.40;
-  } else {
-    base = popPrior;
-  }
+  // Personal split already in Log5 → no extra platoon adjustment needed.
+  // Log5 fell back to anchor → population prior is the only platoon signal we have.
+  const base0 = log5UsedSplit ? 1.0 : popPrior;
 
-  // Arsenal platoon modifier — nudges base by how this batter actually hits
-  // this pitcher's specific pitch mix vs same-hand league averages.
-  // Weight: 25% — meaningful but can't override a strong personal split.
+  // Arsenal platoon modifier — orthogonal to Log5: uses hand-specific pitch norms
+  // (not raw split rates) to detect pitch-mix platoon edges.
+  // Fix 3: reduce weight proportionally when pitcher's arsenal mult is already strong,
+  // since the same batVsPitch data partly drives calcPitcherMult's arsenal block.
+  let base = base0;
   if(arsenalPlatMod!=null && arsenalPlatMod !== 1.0){
-    const arsenalAdj = (arsenalPlatMod - 1.0) * 0.25;
-    base = base + arsenalAdj;
+    const pitArsenalStrength = Math.abs((pitcherArsenalMult??1.0) - 1.0);
+    const arsenalPlatWeight = clamp(0.40 - pitArsenalStrength * 0.60, 0.15, 0.40);
+    base = base + (arsenalPlatMod - 1.0) * arsenalPlatWeight;
   }
 
   return clamp(base, 0.40, 1.60);
@@ -1907,8 +1998,21 @@ function calcArsenalPlatoonMod(arsenal, batVsPitch, batHand, pitHand){
 // ── PITCHER v2: BvP-integrated, arsenal-aware ─────────────────────
 function calcPitcherMult(pitcherStats){
   if(!pitcherStats) return 1.0;
-  const{hr9_recent,hr9_season,hrFb,barrel_pct_allowed,_arsenalMult,_arsenalStrengths,totalStarts}=pitcherStats;
+  const{hr9_recent,hr9_season,hr9_last3,hrFb,barrel_pct_allowed,_arsenalMult,_arsenalStrengths,totalStarts}=pitcherStats;
   const shrinkHR9=(r,c)=>r*c+1.0*(1-c);
+
+  // Velocity trend modifier — YoY fastball drop = losing stuff = more hittable
+  // delta = current season avg velo - last season avg velo (negative = decline)
+  const veloMod = (()=>{
+    const vt = pitcherStats.veloTrend;
+    if(!vt || vt.delta==null) return 1.0;
+    const d = vt.delta;
+    if(d <= -2.0) return clamp(1.06 + Math.abs(d+2)*0.02, 1.06, 1.14); // big drop → very hittable
+    if(d <= -1.0) return clamp(1.02 + (Math.abs(d)-1)*0.03, 1.02, 1.06); // moderate drop
+    if(d >=  2.0) return clamp(0.94 - (d-2)*0.02, 0.88, 0.94);           // big gain → harder to HR
+    if(d >=  1.0) return clamp(0.97 - (d-1)*0.02, 0.95, 0.97);           // moderate gain
+    return 1.0;
+  })();
 
   // Sample-dependent shrinkage — trust scales with starts (each stat has its own stabilization point)
   // At 3 starts: trust≈15%; at 15-20 starts: trust reaches max. Prevents early-season over-confidence.
@@ -1934,6 +2038,12 @@ function calcPitcherMult(pitcherStats){
   }
   if(hr9_recent!=null&&totalStarts>=2){
     scores.push([clamp(shrinkHR9(hr9_recent/LG_HR9,hr9rTrust),0.65,1.55),0.15]);
+  }
+  // hr9_last3: tightest 3-start window — more reactive than hr9_recent, lower trust
+  // Requires ≥4 starts so we're not overreacting to one bad game in the first month
+  if(hr9_last3!=null&&totalStarts>=4){
+    const l3Trust=clamp(starts/15,0.10,0.45);
+    scores.push([clamp(shrinkHR9(hr9_last3/LG_HR9,l3Trust),0.60,1.70),0.20]);
   }
 
   let quality=1.0;
@@ -1962,17 +2072,62 @@ function calcPitcherMult(pitcherStats){
       const blended = quality*qualityWeight + arsenalAdjQuality*(1-qualityWeight);
       const floor = strongDominance ? 1.0+(signalStrength>=0.25?0.08:0.04) : 0.55;
       const ft1=pitcherStats.formTrend||0; const fm1=Math.max(0.88,Math.min(1.15,1.0-ft1*0.5)); const fat1=pitcherStats.fatigueMult||1.0;
-      return clamp(Math.max(blended, floor) * restMod * whiffMod * bbMod * fm1 * fat1 * kSuppressor, 0.55, 1.70);
+      return clamp(Math.max(blended, floor) * restMod * whiffMod * bbMod * fm1 * fat1 * kSuppressor * veloMod, 0.55, 1.70);
     }
     const arsenalMod2 = clamp(1.0+rawAdj*0.55, 0.82, 1.22);
     const ft2=pitcherStats.formTrend||0; const fm2=Math.max(0.88,Math.min(1.15,1.0-ft2*0.5)); const fat2=pitcherStats.fatigueMult||1.0;
-    return clamp(quality * arsenalMod2 * restMod * whiffMod * bbMod * fm2 * fat2 * kSuppressor, 0.55, 1.70);
+    return clamp(quality * arsenalMod2 * restMod * whiffMod * bbMod * fm2 * fat2 * kSuppressor * veloMod, 0.55, 1.70);
   }
   const formTrend = pitcherStats.formTrend || 0;
   const formMod = clamp(1.0 - formTrend * 0.5, 0.88, 1.15);
   const fatigueMult = pitcherStats.fatigueMult || 1.0;
 
-  return clamp(quality * restMod * whiffMod * bbMod * formMod * fatigueMult * kSuppressor, 0.55, 1.70);
+  return clamp(quality * restMod * whiffMod * bbMod * formMod * fatigueMult * kSuppressor * veloMod, 0.55, 1.70);
+}
+
+// ── FORM MOMENTUM v2 — unified, smooth ramps, PA-shrunk ──────────────
+// v1 used hard threshold cliffs (e.g. barrel ratio must be >1.30 to fire at all).
+// v2 improvements:
+//   1. tanh ramps: signal fades in continuously — no more cliff at the threshold
+//   2. PA-proportional shrinkage: thin recent samples (< 40 PA) contribute less
+//   3. Single source of truth — called from both calcHRProb and game-log refinement
+// Returns { adj (log-odds delta, ±0.16), momentum (multiplier 0.80–1.25) }
+function calcMomentum(bs, anchor){
+  let adj = 0;
+  const recentPA = bs.l14PA ?? 0;
+  // Full weight at 40+ PA; proportionally less below that
+  const shrink = Math.min(recentPA / 40, 1.0);
+
+  // Signal 1: Rolling Barrel% vs season Barrel%
+  // scale=0.30 → tanh(1)≈0.76 at 30% divergence, smooth below
+  if(bs.rollingBarrelPct != null && (bs.barrel_pct ?? 0) > 0){
+    const ratio = bs.rollingBarrelPct / bs.barrel_pct;
+    adj += Math.tanh((ratio - 1.0) / 0.30) * 0.08 * shrink;
+  }
+
+  // Signal 2: L14 HR/PA vs anchor rate
+  // scale=0.50 → gradual response; gate: ≥10 PA and valid anchor
+  if(bs.l14HR != null && recentPA >= 10 && (anchor ?? 0) > 0){
+    const ratio = (bs.l14HR / recentPA) / anchor;
+    adj += Math.tanh((ratio - 1.0) / 0.50) * 0.06 * shrink;
+  }
+
+  // Signal 3: Rolling xwOBA vs season xwOBA (strongest — luck-normalised)
+  // scale=0.30 → matches old linear response at 10% divergence
+  if(bs.rollingXwoba != null && (bs.xwoba ?? 0) > 0.200){
+    const ratio = bs.rollingXwoba / bs.xwoba;
+    adj += Math.tanh((ratio - 1.0) / 0.30) * 0.09 * shrink;
+  }
+
+  // Signal 4: Rolling EV vs season EV
+  // scale=3.0 mph → tanh(0.5)≈0.46 at 1.5 mph, matches old linear there
+  if(bs.rollingEV != null && (bs.avg_ev ?? 0) > 85){
+    const evDiff = bs.rollingEV - bs.avg_ev;
+    adj += Math.tanh(evDiff / 3.0) * 0.07 * shrink;
+  }
+
+  adj = clamp(adj, -0.22, 0.22);
+  return { adj, momentum: clamp(+Math.exp(adj).toFixed(3), 0.80, 1.25) };
 }
 
 // ── PROBABILITY v6: xSLG/xwOBA-enriched anchor + bat speed ───────────
@@ -2004,10 +2159,29 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   let pitcherHrPA = MLB_AVG;
   if(pitcherStats){
     const hr9Raw = pitcherStats.hr9_season ?? pitcherStats.hr9_recent ?? null;
+    const hrFbLog5 = pitcherStats.hrFb ?? null;
+    // HR/9 → HR/PA (#2: trust ramp raised to 80% max, reached at 20 starts)
+    let hr9Based = null;
     if(hr9Raw!=null && hr9Raw>0){
-      const rawPA = hr9Raw * PA_PER_9;
-      const pTrust = clamp((pitcherStats.totalStarts||0)/15, 0.15, 0.55); // sample-dependent: more starts = more trust
-      pitcherHrPA = rawPA * pTrust + MLB_AVG * (1 - pTrust);
+      const rawPA   = hr9Raw * PA_PER_9;
+      const hr9Trust = clamp((pitcherStats.totalStarts||0)/20, 0.15, 0.80);
+      hr9Based = rawPA * hr9Trust + MLB_AVG * (1 - hr9Trust);
+    }
+    // HR/FB → HR/PA (#7: more stable, stabilises in ~50 BF; HR/PA ≈ HR/FB × 0.267)
+    // 0.267 ≈ LG_FB_PCT (0.365) × batted-ball rate (0.73)
+    let hrFbBased = null;
+    if(hrFbLog5!=null && hrFbLog5>0){
+      const hrFbPA    = hrFbLog5 * 0.267;
+      const hrFbTrust = clamp((pitcherStats.totalStarts||0)/10, 0.20, 0.85);
+      hrFbBased = hrFbPA * hrFbTrust + MLB_AVG * (1 - hrFbTrust);
+    }
+    // Blend: hrFb more stable so gets higher weight when both available
+    if(hr9Based!=null && hrFbBased!=null){
+      pitcherHrPA = hr9Based * 0.35 + hrFbBased * 0.65;
+    } else if(hrFbBased!=null){
+      pitcherHrPA = hrFbBased;
+    } else if(hr9Based!=null){
+      pitcherHrPA = hr9Based;
     }
     pitcherHrPA = clamp(pitcherHrPA, MLB_AVG*0.40, MLB_AVG*2.80);
   }
@@ -2030,46 +2204,7 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   // ── ROLLING STATCAST (L14) — blend recent BIP quality into anchor ──────
   // If player is barreling at 18% last 14 days vs 9% season, that's signal
   // Weight = 0.20 (small — limited sample, not predictive like season barrel%)
-  let rollingAnchorAdj = 0;
-  if(batterStats.rollingBarrelPct!=null && batterStats.barrel_pct!=null && batterStats.barrel_pct>0){
-    const barrelRatio = batterStats.rollingBarrelPct / batterStats.barrel_pct;
-    // Only act on meaningful divergence (>30% above/below season rate)
-    if(barrelRatio > 1.3 || barrelRatio < 0.7){
-      const shrunk = (barrelRatio - 1.0) * 0.25; // 25% shrinkage
-      rollingAnchorAdj = clamp(shrunk, -0.08, 0.08);
-    }
-  }
-  // Also blend recent HR/PA from game log (last 14 games)
-  if(batterStats.l14HR!=null && batterStats.l14PA>=15 && anchor>0){
-    const l14Rate = batterStats.l14HR / batterStats.l14PA;
-    const l14Ratio = l14Rate / anchor;
-    if(l14Ratio > 1.4 || l14Ratio < 0.5){
-      const l14Adj = clamp((l14Ratio - 1.0) * 0.15, -0.06, 0.06);
-      rollingAnchorAdj = clamp(rollingAnchorAdj + l14Adj, -0.10, 0.10);
-    }
-  }
-  // Rolling xwOBA trend — strongest quality-of-contact heat signal
-  // If recent xwOBA (L30 BIP) diverges from season, it's genuine plate quality change
-  // xwOBA normalizes for luck, so ratio > 1.12 = real heat, not just results variance
-  if(batterStats.rollingXwoba!=null && batterStats.xwoba!=null && batterStats.xwoba>0.200){
-    const xwobaRatio = batterStats.rollingXwoba / batterStats.xwoba;
-    if(xwobaRatio > 1.10 || xwobaRatio < 0.88){
-      // Use 30% shrinkage — xwOBA is more stable than raw outcomes but still limited sample
-      const xwobaAdj = clamp((xwobaRatio - 1.0) * 0.30, -0.09, 0.09);
-      rollingAnchorAdj = clamp(rollingAnchorAdj + xwobaAdj, -0.14, 0.14);
-    }
-  }
-  // Rolling EV trend — earliest-available hot streak indicator
-  // EV spike of 2+ mph above season avg (while plate appearances continue) = real power surge
-  // Use only when we have enough recent contact (avoids noise from 2-3 BIP)
-  if(batterStats.rollingEV!=null && batterStats.avg_ev!=null && batterStats.avg_ev>85){
-    const evDiff = batterStats.rollingEV - batterStats.avg_ev;
-    if(Math.abs(evDiff) >= 1.5){
-      // Each 1 mph of sustained EV change ≈ ~2% HR rate shift; cap total at ±7%
-      const evAdj = clamp(evDiff * 0.018, -0.07, 0.07);
-      rollingAnchorAdj = clamp(rollingAnchorAdj + evAdj, -0.16, 0.16);
-    }
-  }
+  const { adj: rollingAnchorAdj, momentum } = calcMomentum(batterStats, anchor);
 
   // Start from Log5 base — already combines batter + pitcher HR/PA rates
   // correctly against the league average. All downstream adjustments
@@ -2077,47 +2212,86 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   let lo = logit(log5Base);
   if(rollingAnchorAdj !== 0) lo += rollingAnchorAdj;
 
+  // ── RECENT STREAK SIGNALS (recentGames) ──────────────────────────
+  // Signal Lift Report (600+ resolved predictions) showed raw HR-count streaks
+  // are the highest-lift signals but were NOT wired into calcHRProb — only used
+  // for display tags. Now applied directly:
+  //   On Fire (3+ HR in last 3g):   observed 3.99× lift → +0.22 log-odds
+  //   Back-to-Back (2 HR in last 3g): observed 3.54× lift → +0.13 log-odds
+  //   L7 Pace Surge (L7 rate ≥1.8× season, 15+ PA): 1.90× lift → +0.08 log-odds
+  // Conservative vs raw lift: model base already captures talent; these add the
+  // incremental hot-hand / cluster-schedule effect on top.
+  if(recentGames && recentGames.length >= 3){
+    const _l3HR = recentGames.slice(0,3).reduce((s,x)=>s+(x.hr||0),0);
+    if(_l3HR >= 3){
+      lo += 0.22; // On Fire
+    } else if(_l3HR === 2){
+      lo += 0.13; // Back-to-Back
+    }
+    const _l7g  = recentGames.slice(0,7);
+    const _l7HR = _l7g.reduce((s,x)=>s+(x.hr||0),0);
+    const _l7PA = _l7g.reduce((s,x)=>s+(x.pa||x.ab||0),0);
+    const _szRate = (batterStats.szPA||0)>20 ? (batterStats.szHR||0)/batterStats.szPA : null;
+    if(_szRate && _l7PA>=15 && (_l7HR/_l7PA) >= _szRate*1.8){
+      lo += 0.08; // L7 Pace Surge
+    }
+  }
+
+  // ── LUCK REGRESSION (xwOBA-wOBA gap) ─────────────────────────────
+  // xwobaDiff > 0: contact quality BETTER than actual outcomes → unlucky → boost
+  // xwobaDiff < 0: outcomes BETTER than contact quality → lucky → deflate
+  // Normalised by ±0.030 (≈1 std dev of typical luck variance); bigger gaps are noise.
+  // Max ±0.06 log-odds ≈ ±1.5% shift at 4% base. Separate from anchor — this is
+  // regression-to-mean signal, not talent signal.
+  const _xwobaDiff = batterStats.xwobaDiff;
+  if(_xwobaDiff!=null && Math.abs(_xwobaDiff)>0.005){
+    lo += clamp(_xwobaDiff/0.030, -1.0, 1.0) * 0.06;
+  }
+
   const lineupPosForPA = batterStats.lineupPos;
   const overallRate = batterStats.szPA>=50?batterStats.szHR/batterStats.szPA:anchor;
 
-  // ── PLATOON (weight: 0.22, reduced from 0.35 — platoon regresses quickly) ──
+  // ── PLATOON (weight: 0.14 in combined platoon×pitcher block below) ───────
+  // Fix 1: track whether Log5 actually used the hand-specific split so calcPlatoonMult
+  // knows not to apply the population prior a second time (it's already in log5Batter).
+  const log5UsedSplit = _splitRate!=null && _splitRate>0 && _splitPA>=50;
   const arsenalPlatMod = calcArsenalPlatoonMod(
     pitcherStats?.arsenal, batterStats.batVsPitch,
     batterStats.batHand, pitcherStats?.pitHand||'R'
   );
-  const platRateGated = (batterStats.platSample>=50) ? batterStats.platRate : null;
   const platoon = calcPlatoonMult(batterStats.batHand, pitcherStats?.pitHand||'R',
-    platRateGated, overallRate, arsenalPlatMod);
-  // Weight 0.22 → 0.10: hand-specific HR/PA rate is now already in the Log5
-  // base. This residual captures arsenal pitch-type interactions and the
-  // population platoon prior — orthogonal to the raw split rate.
-  lo += logOddsAdj(platoon) * 0.10;
-
-  // ── PITCHER (weight: 0.18, reduced from 0.38) ────────────────────
+    log5UsedSplit, arsenalPlatMod, pitcherStats?._arsenalMult);
+  // ── PITCHER ────────────────────────────────────────────────────────
   // Log5 already encodes the pitcher's raw HR/PA in the starting logit.
-  // This remaining mult captures the signals orthogonal to simple HR/PA:
+  // This mult captures signals orthogonal to simple HR/PA:
   // arsenal match, whiff rate, walk rate, form trend, fatigue, barrel%.
   const pitcher = calcPitcherMult(pitcherStats);
-  lo += logOddsAdj(pitcher) * 0.18;
 
-  // ── TIMES THROUGH ORDER (weight: 0.28, reduced from 0.40) ────────
+  // ── PLATOON × PITCHER — multiplicative interaction (weight: 0.16) ──
+  // Treat platoon and pitcher as factors that MULTIPLY in probability
+  // space rather than stacking independently. The product naturally
+  // amplifies when both are favourable (1.10 × 1.12 = 1.232 > 1.10+0.12)
+  // and compounds penalties (0.90 × 0.88 = 0.792 < 0.90-0.12).
+  // Replaces three separate blocks (platoon 0.10, pitcher 0.18, interaction).
+  // Weight raised 0.14 → 0.16: Signal Lift shows Platoon King at 1.76× observed lift.
+  lo += logOddsAdj(platoon * pitcher) * 0.16;
+
+  // ── TIMES THROUGH ORDER (#5: continuous curve, weight 0.28→0.22) ────
+  // Research: HR rates by TTO — TTO1 0.88×, TTO2 1.0×, TTO3 1.13×, TTO4 1.22×
+  // Piecewise linear on fractional TTO removes hard jumps from old bin approach.
   const expIPForTTO = calcExpectedInnings(pitcherStats);
   const lineupPosNum = lineupPosForPA || 5;
   const pasThroughOrder = expIPForTTO * (27/9);
-  const ttoNum = pasThroughOrder > 0
-    ? Math.min(3, Math.ceil((lineupPosNum + pasThroughOrder/3) / 9))
-    : 2;
-  const ttoMult = ttoNum<=1 ? 0.88 : ttoNum>=3 ? 1.15 : 1.0;
-  if(ttoMult !== 1.0) lo += logOddsAdj(ttoMult) * 0.28;
-
-  // ── PLATOON × PITCHER INTERACTION (halved) ───────────────────────
-  if(platoon > 1.05 && pitcher > 1.05){
-    const interactionBonus = (platoon - 1.0) * (pitcher - 1.0) * 0.6;
-    lo += clamp(interactionBonus, 0, 0.05);
-  } else if(platoon < 0.95 && pitcher < 0.95){
-    const interactionPenalty = (1.0 - platoon) * (1.0 - pitcher) * 0.6;
-    lo -= clamp(interactionPenalty, 0, 0.06);
-  }
+  const fracTTO = pasThroughOrder > 0
+    ? clamp((lineupPosNum + pasThroughOrder/3) / 9, 0.5, 3.8)
+    : 2.0;
+  let ttoMult;
+  if     (fracTTO <= 1.0) ttoMult = 0.88;
+  else if(fracTTO <= 2.0) ttoMult = 0.88 + (fracTTO - 1.0) * 0.12;  // 0.88 → 1.00
+  else if(fracTTO <= 3.0) ttoMult = 1.00 + (fracTTO - 2.0) * 0.13;  // 1.00 → 1.13
+  else                    ttoMult = 1.13 + (fracTTO - 3.0) * 0.09;  // 1.13 → ~1.22
+  ttoMult = clamp(ttoMult, 0.88, 1.22);
+  if(ttoMult !== 1.0) lo += logOddsAdj(ttoMult) * 0.22;
 
   // ── PARK × WEATHER (weight: 0.25, reduced from 0.35) ─────────────
   const parkwx = calcParkWxMult(pf, wx||{}, batterStats.batHand);
@@ -2132,7 +2306,20 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     if(rel!=null&&relPA>=40){
       const overallForHA = overallRate||anchor||MLB_AVG;
       const ratio = rel / overallForHA;
-      homeAwayMult = clamp(ratio*0.25 + 1.0*0.75, 0.90, 1.12);
+      // Fix 4: home/away split embeds park effects — a Coors hitter's home rate is
+      // inflated by the park, which parkwx already credits at weight 0.25. Partially
+      // remove that overlap by normalising the ratio against sqrt(homePF):
+      //   home game → divide by sqrt(homePF): deflates ratio (park already counted)
+      //   away game → multiply by sqrt(homePF): restores the removed home-park bonus
+      //               so the away disadvantage is properly measured against park-neutral
+      // sqrt() gives a partial correction (full /PF would over-correct for personal skill).
+      // Ceiling/floor also tightened 0.90–1.12 → 0.92–1.10 to limit double-count exposure.
+      const homePF = PARK[batterStats.team] || 1.0;
+      const sqrtPF = Math.sqrt(homePF);
+      const parkNorm = batterStats.isHome ? 1.0 / sqrtPF : sqrtPF;
+      const parkAdjRatio = clamp(ratio * parkNorm, 0.60, 1.50);
+      const haTrust = clamp(relPA / 200, 0.125, 0.50);
+      homeAwayMult = clamp(parkAdjRatio * haTrust + 1.0 * (1 - haTrust), 0.92, 1.10);
       lo += logOddsAdj(homeAwayMult) * 0.15;
     }
   }
@@ -2146,11 +2333,11 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     lo+=logOddsAdj(hvhMult)*hvhWeight;
   }
 
-  // ── LINEUP POSITION (small residual) ─────────────────────────────
+  // ── LINEUP POSITION (weight: 0.10 — Fix 5: was unweighted, inconsistent) ─
   const lineupPos = lineupPosForPA;
   const paMultiplier = lineupPos&&lineupPos<=9
     ? clamp(1.0+(4.0-lineupPos)*0.006,0.97,1.03) : 1.0;
-  lo+=logOddsAdj(paMultiplier);
+  lo += logOddsAdj(paMultiplier) * 0.10;
 
   // ── UMPIRE (weight: 0.18, reduced from 0.25) ─────────────────────
   const umpMult=clamp(batterStats.umpMult||1.0,0.92,1.10);
@@ -2175,6 +2362,18 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     lo += logOddsAdj(batSpeedMult) * 0.10;
   }
 
+  // ── BAT SPEED × BARREL SYNERGY (#8: interaction term, weight: 0.08) ──
+  // Elite hitters who barrel up AND swing hard are non-additive: extra bat
+  // speed amplifies the launch-angle consistency that creates barrels.
+  // Only fires when both are meaningfully above avg (≥72 mph + ≥9% barrel).
+  const _barrelPct = batterStats.barrel_pct ?? 0;
+  if(swingSpeed!=null && swingSpeed>=72.0 && _barrelPct>=9.0){
+    const speedNorm  = (swingSpeed - 70.5) / 4.0;
+    const barrelNorm = (_barrelPct  - 8.0)  / 6.0;
+    const synergy    = Math.tanh(speedNorm * barrelNorm) * 0.06;
+    if(synergy > 0) lo += synergy;
+  }
+
   // ── BULLPEN EXPOSURE (weight: 0.10, reduced from 0.12) ───────────
   const bullpenMult = batterStats.bullpenMult??1.0;
   const expIP = calcExpectedInnings(pitcherStats);
@@ -2184,33 +2383,33 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
     lo += logOddsAdj(blendedBullpen) * 0.10;
   }
 
-  // ── LAUNCH ANGLE ZONE (weight: 0.12) ─────────────────────────────
-  // 22-32° avg LA is the HR sweet spot (ball elevation + carry).
-  // Groundball hitters (<15°) have their batted balls killed before lift.
-  // Pop-up hitters (>35°) hit easy fly outs. Data: Statcast BIP avg.
+  // ── LAUNCH ANGLE ZONE (#1: tanh ramp, sweet spot corrected to 25–35°) ──
+  // Research consensus: optimal HR LA is 25–35° (practical peak ~28°).
+  // Old hard bins had cliffs (21.9°→0 credit, 22.0°→full credit). Smooth ramp fixes this.
+  // slopePart:  sigmoid rising from -0.10 below 5° to +0.11 at 30°+
+  // popPart:    extra penalty above 34° (very steep = easy fly outs)
+  // gbPart:     steep hit below 10° (pure groundball hitters)
   const avgLA = batterStats.avgLA;
   if(avgLA!=null){
-    let laMult;
-    if(avgLA>=22 && avgLA<=32)       laMult = 1.12;  // HR sweet spot
-    else if(avgLA>32 && avgLA<=37)   laMult = 0.95;  // too steep = pop-ups
-    else if(avgLA>=17 && avgLA<22)   laMult = 1.03;  // decent elevation
-    else if(avgLA>=12 && avgLA<17)   laMult = 0.89;  // flat = gap shots, not HRs
-    else if(avgLA<12)                laMult = 0.80;  // groundball hitter — big penalty
-    else                             laMult = 1.0;
-    if(laMult!==1.0) lo += logOddsAdj(laMult) * 0.12;
+    const slopePart = Math.tanh((avgLA - 15.0) / 10.0) * 0.12;
+    const popPart   = avgLA > 34 ? Math.tanh((avgLA - 34.0) / 6.0) * 0.14 : 0;
+    const gbPart    = avgLA < 10 ? Math.tanh((10.0 - avgLA) / 4.0) * 0.10 : 0;
+    const laMult    = clamp(1.0 + slopePart - popPart - gbPart, 0.78, 1.14);
+    if(laMult !== 1.0) lo += logOddsAdj(laMult) * 0.12;
   }
 
-  // ── SP FLY-BALL PROFILE (weight: 0.10) ────────────────────────────
-  // SP's fly ball rate directly determines HR opportunity rate.
-  // A FB-heavy SP (fbRate > 45%) allows ~25% more HRs than a GB pitcher at
-  // equal HR/9, because more balls are in the air for power hitters to lift.
-  // Orthogonal to HR/9 — a low-HR/9 FB pitcher in a pitcher's park still
-  // gives a power hitter more balls to elevate than a groundball SP.
+  // ── SP FLY-BALL PROFILE (weight: 0.02–0.10, scaled by pitcher sample) ───
+  // Fix 2: HR/9 = HR/FB × FB%, so FB rate is already embedded in pitcherHrPA (Log5).
+  // spFBRate double-counts with a seasoned pitcher's HR/9. Weight fades as sample grows:
+  // full 0.10 at 0 starts (HR/9 unstable, FB rate is useful residual signal) → 0.02
+  // at 20+ starts (HR/9 has stabilised and fully captures FB-rate-driven HR tendency).
   const spFBRate = batterStats.spFBRate;
   if(spFBRate!=null){
-    // League avg FB rate ~36.5%; each 5% above/below is meaningful
     const spFBMult = clamp(1.0 + (spFBRate - 0.365) * 1.2, 0.86, 1.20);
-    if(spFBMult!==1.0) lo += logOddsAdj(spFBMult) * 0.10;
+    const pitStarts = pitcherStats?.totalStarts || 0;
+    const pitSampleTrust = clamp(pitStarts / 20, 0, 1.0);
+    const spFBWeight = 0.10 * (1 - pitSampleTrust * 0.80); // 0.10 early → 0.02 at 20+ starts
+    if(spFBMult!==1.0) lo += logOddsAdj(spFBMult) * spFBWeight;
   }
 
   // ── TEAM HR CONTEXT (weight: 0.07) ────────────────────────────────
@@ -2220,27 +2419,16 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
   const teamHRMult = clamp(batterStats.teamHRMult ?? 1.0, 0.80, 1.28);
   if(teamHRMult!==1.0) lo += logOddsAdj(teamHRMult) * 0.07;
 
-  // ── BLAST RATE — hard swing % (weight: 0.06) ──────────────────────
-  // The percentage of swings classified as "blasts" (max-effort, well-timed).
-  // When blast rate is high alongside fast bat speed, confirms elite power.
-  // MLB avg ~6%. 10%+ = top-tier (Ohtani, Judge). 3%- = contact hitter.
-  const blastPct = batterStats.blastPct;
-  if(blastPct!=null && blastPct>0){
-    const blastMult = clamp(1.0 + (blastPct - 6.0) * 0.016, 0.93, 1.10);
-    if(blastMult!==1.0) lo += logOddsAdj(blastMult) * 0.06;
-  }
-
   // Cap per-PA at 7% — realistic elite ceiling (Judge vs Wainwright in Coors)
   // Previous 10% cap was too high and caused per-game probs of 30%+
-  const prob=clamp(sigmoid(lo),0.004,0.07);
-  const momentum = clamp(+Math.exp(rollingAnchorAdj).toFixed(3),0.80,1.25); // rolling quality-of-contact signal
+  const prob=clamp(sigmoid(lo),0.004,0.085); // #4: raised ceiling from 7% → 8.5%
   // Confidence interval — wider when batter/pitcher sample is thin
   const _bPA = batterStats.szPA || 0;
   const _pSt = pitcherStats?.totalStarts || 0;
   const _sampUnc = Math.sqrt(200 / Math.max(_bPA, 20)) * Math.sqrt(10 / Math.max(_pSt, 1));
   const _hw = clamp(prob * 0.22 * _sampUnc, 0.0005, 0.022);
   const probLow  = clamp(prob - _hw, 0.002, prob);
-  const probHigh = clamp(prob + _hw, prob, 0.068);
+  const probHigh = clamp(prob + _hw, prob, 0.082);
   return{prob,probLow,probHigh,anchor,platoon,pitcher,parkwx,momentum,ttoMult,
          homeAwayMult,paMultiplier,umpMult,hvhMult};
 }
@@ -2249,6 +2437,21 @@ function calcHRProb(batterStats, pitcherStats, pf, wx, recentGames){
 // Calibration: books price with ~8% vig removed, plus regression to mean
 // The shrinkage factor is derived from the model's known systematic bias
 // rather than an arbitrary scaling constant
+// Platt scaling calibration — fitted from 2,684 resolved predictions (June 2026)
+// Corrects systematic slope compression: low-prob plays over-predicted, high-prob under-predicted
+// Observed: <8% bucket 6.3% model vs 4.2% actual (+50% over); 20%+ bucket 23.3% vs 30.9% (-33% under)
+// Fit: calibrated_logit = 1.54 × model_logit + 0.955 (R² ≈ 0.99 across 5 probability buckets)
+// Effect: 6.3% → ~3.9%, 10% → ~8.2%, 13.7% → ~13.6%, 17.7% → ~19.3%, 23.3% → ~29.4%
+// Update these parameters every 1,000+ resolved predictions using Signal Lift Report bucket data
+const PLATT_A = 1.54;  // slope  > 1 spreads distribution (less compression toward middle)
+const PLATT_B = 0.955; // intercept in logit space
+function plattCalibrate(p){
+  if(p<=0.001||p>=0.999) return p;
+  const rawLogit = Math.log(p/(1-p));
+  const calLogit = PLATT_A*rawLogit + PLATT_B;
+  return 1/(1+Math.exp(-calLogit));
+}
+
 function perPAtoGame(perPA, lineupPos){
   // Convert per-plate-appearance probability to per-game probability
   // PA estimate uses empirical MLB averages by lineup slot (2022-2024 data)
@@ -2258,59 +2461,99 @@ function perPAtoGame(perPA, lineupPos){
     ? PA_BY_SLOT[lineupPos-1]
     : 4.38; // default: weighted league average across all slots
   const rawGame = 1 - Math.pow(1 - perPA, expPA);
-  // NO SHRINKAGE — model outputs true-talent probability, not market price
+  // Apply Platt scaling calibration — corrects systematic slope bias measured from resolved predictions
   // Edge = modelProb - bookNoVigImplied (the only comparison that matters)
-  // Calibration is measured by tracking actual hit rate vs model prob over 300+ bets
-  return clamp(rawGame, 0.005, 0.60);
+  return clamp(plattCalibrate(rawGame), 0.005, 0.60);
 }
+
+// Compass bearing from home plate to center field (0=N, 90=E, 180=S, 270=W).
+// LHB power alley (RF side) = cfDir + 45°. RHB power alley (LF side) = cfDir - 45°.
+// Parks not listed default to 0° (north-facing), the most common MLB orientation.
+// Domes never reach the wind-scoring block, so their cfDir doesn't matter.
+const PARK_CF_DIR = {
+  BOS:  45,  // Fenway Park: home plate at SW corner, outfield toward NE
+  CHC:  65,  // Wrigley Field: outfield ENE — famous E/NE wind carries to RF/CF
+  SF:  295,  // Oracle Park: outfield toward bay (W-NW), bay breeze is usually tailwind
+  WSH: 315,  // Nationals Park: outfield NW
+  ATL: 340,  // Truist Park: outfield NNW
+  NYM: 345,  // Citi Field: outfield N
+  LAD: 355,  // Dodger Stadium: outfield N
+  COL: 355,  // Coors Field: outfield N (Denver afternoon E breeze often a headwind)
+  NYY:   5,  // Yankee Stadium: outfield NNE
+  BAL:  25,  // Camden Yards: outfield NNE
+  PIT:  20,  // PNC Park: outfield NNE
+  STL:   5,  // Busch Stadium: outfield N
+  CIN: 355,  // Great American Ball Park: outfield N
+  DET:  20,  // Comerica Park: outfield NNE
+  CLE:   5,  // Progressive Field: outfield N
+  KC:   15,  // Kauffman Stadium: outfield NNE
+  LAA: 325,  // Angel Stadium: outfield NW
+  ATH: 350,  // Sutter Health Park (Sacramento): outfield N
+  PHI: 355,  // Citizens Bank Park: outfield N
+  SD:  340,  // Petco Park: outfield NNW
+  CHW: 325,  // Guaranteed Rate Field: outfield NW
+};
 
 function calcParkWxMult(pf, wx, batHand){
   // Use handedness-adjusted park factor when available
-  const handPF = getHandednessParkFactor(
-    wx?.team || '', batHand
-  );
+  const handPF = getHandednessParkFactor(wx?.team || '', batHand);
   const parkMult = clamp(handPF > 1.01 || handPF < 0.99 ? handPF : pf, 0.82, 1.25);
 
   if(!wx) return clamp(parkMult, 0.85, 1.30);
 
-  // Temperature: quadratic curve — cold penalizes more than heat helps
-  // Peaks around 83°F; above that, humidity & batter fatigue offset ball-carry gain
+  // ── TEMPERATURE ────────────────────────────────────────────────────
+  // Quadratic: cold penalises more than heat helps. Peaks ~85°F.
+  // Below 72°F: each degree costs ~0.22%. Above: each degree worth ~0.16%.
   const tempBase = wx.temp - 72;
   const tempEffect = tempBase >= 0
     ? clamp(tempBase * 0.0016 - tempBase * tempBase * 0.000020, 0, 0.030)
     : clamp(tempBase * 0.0022, -0.050, 0);
 
-  // Wind: direction relative to batter's power alley
-  // 0=N, 90=E, 180=S, 270=W — wind is the direction it's blowing FROM
-  // Most parks face roughly north — power alleys face L (~225°) and R (~135°)
+  // ── WIND ──────────────────────────────────────────────────────────
+  // wdir = direction wind is FROM (meteorological convention).
+  // We convert to the direction it's BLOWING TO (windTo) and compare
+  // against the batter's pull-side power alley for this specific park.
+  // PARK_CF_DIR gives the compass bearing from home plate to CF; RF is
+  // cfDir+45° (LHB pulls there) and LF is cfDir−45° (RHB pulls there).
   const wdir = wx.wdir || 0;
   const wspd = wx.wind || 0;
   let windEffect = 0;
   if(wspd > 3){
-    // Convert wind FROM direction to wind TO direction
     const windTo = (wdir + 180) % 360;
-    // Power alley angle based on batter hand
-    const alleyAngle = (batHand==='L') ? 200 : 290; // aligned with detectAngles outDirs convention (SSW=RF, WNW=LF)
+    const cfDir = PARK_CF_DIR[wx.team||''] ?? 0;
+    const alleyAngle = (batHand==='L')
+      ? (cfDir + 45 + 360) % 360   // LHB pulls to RF side of outfield
+      : (cfDir - 45 + 360) % 360;  // RHB pulls to LF side of outfield
     const angleDiff = Math.abs(((windTo - alleyAngle + 180) % 360) - 180);
-    // angleDiff=0 means blowing straight out to power alley (+max)
-    // angleDiff=180 means blowing straight in (-max)
+    // angleDiff=0 → tailwind straight to power alley (max boost)
+    // angleDiff=180 → headwind straight in (max suppression)
     const alignment = Math.cos(angleDiff * Math.PI / 180);
     windEffect = alignment * Math.min(wspd, 25) * 0.004;
   }
 
-  // Rain: reduces HR probability
+  // ── RAIN ──────────────────────────────────────────────────────────
   const rainEffect = -(wx.rain || 0) * 0.003;
 
-  // Humidity: denser humid air slightly suppresses HRs
-  const humidityEffect = wx.humidity ? (50 - wx.humidity) * 0.0008 : 0;
+  // ── HUMIDITY ──────────────────────────────────────────────────────
+  // Humid air is LESS dense (water vapour lighter than N₂/O₂) → ball
+  // carries slightly farther. Previous model had this reversed.
+  // Effect is small: +0.003 at 60% RH, −0.003 at 40% RH.
+  const humidityEffect = wx.humidity ? (wx.humidity - 50) * 0.0003 : 0;
 
-  // Altitude × temperature interaction (Coors at 85°F = bigger bonus than Coors at 55°F)
-  const altBonus = altitudeEffect(wx.venue||'', wx.temp||72);
+  // ── ALTITUDE ──────────────────────────────────────────────────────
+  // altitudeEffect keyed by team code (COL, ARI, ATL); wx.team is set
+  // by the caller. Previous code passed wx.venue (venue name), which
+  // always missed the PARK_ALTITUDE lookup — the bonus never fired.
+  const altBonus = altitudeEffect(wx.team||'', wx.temp||72);
 
-  // Day game suppression: afternoon games have ~8-10% fewer HRs than night games
-  // Very hot day games (≥90°F) partially offset by heat increasing ball carry
+  // ── DAY GAME ──────────────────────────────────────────────────────
+  // Afternoon games have ~5–7% fewer HRs historically vs night games,
+  // primarily due to shadows and visibility (not temperature — that's
+  // already captured above). Previous model incorrectly reduced the
+  // penalty at hot temperatures, double-counting with tempEffect.
+  // Use a flat −5% day suppression, independent of temperature.
   const isDay = !wx.isNight && !wx.isDome;
-  const dayEffect = isDay ? (wx.temp>=90 ? -0.04 : wx.temp>=82 ? -0.06 : -0.08) : 0;
+  const dayEffect = isDay ? -0.05 : 0;
 
   const wxMult = clamp(1.0 + tempEffect + windEffect + rainEffect + humidityEffect + dayEffect + altBonus, 0.80, 1.35);
 
@@ -2330,16 +2573,15 @@ function calcParkWxMult(pf, wx, batHand){
 
 // ── GRADES ────────────────────────────────────────────────────────
 function probGrade(p){
-  // Raw per-game true-talent probability (no shrinkage)
-  // MLB avg ~20% per game | Good ~28% | Elite ~38% | Judge best ~45%
-  // These are HIGHER than book implied because model = true talent, not market price
-  if(p>=0.400)return['A+','#22c95e','a'];  // elite — Judge/Schwarber tier
-  if(p>=0.320)return['A', '#22c95e','a'];  // very good — Yordan tier
-  if(p>=0.250)return['B+','#5fffb0','b'];  // good — above avg matchup
-  if(p>=0.190)return['B', '#f0a500','b'];  // solid
-  if(p>=0.150)return['C+','#f0a500','c'];  // avg
-  if(p>=0.100)return['C', '#e0504a','c'];  // below avg
-  return              ['D', '#888',   'd'];
+  // Per-game HR probability — calibrated to actual model output range
+  // MLB avg ~3.5% per game | Good ~10-14% | Elite ~18%+ | Soto/Yordan best ~25%+
+  if(p>=0.220)return['A+','#22c95e','a'];  // elite — Soto/Yordan tier
+  if(p>=0.175)return['A', '#22c95e','a'];  // very strong play
+  if(p>=0.140)return['B+','#5fffb0','b'];  // strong — clear above avg
+  if(p>=0.110)return['B', '#f0a500','b'];  // solid
+  if(p>=0.085)return['C+','#f0a500','c'];  // average
+  if(p>=0.065)return['C', '#e0504a','c'];  // below avg — proceed cautiously
+  return              ['D', '#888',   'd'];  // low conviction
 }
 
 function probToAmerican(p){
@@ -2846,9 +3088,19 @@ function calcEdge(ourProb, bookOdds){
 function getBetRec(r){
   const prob    = r.prob;
   const odds    = getFDOdds(r.name) ?? getOddsEntry(r.name)?.odds;
-  const fairStr = probToAmerican(prob);   // already returns "+350" or "-120"
+  const fairStr = probToAmerican(prob);
 
-  // ── With book odds: edge-based recommendation ──────────────────────────
+  // Signal stacking gate — the core fix for probability stratification.
+  // Probability alone is not enough to bet: a 20% player with 1 signal and
+  // a 20% player with 6 signals are completely different bets. We require
+  // signal count to gate every bet tier.
+  const _allAngles  = detectAngles(r);
+  const sigCount    = _allAngles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length;
+  const negCount    = detectNegativeAngles(r).length;
+  const hasEliteTag = _allAngles.some(a=>a.label==='Elite Spot'||a.label==='Prime Spot');
+  const sigNote     = sigCount >= 5 ? `${sigCount} signals stacked` : sigCount >= 3 ? `${sigCount} signals` : `only ${sigCount} signal${sigCount===1?'':'s'}`;
+
+  // ── With book odds: edge × signal stacking ─────────────────────────────
   if(odds != null){
     const edge = calcEdgePct(prob, odds);
     if(edge == null) return null;
@@ -2856,39 +3108,58 @@ function getBetRec(r){
     const kelStr = kelObj?.units > 0 ? kelObj.units.toFixed(1)+'u' : '';
     const oddsStr = odds>0?'+'+odds:String(odds);
 
-    if(edge >= 8)  return { action:'MAX BET',     clr:'#ffd700', bg:'rgba(255,215,0,.12)',
-      why:`+${edge.toFixed(1)}% edge at ${oddsStr} · ${kelStr} Kelly`, tier:'S' };
-    if(edge >= 4)  return { action:'BET',          clr:'#22c95e', bg:'rgba(34,201,94,.12)',
-      why:`+${edge.toFixed(1)}% edge at ${oddsStr} · ${kelStr} Kelly`, tier:'A' };
-    if(edge >= 1)  return { action:'SMALL BET',    clr:'#4ade80', bg:'rgba(74,222,128,.1)',
-      why:`+${edge.toFixed(1)}% edge · small unit at ${oddsStr}`, tier:'B' };
-    if(edge >= -2) return { action:'PARLAY ONLY',  clr:'#94a3b8', bg:'rgba(148,163,184,.1)',
+    // Edge is real only when signals back it up — otherwise it may be model noise
+    if(edge >= 8 && sigCount >= 4)
+      return { action:'MAX BET',    clr:'#ffd700', bg:'rgba(255,215,0,.12)',
+        why:`+${edge.toFixed(1)}% edge · ${sigNote} · ${kelStr} Kelly`, tier:'S' };
+    if(edge >= 8 && sigCount < 4)
+      return { action:'BET',        clr:'#22c95e', bg:'rgba(34,201,94,.12)',
+        why:`+${edge.toFixed(1)}% edge but ${sigNote} — reduce size`, tier:'A' };
+    if(edge >= 4 && sigCount >= 3)
+      return { action:'BET',        clr:'#22c95e', bg:'rgba(34,201,94,.12)',
+        why:`+${edge.toFixed(1)}% edge · ${sigNote} at ${oddsStr} · ${kelStr} Kelly`, tier:'A' };
+    if(edge >= 4 && sigCount < 3)
+      return { action:'SMALL BET',  clr:'#4ade80', bg:'rgba(74,222,128,.1)',
+        why:`+${edge.toFixed(1)}% edge but ${sigNote} · small unit only at ${oddsStr}`, tier:'B' };
+    if(edge >= 1)
+      return { action:'SMALL BET',  clr:'#4ade80', bg:'rgba(74,222,128,.1)',
+        why:`+${edge.toFixed(1)}% edge · small unit at ${oddsStr}`, tier:'B' };
+    if(edge >= -2) return { action:'PARLAY ONLY', clr:'#94a3b8', bg:'rgba(148,163,184,.1)',
       why:`Near fair value at ${oddsStr} · better in combo`, tier:'C' };
-    if(edge >= -6) return { action:'SKIP',         clr:'#f59e0b', bg:'rgba(245,158,11,.08)',
+    if(edge >= -6) return { action:'SKIP',        clr:'#f59e0b', bg:'rgba(245,158,11,.08)',
       why:`Overpriced ${oddsStr} · fair is ${fairStr}`, tier:'D' };
-    return               { action:'FADE',          clr:'#e0504a', bg:'rgba(224,80,74,.1)',
+    return               { action:'FADE',         clr:'#e0504a', bg:'rgba(224,80,74,.1)',
       why:`Bad price ${oddsStr} · model fair is ${fairStr}`, tier:'F' };
   }
 
-  // ── No odds loaded: profile-based recommendation ───────────────────────
-  // Show what to look for and what price you'd need to bet
+  // ── No odds: probability + signal stacking required for every tier ─────
   const barrel   = r.barrel_pct   || 0;
   const pullAir  = r.pull_air_pct || 0;
   const iso      = r.iso          || 0;
-  const platoon  = r.platoon      || 1;
   const hasElite = barrel>=11 || pullAir>=16 || iso>=.220;
   const hasGood  = barrel>=8  || pullAir>=13 || iso>=.180;
-  const maxBet = probToAmerican(prob * 0.85); // price where bet is still +EV (15% margin)
+  const maxBet   = probToAmerican(prob * 0.85);
 
-  if(prob >= 0.16 && hasElite)
+  // PRIME TARGET: high prob + elite power + 4+ signals + no red flags
+  if(prob >= 0.16 && hasElite && sigCount >= 4 && negCount === 0)
     return { action:'PRIME TARGET', clr:'#ffd700', bg:'rgba(255,215,0,.12)',
-      why:`Fair ${fairStr} · bet anything ≤ ${maxBet} · elite power`, tier:'S' };
-  if(prob >= 0.13 && hasGood)
+      why:`Fair ${fairStr} · ${sigNote} · bet ≤ ${maxBet}`, tier:'S' };
+  // Also catch Elite/Prime Spot tag as top tier
+  if(prob >= 0.13 && hasEliteTag && sigCount >= 3)
+    return { action:'PRIME TARGET', clr:'#ffd700', bg:'rgba(255,215,0,.12)',
+      why:`Fair ${fairStr} · ${sigNote} · Elite/Prime Spot · bet ≤ ${maxBet}`, tier:'S' };
+  // STRONG LOOK: solid prob + real power + 3+ signals
+  if(prob >= 0.13 && hasGood && sigCount >= 3)
     return { action:'STRONG LOOK',  clr:'#22c95e', bg:'rgba(34,201,94,.12)',
-      why:`Fair ${fairStr} · bet ≤ ${maxBet} · load odds to confirm`, tier:'A' };
-  if(prob >= 0.10)
+      why:`Fair ${fairStr} · ${sigNote} · bet ≤ ${maxBet}`, tier:'A' };
+  // WORTH BETTING: 10%+ prob with 2+ signals confirming
+  if(prob >= 0.10 && sigCount >= 2)
     return { action:'WORTH BETTING',clr:'#4ade80', bg:'rgba(74,222,128,.1)',
-      why:`Fair ${fairStr} · bet ≤ ${maxBet} · above avg matchup`, tier:'B' };
+      why:`Fair ${fairStr} · ${sigNote} · above avg matchup · bet ≤ ${maxBet}`, tier:'B' };
+  // High prob but thin signals — prob alone is not a bet
+  if(prob >= 0.10 && sigCount < 2)
+    return { action:'PARLAY ONLY',  clr:'#94a3b8', bg:'rgba(148,163,184,.1)',
+      why:`Fair ${fairStr} but ${sigNote} — prob alone is not a standalone bet`, tier:'C' };
   if(prob >= 0.08)
     return { action:'PARLAY LEG',   clr:'#94a3b8', bg:'rgba(148,163,184,.1)',
       why:`Fair ${fairStr} · low standalone value, add to parlay`, tier:'C' };
@@ -2972,6 +3243,20 @@ function detectAngles(r){
     a.push({icon:'🚀',cat:'pitcher',tier:2,label:'Serving Dingers',color:'var(--green)',tip:`SP allowing ${recentHR9.toFixed(1)} HR/9 — elevated`});
   else if(sznHR9<=0.8&&pit.sznXFIP<=3.5)
     a.push({icon:'🧱',cat:'pitcher',tier:3,label:'Shutdown SP',color:'var(--red)',tip:`Elite HR suppressor: ${sznHR9.toFixed(1)} HR/9, xFIP ${pit.sznXFIP?.toFixed(2)}`});
+
+  // Velocity trend — YoY fastball change signals stuff quality shift
+  const _vt = pit.veloTrend;
+  if(_vt?.delta!=null){
+    if(_vt.delta<=-2.0)
+      a.push({icon:'📉',cat:'pitcher',tier:2,label:'Velo Decline',color:'var(--green)',
+        tip:`SP fastball ${_vt.current?.toFixed(1)||'?'}mph this season vs ${_vt.prior?.toFixed(1)||'?'}mph last year (${_vt.delta}mph) — losing stuff, easier to barrel`});
+    else if(_vt.delta>=-1.0&&_vt.delta<0)
+      a.push({icon:'📉',cat:'pitcher',tier:2,label:'Minor Velo Drop',color:'var(--amber)',
+        tip:`SP fastball ${_vt.delta}mph vs last season — slight decline worth watching`});
+    else if(_vt.delta>=2.0)
+      a.push({icon:'💪',cat:'pitcher',tier:3,label:'Velo Surge',color:'var(--red)',
+        tip:`SP fastball +${_vt.delta}mph vs last season (${_vt.prior?.toFixed(1)||'?'} → ${_vt.current?.toFixed(1)||'?'}mph) — improved arsenal`});
+  }
 
   // BvP arsenal angle
   const bvpP=r._bvp; if(bvpP){
@@ -3245,28 +3530,51 @@ async function ensureLeaderboards(){
   if(_savB!==null) return;
 
   // ── Try localStorage cache first (4hr TTL) ──────────────────────────────
-  const cached = _lbCacheGet('savB');
+  const cached = _lbCacheGet('savB2');
   if(cached && Object.keys(cached).length > 50){
     [_savB,_fgB,_savP,_fgP] = [cached, {}, {}, {}];
     console.log(`[LB] restored ${Object.keys(_savB).length} players from cache`);
     setTimeout(()=>{ ensurePercentileMap(); ensureSwingSpeedMap(); }, 200);
+    // Still fetch FG+pitchers in background so ISO and pitcher signals work on cached loads
+    setTimeout(()=>{
+      Promise.allSettled([getFGBatters(), getSavantPitchers(), getFGPitchers()])
+        .then(([fgB, savP, fgP])=>{
+          if(fgB.value)  _fgB  = fgB.value  || {};
+          if(savP.value) _savP = savP.value  || {};
+          if(fgP.value)  _fgP  = fgP.value  || {};
+          console.log('[LB] background FG ready (cache-path)');
+          let bf = 0;
+          for(const r of S.allRows||[]){
+            const pid = String(r._batPid||r.id||'');
+            const fg = (_fgB||{})[pid] || (_fgB?.__byName||{})[normName(r.name||'')] || null;
+            if(!fg) continue;
+            if(r.iso==null){
+              if(fg.iso!=null){ r.iso=fg.iso; bf++; }
+              else if(fg.slg!=null&&fg.avg!=null){ r.iso=Math.round((fg.slg-fg.avg)*1000)/1000; bf++; }
+            }
+            if(r.hr_fb_pct==null && fg.hr_fb!=null){ r.hr_fb_pct=fg.hr_fb; bf++; }
+          }
+          if(bf>0){ console.log('[LB] cache-path FG backfill:',bf,'fields'); try{ renderSlate(); }catch(e){} }
+        });
+    }, 800);
     return;
   }
 
   console.log('[LB] fetching…');
   showLoading();
 
-  // ── Only await Savant batter stats (fastest, most important) ────────────
-  // FanGraphs + pitcher data load in background so players appear quickly
-  const savB = await getSavantBatters();
-  [_savB,_fgB,_savP,_fgP] = [savB||{}, {}, {}, {}];
+  // ── Await Savant AND FanGraphs batters in parallel ───────────────────────
+  // FG has HR/FB% which Savant does not expose; both needed at render time.
+  // Pitcher data loads in background so players appear quickly.
+  const [savB, fgB] = await Promise.all([getSavantBatters(), getFGBatters()]);
+  [_savB,_fgB,_savP,_fgP] = [savB||{}, fgB||{}, {}, {}];
   hideLoading();
 
   const nSav = Object.keys(_savB).length;
   console.log(`[LB] Savant: ${nSav} players ready`);
 
   // Cache immediately so next load is instant
-  if(nSav > 50) _lbCacheSet('savB', _savB);
+  if(nSav > 50) _lbCacheSet('savB2', _savB);
 
   if(nSav === 0){
     const el = document.getElementById('hitter-list');
@@ -3287,20 +3595,38 @@ async function ensureLeaderboards(){
       // (loadGame ran before _savB finished — avgLA, barrel etc. were null)
       let batBackfill = 0;
       for(const r of S.allRows||[]){
-        const sb = (_savB||{})[String(r.id)];
-        if(!sb) continue;
-        if(r.avgLA==null && sb.avg_la!=null)        { r.avgLA=sb.avg_la; batBackfill++; }
-        if(r.barrel_pct==null && sb.barrel_pct!=null)   r.barrel_pct=sb.barrel_pct;
-        if(r.hard_hit_pct==null && sb.hard_hit_pct!=null) r.hard_hit_pct=sb.hard_hit_pct;
-        if(r.avg_ev==null && sb.avg_ev!=null)         r.avg_ev=sb.avg_ev;
-        if(r.pull_air_pct==null && sb.pull_air_pct!=null) r.pull_air_pct=sb.pull_air_pct;
-        if(r.iso==null && sb.avg_la!=null){           // use avg_la as signal data loaded
-          // re-compute ISO from MLB stats if FG wasn't ready
-          const szSLG = r.szSLG, szAVG = r.szAVG;
-          if(szSLG!=null && szAVG!=null) r.iso = Math.round((szSLG-szAVG)*1000)/1000;
+        const pid = String(r._batPid||r.id||'');
+        const sb = (_savB||{})[pid];
+        const fg = (_fgB||{})[pid] || (_fgB?.__byName||{})[normName(r.name||'')] || null;
+        if(!sb && !fg) continue;
+        if(sb){
+          if(r.avgLA==null && sb.avg_la!=null)             { r.avgLA=sb.avg_la; batBackfill++; }
+          if(r.barrel_pct==null && sb.barrel_pct!=null)     r.barrel_pct=sb.barrel_pct;
+          if(r.hard_hit_pct==null && sb.hard_hit_pct!=null) r.hard_hit_pct=sb.hard_hit_pct;
+          if(r.avg_ev==null && sb.avg_ev!=null)             r.avg_ev=sb.avg_ev;
+          if(r.pull_air_pct==null && sb.pull_air_pct!=null) r.pull_air_pct=sb.pull_air_pct;
+          if(r.sweet_spot_pct==null && (sb.sweetSpot??sb.sweet_spot_pct)!=null){
+            r.sweet_spot_pct = sb.sweetSpot ?? sb.sweet_spot_pct;
+            batBackfill++;
+          }
+          if(r.hr_fb_pct==null && sb.hr_fb_pct!=null)      r.hr_fb_pct=sb.hr_fb_pct;
+        }
+        // ISO: prefer FG direct value → fall back to FG SLG-AVG → MLB SLG-AVG
+        if(r.iso==null){
+          if(fg?.iso!=null){
+            r.iso = fg.iso; batBackfill++;
+          } else if(fg?.slg!=null && fg?.avg!=null){
+            r.iso = Math.round((fg.slg - fg.avg)*1000)/1000; batBackfill++;
+          } else {
+            const szSLG = r.szSLG, szAVG = r.szAVG;
+            if(szSLG!=null && szAVG!=null){ r.iso = Math.round((szSLG-szAVG)*1000)/1000; batBackfill++; }
+          }
         }
       }
-      if(batBackfill>0) console.log('[LB] back-filled avgLA for',batBackfill,'batters');
+      if(batBackfill>0){
+        console.log('[LB] batter backfill: updated',batBackfill,'fields');
+        try{ renderSlate(); }catch(e){}
+      }
       // Back-fill _savP pitcher fields on already-loaded rows
       // (loadGame ran before _savP finished — barrel/pull/fb fields were null)
       for(const r of S.allRows||[]){
@@ -3316,6 +3642,18 @@ async function ensureLeaderboards(){
         if(r._pitcherStats.fb_pct_savant==null)
           r._pitcherStats.fb_pct_savant         = sp2.fb_pct_bb ?? sp2.fb_percent ?? null;
       }
+      // Back-fill hr_fb_pct from FanGraphs for cached loads where _fgB was empty
+      let hrfbBackfill = 0;
+      for(const r of S.allRows||[]){
+        if(r.hr_fb_pct!=null) continue;
+        const pid = String(r._batPid||r.id||'');
+        const fg = (_fgB||{})[pid] || (_fgB?.__byName||{})[normName(r.name||'')] || null;
+        if(fg?.hr_fb!=null){ r.hr_fb_pct=fg.hr_fb; hrfbBackfill++; }
+      }
+      if(hrfbBackfill>0){
+        console.log('[LB] hr_fb_pct backfilled for',hrfbBackfill,'batters');
+        try{ renderSlate(); }catch(e){}
+      }
       if(_currentPage==='scout') try{ renderScout(); }catch{}
     });
     ensurePercentileMap();
@@ -3330,43 +3668,88 @@ async function ensureLeaderboards(){
 async function prefetchEliteSpotData(rows){
   if(!rows?.length) return;
 
-  // Sort by prob desc so top players get elite-spot tags first
+  // Sort by prob desc so highest-value players get enriched first
   const sorted = [...rows].sort((a,b) => b.prob - a.prob);
 
-  // Adaptive batch: fewer games = larger batches = faster completion
-  const BATCH = sorted.length <= 30 ? 10 : sorted.length <= 60 ? 8 : 6;
-  const DELAY = sorted.length <= 30 ? 60 : 100;
+  // ── PHASE 0: synchronous cache-warm pass ──────────────────────────────
+  // Apply any already-cached BvP/careerVsSP/umpire data immediately so
+  // Elite Spots built from cached data appear without ANY network delay.
+  // This is the fix for "have to click each detail card" — previously cached
+  // BvP was copied to the row but renderSlate was never called (enriched=0),
+  // and arsenal scoring was skipped entirely on cache hits.
+  let cacheHits = 0;
+  const _warmUmp = new Set();
+  for(const r of sorted){
+    const batPid  = String(r._batPid || r.id);
+    const gameKey = String(r._gamePk || r.gamePk || '');
+
+    // BvP: copy from cache + run arsenal scoring (previously skipped on cache hit)
+    const cachedBvP = _playerCache[`bvp_${SEASON}_${batPid}`];
+    if(cachedBvP && !r._bvp){
+      r._bvp = cachedBvP;
+      try{
+        const arsenalMatch = scoreArsenalMatchup(r._pitcherStats?.arsenal, cachedBvP);
+        if(arsenalMatch.mult !== 1.0 && r._pitcherStats){
+          r._pitcherStats._arsenalMult     = arsenalMatch.mult;
+          r._pitcherStats._arsenalDesc     = arsenalMatch.desc;
+          r._pitcherStats._arsenalStrengths  = arsenalMatch.strengths||[];
+          r._pitcherStats._arsenalWeaknesses = arsenalMatch.weaknesses||[];
+          const newRes = calcHRProb(r._batterStats||r, r._pitcherStats, r._pf, r._wx);
+          if(newRes){
+            r._rawProb = perPAtoGame(newRes.prob, r.lineupPos);
+            r.prob     = r._rawProb * getCalFactor();
+            r.pitcher  = newRes.pitcher;
+          }
+        }
+      }catch{}
+      cacheHits++;
+    }
+
+    // Umpire: copy from already-enriched sibling in same game
+    if(!r._umpData && gameKey && !_warmUmp.has(gameKey)){
+      const sibling = (S.allRows||[]).find(x=>String(x._gamePk||x.gamePk||'')==gameKey && x._umpData);
+      if(sibling){ r._umpData = sibling._umpData; cacheHits++; _warmUmp.add(gameKey); }
+    }
+  }
+  // Render immediately if any cached data was applied
+  if(cacheHits > 0){ renderSlate(); renderDailySummary(); }
+
+  // ── PHASE 1: async network fetches for anything still missing ─────────
+  // Faster batches now that cached data is already applied
+  const BATCH = sorted.length <= 30 ? 12 : sorted.length <= 60 ? 9 : 7;
+  const DELAY = sorted.length <= 30 ? 40  : sorted.length <= 60 ? 60 : 80;
 
   let enriched = 0;
-  const umpireFetched = new Set(); // dedupe — one ump per game, not per player
+  const umpireFetched = new Set();
 
   for(let i = 0; i < sorted.length; i += BATCH){
     const chunk = sorted.slice(i, i + BATCH);
     await Promise.allSettled(chunk.map(async r => {
       try{
-        const batPid = String(r._batPid || r.id);
-        const spId   = r._spId ? String(r._spId) : null;
+        const batPid  = String(r._batPid || r.id);
+        const spId    = r._spId ? String(r._spId) : null;
+        const gameKey = r._gamePk || r.gamePk;
 
-        // BvP arsenal — skip if already cached
-        if(!_playerCache[`bvp_${SEASON}_${batPid}`] && spId){
+        // BvP — only if still missing after Phase 0
+        if(!r._bvp && spId){
           const bvp = await getBatterVsPitches(batPid).catch(()=>null);
           if(bvp){
             r._bvp = bvp;
-            // Re-score pitcher matchup now that we have BvP data
             const arsenalMatch = scoreArsenalMatchup(r._pitcherStats?.arsenal, bvp);
             if(arsenalMatch.mult !== 1.0 && r._pitcherStats){
-              r._pitcherStats._arsenalMult = arsenalMatch.mult;
-              r._pitcherStats._arsenalDesc = arsenalMatch.desc;
-              r._pitcherStats._arsenalStrengths = arsenalMatch.strengths||[];
+              r._pitcherStats._arsenalMult     = arsenalMatch.mult;
+              r._pitcherStats._arsenalDesc     = arsenalMatch.desc;
+              r._pitcherStats._arsenalStrengths  = arsenalMatch.strengths||[];
               r._pitcherStats._arsenalWeaknesses = arsenalMatch.weaknesses||[];
-              // Recompute prob with updated pitcher mult
-              const newRes = calcHRProb(r._batterStats||r, r._pitcherStats, r._pf, r._wx);
-              if(newRes){
-                r._rawProb = perPAtoGame(newRes.prob, r.lineupPos);
-                r.prob = r._rawProb * getCalFactor();
-                r.pitcher = newRes.pitcher;
-              }
-              // Re-render detail card if it's open for this player
+              try{
+                const newRes = calcHRProb(r._batterStats||r, r._pitcherStats, r._pf, r._wx);
+                if(newRes){
+                  r._rawProb = perPAtoGame(newRes.prob, r.lineupPos);
+                  r.prob     = r._rawProb * getCalFactor();
+                  r.pitcher  = newRes.pitcher;
+                }
+              }catch{}
+              // Re-render detail card if it's open
               if(window._lastDetailId === String(r.id)){
                 const dp = document.getElementById('page-detail');
                 if(dp?.classList.contains('active')) requestAnimationFrame(()=>renderDetail(r));
@@ -3374,8 +3757,6 @@ async function prefetchEliteSpotData(rows){
             }
             enriched++;
           }
-        } else if(_playerCache[`bvp_${SEASON}_${batPid}`] && !r._bvp){
-          r._bvp = _playerCache[`bvp_${SEASON}_${batPid}`];
         }
 
         // Career vs SP
@@ -3385,35 +3766,37 @@ async function prefetchEliteSpotData(rows){
         }
 
         // Umpire — one fetch per game, shared across all players in that game
-        const gameKey = r._gamePk || r.gamePk;
         if(!r._umpData && gameKey && !umpireFetched.has(String(gameKey))){
           umpireFetched.add(String(gameKey));
           const ump = await getUmpireData(gameKey).catch(()=>null);
           if(ump){
-            // Apply to all players in this game
             (S.allRows||[]).filter(x=>(x._gamePk||x.gamePk)==gameKey)
               .forEach(x=>{ x._umpData = ump; });
             enriched++;
           }
         } else if(!r._umpData && gameKey){
-          // Already fetched for this game — find and copy from another player
           const sibling = (S.allRows||[]).find(x=>(x._gamePk||x.gamePk)==gameKey && x._umpData);
           if(sibling) r._umpData = sibling._umpData;
         }
       }catch{}
     }));
 
-    // Re-render every 3 batches so top players show Elite Spot progressively
-    if(enriched > 0 && (i % (BATCH * 3) === 0 || i + BATCH >= sorted.length)){
+    // Re-render every 2 batches (more frequent) or at final batch
+    if(enriched > 0 && (i % (BATCH * 2) === 0 || i + BATCH >= sorted.length)){
       renderSlate();
       renderDailySummary();
-      enriched = 0; // reset counter for next window
+      enriched = 0;
     }
 
     if(i + BATCH < sorted.length){
       await new Promise(res => setTimeout(res, DELAY));
     }
   }
+
+  // Always do a final render — catches any enrichment where enriched was 0
+  // at every batch boundary (e.g. all data was cache hits in Phase 1)
+  renderSlate();
+  renderDailySummary();
 }
 
 
@@ -3481,7 +3864,13 @@ function fireSecondaryMaps(){
             r.pitcher = res.pitcher;
             r.parkwx  = res.parkwx;
             r.momentum= res.momentum;
-            r.grade   = probGrade(r.prob);
+            // Sync Statcast display fields from batterStats in case they loaded after initial render
+            if(r._batterStats){
+              if(r.iso==null && r._batterStats.iso!=null)                     r.iso = r._batterStats.iso;
+              if(r.sweet_spot_pct==null && r._batterStats.sweet_spot_pct!=null) r.sweet_spot_pct = r._batterStats.sweet_spot_pct;
+            }
+            r.grade   = probGrade(r.prob)[0];
+            if(!r._zoneFit) r._zoneFit = computeZoneFit(r);
             enriched++;
           }catch{}
         }
@@ -3952,6 +4341,9 @@ async function loadSelectedGames(){
   }
   console.log(`[loadSelectedGames] total allRows: ${S.allRows.length}`);
 
+  // Persist to tracker storage so players survive game deselection
+  try{ logPrediction(S.allRows); }catch(e){ console.warn('[predLog]',e.message); }
+
   // Apply catcher framing (async; re-render when data arrives)
   if(_catcherFramingMap && Object.keys(_catcherFramingMap).length){
     applyCatcherFraming(S.allRows);
@@ -4003,7 +4395,7 @@ async function loadSelectedGames(){
   // Delay prefetch if multiple games still loading to avoid crashing iOS
   fireSecondaryMaps();
   if(S.allRows.length){
-    const prefetchDelay = S.selPks.size >= 5 ? 8000 : S.selPks.size >= 3 ? 4000 : 1500;
+    const prefetchDelay = S.selPks.size >= 5 ? 3000 : S.selPks.size >= 3 ? 1000 : 50;
     clearTimeout(window._prefetchTimer);
     window._prefetchTimer = setTimeout(()=>{
       if(S.allRows.length) prefetchEliteSpotData(S.allRows);
@@ -4447,29 +4839,59 @@ async function getBatterVsPitches(pid){
 async function getLineup(gamePk, teamId){
   const key = `lineup_${gamePk}_${teamId}`;
   if(_playerCache[key] && Object.keys(_playerCache[key]).length > 0) return _playerCache[key];
+
+  const buildResult = (ids) => {
+    const r = {};
+    ids.forEach((id,i) => { r[String(id)] = i+1; });
+    return r;
+  };
+
   try{
-    // Single call — schedule with lineups hydration covers pre-game and in-progress
-    const sched = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`)).catch(()=>null);
+    // ── Method 1: hydrate=lineups (official; MLB releases ~2-3h before first pitch) ─
+    const sched = await fetchJSON(PROXY+encodeURIComponent(
+      `${MLB}/schedule?sportId=1&gamePk=${gamePk}&hydrate=lineups`
+    )).catch(()=>null);
     const game = sched?.dates?.[0]?.games?.[0];
-    const isAway = game?.teams?.away?.team?.id === teamId;
-    const players = isAway ? game?.lineups?.awayPlayers : game?.lineups?.homePlayers;
-    const order = (players||[]).map(p=>p.id);
-    if(order.length >= 8){
-      const result = {};
-      order.forEach((id,i) => { result[String(id)] = i+1; });
-      _playerCache[key] = result;
-      return result;
-    }
-    // Game started — try boxscore
-    if(game?.status?.abstractGameState === 'Live' || game?.status?.abstractGameState === 'Final'){
-      const box = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/game/${gamePk}/boxscore`)).catch(()=>null);
-      const side = box?.teams?.away?.team?.id===teamId ? 'away' : 'home';
-      const batters = box?.teams?.[side]?.battingOrder||[];
-      if(batters.length >= 8){
-        const result = {};
-        batters.forEach((id,i) => { result[String(id)] = i+1; });
+    if(game){
+      const isAway = game?.teams?.away?.team?.id === teamId;
+      const players = isAway ? game?.lineups?.awayPlayers : game?.lineups?.homePlayers;
+      // Some MLB API versions nest id under person.id; try both
+      const order = (players||[]).map(p => p.id ?? p.person?.id).filter(Boolean);
+      if(order.length >= 8){
+        const result = buildResult(order);
         _playerCache[key] = result;
         return result;
+      }
+
+      // ── Method 2: live feed battingOrder (works near first pitch + in-progress) ─
+      // Fetches even without game being Live — battingOrder populates once lineup cards
+      // are exchanged (typ. ~30-60 min before game), often earlier than hydrate=lineups.
+      const feed = await fetchJSON(PROXY+encodeURIComponent(
+        `${MLB}/game/${gamePk}/feed/live?fields=liveData,boxscore,teams,away,home,battingOrder,team,id`
+      )).catch(()=>null);
+      const sides = feed?.liveData?.boxscore?.teams;
+      if(sides){
+        const awayTeamId = sides.away?.team?.id;
+        const batting = (awayTeamId === teamId) ? sides.away?.battingOrder : sides.home?.battingOrder;
+        if((batting||[]).length >= 8){
+          const result = buildResult(batting);
+          _playerCache[key] = result;
+          return result;
+        }
+      }
+
+      // ── Method 3: boxscore endpoint (reliable for Live/Final games) ─
+      const box = await fetchJSON(PROXY+encodeURIComponent(
+        `${MLB}/game/${gamePk}/boxscore`
+      )).catch(()=>null);
+      if(box?.teams){
+        const side = box.teams?.away?.team?.id===teamId ? 'away' : 'home';
+        const batters = box.teams[side]?.battingOrder||[];
+        if(batters.length >= 8){
+          const result = buildResult(batters);
+          _playerCache[key] = result;
+          return result;
+        }
       }
     }
     return {};
@@ -4875,17 +5297,34 @@ function calcDataConfidence(r){
 // ==================================================================
 function calcCompositeBetScore(r){
   // Weighted composite: probability × data confidence × positive signals
+  // Signal weighting is intentionally sharp — prob alone should not rank plays high.
+  // The whole point is that a 20% player with 1 signal ranks BELOW a 15% player
+  // with 5 signals, because signal stacking is what separates real edges from noise.
   const conf={A:1.0,B:0.85,C:0.65};
   const dc=calcDataConfidence(r);
   const confMult=conf[dc.grade]||0.75;
-  // Count positive angle categories
+  // Count distinct positive signal CATEGORIES (not raw tags) — prevents gaming via tag duplication
   const angles=detectAngles(r);
   const posCats=new Set(angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).map(a=>a.cat));
-  const angleBonus=Math.min(posCats.size*0.08,0.40);
-  // Penalize if many negative angles
+  // Sharper per-category bonus: 0.13 per category vs old 0.08 — gives Elite Spot (5+ cats) a real lift
+  const angleBonus=Math.min(posCats.size*0.13,0.55);
+  // Sharper negative penalty
   const negAngles=detectNegativeAngles(r);
-  const negPenalty=Math.min(negAngles.length*0.05,0.25);
+  const negPenalty=Math.min(negAngles.length*0.08,0.30);
   return (r.prob * confMult * (1+angleBonus-negPenalty));
+}
+
+// Conviction grade: combines prob + signal stacking + data confidence into one letter
+// This is what users should act on — not raw prob alone.
+function calcConvictionGrade(r){
+  const score=calcCompositeBetScore(r);
+  const ratio=r.prob>0?score/r.prob:0; // how much signals boost (or drag) the raw prob
+  const angles=detectAngles(r);
+  const sigCount=angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length;
+  if(ratio>=1.25&&sigCount>=4) return['A','#22c95e'];
+  if(ratio>=1.10&&sigCount>=3) return['B','#f0a500'];
+  if(ratio>=0.90&&sigCount>=2) return['C','#e0504a'];
+  return                              ['D','#888'];
 }
 
 
@@ -5154,15 +5593,18 @@ async function fetchTeamRecentStatcast(pids){
 //  Savant park factors endpoint has handedness splits
 // ==================================================================
 const PARK_HR_FACTOR_LR = {
-  // [LHB factor, RHB factor] — 1.0 = average, >1 = HR friendly
-  // Sourced from Savant park factors (3-year averages, handedness adjusted)
-  'LAD':  [1.03, 0.97], 'NYY': [1.12, 1.18], 'COL': [1.34, 1.38],
-  'CIN':  [1.15, 1.20], 'TEX': [1.08, 1.05], 'ARI': [1.05, 1.08],
+  // [LHB factor, RHB factor] — 1.0 = average, >1 = HR friendly for that hand
+  // Sourced from Baseball Savant park factors (3-year rolling, handedness-adjusted).
+  // ATH = Sacramento Sutter Health Park (neutral minor-league park, A's temp home).
+  // Dome teams (TB, TOR, MIA, HOU, SEA, ARI, MIL, MIN, TEX) included for reference
+  // but weather is always neutral for them — only park dimension scoring applies.
+  'LAD':  [1.02, 0.98], 'NYY': [1.14, 1.16], 'COL': [1.34, 1.38],
+  'CIN':  [1.15, 1.20], 'TEX': [1.04, 1.02], 'ARI': [1.05, 1.08],
   'PHI':  [1.06, 1.10], 'ATL': [1.04, 1.06], 'HOU': [1.01, 0.98],
   'CHC':  [1.08, 1.04], 'BOS': [1.05, 1.12], 'MIN': [1.06, 1.02],
   'MIL':  [1.02, 1.05], 'STL': [0.97, 0.99], 'MIA': [0.94, 0.96],
   'PIT':  [0.92, 0.94], 'SF':  [0.88, 0.85], 'SD':  [0.90, 0.92],
-  'SEA':  [0.91, 0.93], 'OAK': [1.06, 1.07], 'BAL': [1.03, 1.05],
+  'SEA':  [0.91, 0.93], 'ATH': [0.97, 0.98], 'BAL': [1.03, 1.05],
   'NYM':  [0.97, 0.99], 'TOR': [1.00, 1.02], 'DET': [0.96, 0.98],
   'CLE':  [0.97, 0.99], 'KC':  [0.98, 1.00], 'CHW': [1.04, 1.06],
   'TB':   [0.93, 0.95], 'WSH': [1.00, 1.02], 'LAA': [0.96, 0.98],
@@ -5512,33 +5954,37 @@ function logPrediction(rows){
     const uidMap  = new Map(stored.map((x,i)=>[x.uid,i]));
     let added = 0;
     for(const r of rows){
-      if(!r.id||!r._rawProb) continue;
+      if(!r.id) continue;
       const uid = `${r.id}_${today}`;
-      const _tags=(()=>{try{return detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).map(a=>a.label).join(', ');}catch{return '';}})();
+      const _tags=(()=>{try{return detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).map(a=>a.label).join(', ');}catch{return r.tags||'';}})();
       if(uidMap.has(uid)){
         // Update prob + all enriched signals when enrichment refines them
         const idx = uidMap.get(uid);
         stored[idx].prob      = r.prob;
-        stored[idx].rawProb   = r._rawProb;
-        stored[idx].grade     = r.grade     || stored[idx].grade;
-        stored[idx].barrel_pct= r.barrel_pct??stored[idx].barrel_pct;
-        stored[idx].avg_ev    = r.avg_ev    ??stored[idx].avg_ev;
-        stored[idx].iso       = r.iso       ??stored[idx].iso;
-        stored[idx].xwoba     = r.xwoba     ??stored[idx].xwoba;
-        stored[idx].platoon   = r.platoon   ??stored[idx].platoon;
-        stored[idx].pitcher   = r.pitcher   ??stored[idx].pitcher;
-        stored[idx].szHR      = r.szHR      ??stored[idx].szHR;
-        stored[idx].szPA      = r.szPA      ??stored[idx].szPA;
+        stored[idx].rawProb   = r._rawProb||r.prob;
+        stored[idx].grade     = probGrade(r.prob)[0];
+        stored[idx].barrel_pct  = r.barrel_pct  ??stored[idx].barrel_pct;
+        stored[idx].avg_ev      = r.avg_ev      ??stored[idx].avg_ev;
+        stored[idx].avg_la      = r.avgLA??r.avg_la??stored[idx].avg_la;
+        stored[idx].hard_hit_pct= r.hard_hit_pct??stored[idx].hard_hit_pct;
+        stored[idx].pull_pct    = r.pull_pct    ??stored[idx].pull_pct;
+        stored[idx].iso         = r.iso         ??stored[idx].iso;
+        stored[idx].xwoba       = r.xwoba       ??stored[idx].xwoba;
+        stored[idx].platoon     = r.platoon     ??stored[idx].platoon;
+        stored[idx].pitcher     = r.pitcher     ??stored[idx].pitcher;
+        stored[idx].szHR        = r.szHR        ??stored[idx].szHR;
+        stored[idx].szPA        = r.szPA        ??stored[idx].szPA;
         if(_tags) stored[idx].tags = _tags;
         continue;
       }
       stored.push({ uid, id:String(r.id), name:r.name,
-        prob:r.prob, rawProb:r._rawProb, date:today,
+        prob:r.prob, rawProb:r._rawProb||r.prob, date:today,
         logged:Date.now(), actual:null, resolvedAt:null,
         team:r.team||'', pos:r.pos||'', game:r.game||'',
         batHand:r.batHand||'', oppHand:r.oppHand||'',
-        grade:r.grade||'', tags:_tags,
+        grade:probGrade(r.prob)[0]||'', tags:_tags,
         barrel_pct:r.barrel_pct??null, avg_ev:r.avg_ev??null,
+        avg_la:r.avgLA??r.avg_la??null, hard_hit_pct:r.hard_hit_pct??null, pull_pct:r.pull_pct??null,
         iso:r.iso??null, xwoba:r.xwoba??null,
         platoon:r.platoon??null, pitcher:r.pitcher??null,
         szHR:r.szHR??null, szPA:r.szPA??null });
@@ -5559,45 +6005,100 @@ function logPrediction(rows){
 
 async function autoResolvePredictions(){
   try{
-    const key     = 'diq_pred_log';
-    const stored  = JSON.parse(localStorage.getItem(key)||'[]');
-    const today   = ds();
-    const yest    = ds(new Date(Date.now()-864e5));
-    // Only resolve yesterday — today's games may still be in progress
-    const pending = stored.filter(r=>r.actual===null && r.date===yest);
+    const key    = 'diq_pred_log';
+    const stored = JSON.parse(localStorage.getItem(key)||'[]');
+    const today  = ds(new Date());  // always wall-clock today, never S.date
+    // Resolve ALL past pending entries, not just yesterday
+    const pending = stored.filter(r=>r.actual===null && r.date<today);
     if(!pending.length){ console.log('[predLog] no pending to resolve'); return; }
-    console.log(`[predLog] resolving ${pending.length} from ${yest}`);
-    const d = await fetchJSON(`${MLB}/schedule?sportId=1&date=${yest}&hydrate=linescore`).catch(()=>null);
-    if(!d) return;
-    const games = (d.dates||[]).flatMap(dt=>(dt.games||[]).filter(g=>
-      g.status?.abstractGameState==='Final'||g.status?.codedGameState==='F'
-    ));
-    for(const game of games){
+    // Group by date so we only fetch each date's schedule once
+    const byDate = {};
+    for(const r of pending){ (byDate[r.date]=byDate[r.date]||[]).push(r); }
+    const dateList = Object.keys(byDate).sort();
+    console.log(`[predLog] resolving ${pending.length} entries across ${dateList.length} date(s):`, dateList);
+    showToast(`⏳ Checking ${pending.length} players across ${dateList.length} day${dateList.length!==1?'s':''}…`,null,3000);
+    let resolved = 0;
+    // Helper: fetch with direct MLB URL first, proxy as fallback
+    async function fetchBox(gamePk){
+      const url = `${MLB}/game/${gamePk}/boxscore`;
+      // Try direct first (MLB API is CORS-accessible)
       try{
-        const box = await fetchJSON(PROXY+encodeURIComponent(`${MLB}/game/${game.gamePk}/boxscore`)).catch(()=>null);
-        if(!box) continue;
-        const hrMap = {};
-        for(const side of ['away','home']){
-          const batters = box.teams?.[side]?.players||{};
-          for(const [,player] of Object.entries(batters)){
-            const pid = String(player.person?.id||'');
-            const hr  = parseInt(player.stats?.batting?.homeRuns||0);
-            if(pid) hrMap[pid]=(hrMap[pid]||0)+hr;
-          }
-        }
-        for(const entry of pending){
-          if(Object.prototype.hasOwnProperty.call(hrMap, entry.id)){
-            const idx = stored.findIndex(x=>x.uid===entry.uid);
-            if(idx>=0){
-              stored[idx].actual     = hrMap[entry.id]>0?1:0;
-              stored[idx].resolvedAt = Date.now();
+        const ctrl = new AbortController();
+        const t = setTimeout(()=>ctrl.abort(), 8000);
+        const r = await fetch(url, {signal:ctrl.signal});
+        clearTimeout(t);
+        if(r.ok) return await r.json();
+      }catch(e){ /* fall through to proxy */ }
+      // Fallback: proxy
+      try{
+        const ctrl = new AbortController();
+        const t = setTimeout(()=>ctrl.abort(), 8000);
+        const r = await fetch(PROXY+encodeURIComponent(url), {signal:ctrl.signal});
+        clearTimeout(t);
+        if(r.ok) return await r.json();
+      }catch(e){ return null; }
+      return null;
+    }
+    for(const [date, entries] of Object.entries(byDate)){
+      // Fetch schedule — try direct then proxy
+      let sched = null;
+      const schedUrl = `${MLB}/schedule?sportId=1&date=${date}&hydrate=linescore`;
+      try{
+        const ctrl = new AbortController();
+        const t = setTimeout(()=>ctrl.abort(), 8000);
+        const r = await fetch(schedUrl, {signal:ctrl.signal});
+        clearTimeout(t);
+        if(r.ok) sched = await r.json();
+      }catch(e){}
+      if(!sched){
+        try{
+          const ctrl = new AbortController();
+          const t = setTimeout(()=>ctrl.abort(), 8000);
+          const r = await fetch(PROXY+encodeURIComponent(schedUrl), {signal:ctrl.signal});
+          clearTimeout(t);
+          if(r.ok) sched = await r.json();
+        }catch(e){}
+      }
+      if(!sched){ console.warn('[predLog] no schedule for', date); continue; }
+      const games = (sched.dates||[]).flatMap(dt=>(dt.games||[]).filter(g=>
+        g.status?.abstractGameState==='Final'||g.status?.codedGameState==='F'||
+        g.status?.detailedState==='Final'
+      ));
+      console.log(`[predLog] ${date}: ${games.length} final games`);
+      for(const game of games){
+        try{
+          const box = await fetchBox(game.gamePk);
+          if(!box){ console.warn('[predLog] no boxscore for', game.gamePk); continue; }
+          const hrMap = {};
+          for(const side of ['away','home']){
+            const batters = box.teams?.[side]?.players||{};
+            for(const [,player] of Object.entries(batters)){
+              const pid = String(player.person?.id||'');
+              const hr  = parseInt(player.stats?.batting?.homeRuns||0);
+              if(pid) hrMap[pid]=(hrMap[pid]||0)+hr;
             }
           }
-        }
-      }catch(e){ console.warn('[predLog] box score:', e.message); }
+          for(const entry of entries){
+            if(Object.prototype.hasOwnProperty.call(hrMap, entry.id)){
+              const idx = stored.findIndex(x=>x.uid===entry.uid);
+              if(idx>=0 && stored[idx].actual===null){
+                stored[idx].actual     = hrMap[entry.id]>0?1:0;
+                stored[idx].resolvedAt = Date.now();
+                resolved++;
+              }
+            }
+          }
+        }catch(e){ console.warn('[predLog] box score:', e.message); }
+      }
     }
     localStorage.setItem(key, JSON.stringify(stored));
-    console.log('[predLog] resolve complete');
+    console.log(`[predLog] resolve complete — ${resolved} entries updated`);
+    if(resolved){
+      showToast(`✅ ${resolved} outcome${resolved!==1?'s':''} resolved!`,'green',3500);
+      if(typeof window.renderTracker==='function' && _currentPage==='tracker') window.renderTracker();
+    } else {
+      showToast('⚠️ No outcomes resolved — games may not be Final yet','amber',3500);
+    }
   }catch(e){ console.warn('[predLog] autoResolve:', e.message); }
 }
 
@@ -6579,7 +7080,7 @@ function renderTagGuide(){
     'regression-due':['⏰ Regression Due','var(--amber)',   'xwOBA >> wOBA — HRs coming',  'This hitter\'s quality of contact (xwOBA) is significantly higher than their actual results (wOBA). The gap means HRs should be coming — batted ball luck is expected to normalize upward.'],
     // PLATOON
     'platoon-king':  ['🎯 Platoon King',  '#ffd700',       'Cross-hand advantage 1.20x+',  'Batter vs opposite-hand pitcher with confirmed split data showing 1.20x+ HR rate advantage. This is one of the most reliable edges in baseball — handedness splits stabilize in ~50 PA. Model weight: 0.35x multiplier.'],
-    'platoon-edge':  ['✅ Platoon Edge',  'var(--green)',  'Cross-hand advantage 1.10x+',  'Favorable handedness matchup (LHB vs RHP or RHB vs LHP) with model showing 1.10-1.20x advantage. Population priors: LHB vs RHP +18%, RHB vs LHP +22%.'],
+    'platoon-edge':  ['✅ Matchup Edge',  'var(--green)',  'Hand matchup mult ≥1.10×',  'Favorable handedness matchup with model showing ≥1.10× advantage. Uses personal split data (≥50 PA vs this pitcher hand) when available; falls back to population priors (LHB vs RHP +18%, RHB vs LHP +22%). Shows "+N% vs avg" when the player beats or trails the population expectation for that matchup — useful for spotting LHB who genuinely handle LHP.'],
     'lvl-fade':      ['⚠️ L vs L Fade',  'var(--red)',    'LHB vs LHP — worst matchup',   'Left-handed batter vs left-handed pitcher is the toughest platoon matchup in baseball. Approximately 28% HR suppression. The model discounts this player significantly unless other signals override.'],
     'rvr-fade':      ['🔵 R vs R',        'var(--amber)',  'RHB vs RHP — slight fade',     'Right-handed batter vs right-handed pitcher. Approximately 12% HR suppression at population level. Less severe than L vs L but still a headwind.'],
     // FORM
@@ -7814,16 +8315,24 @@ async function getMultiBookOdds(playerName, gameDate){
 // ==================================================================
 //  STADIUM DIMENSIONS — pull hitter advantage at specific parks
 // ==================================================================
+// [LF dist, CF dist, RF dist, LF wall height (ft), RF wall height (ft)]
+// Sources: MLB official dimensions + Statcast data.
+// BOS: 310 LF / Green Monster 37ft wall; RF Pesky Pole 302ft, 3ft wall.
+// SF: 24ft right field wall (Splash Hit zone). CHC: Wrigley ivy RF ~11ft.
+// STL: 14ft LF scoreboard wall. CLE: 19ft LF wall (old-style manual scoreboard).
+// PIT PNC Park: 6ft RF wall (not 21ft — scoreboard is above the wall, not wall height).
+// HOU Minute Maid: 14.5ft LF wall (not 19ft — that was the old Tal's Hill, removed 2016).
+// MIA loanDepot: 14ft RF wall. ATH = Sacramento Sutter Health Park (minor league dims).
 var STADIUM_DIMS = {
-  'NYY':[318,408,314, 8, 9],'BOS':[310,420,302,37, 3],'CHC':[355,400,353, 8, 8],
+  'NYY':[318,408,314, 8, 9],'BOS':[310,420,302,37, 3],'CHC':[355,400,353, 8,11],
   'PHI':[329,401,325, 6, 8],'CIN':[328,404,325, 9, 9],'COL':[347,415,350, 8, 8],
-  'TEX':[334,407,326,14,14],'HOU':[315,435,326,19, 7],'MIN':[339,404,328, 8, 8],
+  'TEX':[334,407,326, 8, 8],'HOU':[315,435,326,14, 7],'MIN':[339,404,328, 8, 8],
   'ARI':[330,407,335, 7, 7],'ATL':[335,400,325, 6, 6],'MIL':[344,400,345,10, 8],
-  'STL':[336,400,335,14,11],'PIT':[325,399,320, 6,21],'SF' :[339,399,309, 8,24],
-  'SD' :[334,396,322,12,11],'LAD':[330,395,330, 8, 8],'MIA':[344,418,335, 8,18],
+  'STL':[336,400,335,14,11],'PIT':[325,399,320, 6, 6],'SF' :[339,399,309, 8,24],
+  'SD' :[334,396,322,12,11],'LAD':[330,395,330, 8, 8],'MIA':[344,418,335, 8,14],
   'TB' :[315,404,322, 7, 7],'BAL':[333,410,318, 7, 7],'DET':[345,422,330, 8, 8],
   'KC' :[330,410,330, 8, 8],'CLE':[325,405,325,19,11],'CHW':[330,400,335, 8, 8],
-  'OAK':[328,398,328, 8, 8],'SEA':[331,405,326, 8, 8],'LAA':[330,404,330, 8, 8],
+  'ATH':[330,400,325, 8, 8],'SEA':[331,405,326, 8, 8],'LAA':[330,404,330, 8, 8],
   'TOR':[328,400,328,12,10],'NYM':[335,408,330, 8, 8],'WSH':[336,402,335, 8, 8],
 };
 function getStadiumDimMult(homeTeam, batHand){
@@ -10217,7 +10726,7 @@ function renderDiscover(){
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
                 <div style="flex:1">
                   <div style="font-size:.58rem;color:var(--t4)">Fair parlay odds</div>
-                  <div style="font-size:1.1rem;font-weight:900;color:var(--amber)">${fairStr>0?'+':''}${fairStr}</div>
+                  <div style="font-size:1.1rem;font-weight:900;color:var(--amber)">${fairStr}</div>
                   <div style="font-size:.54rem;color:var(--t4)">${(combP*100).toFixed(3)}% combined prob</div>
                 </div>
                 <div style="text-align:center;flex-shrink:0">
@@ -10613,7 +11122,13 @@ async function selectZonePitch(playerId, pitchType){
     const zm = (() => {
       if(batPid && spId){
         const fresh = calcZoneMatchup(batPid, spId, r.batHand);
-        if(fresh){ r._zoneMatch = fresh; return fresh; }
+        if(fresh){
+          // Only upgrade — never downgrade a real-data result back to estimated
+          if(!r._zoneMatch || (fresh.fromRealData && !r._zoneMatch.fromRealData)){
+            r._zoneMatch = fresh;
+          }
+          return r._zoneMatch;
+        }
       }
       return r._zoneMatch;
     })();
@@ -10688,6 +11203,7 @@ async function selectZonePitch(playerId, pitchType){
     const overlap = [...batTop3].filter(z=>spVuln3.has(z));
     const hotOverlap = overlap.filter(z=>hrZones.has(z));
     const overlapXwOBA = overlap.length ? overlap.reduce((s,z)=>s+(batZoneData[z]||0),0)/overlap.length : 0;
+    const ptLabel = pitchType||'this pitch';
     pitchZm = {
       ...pitchZm,
       batTop3: [...batTop3],
@@ -10696,7 +11212,11 @@ async function selectZonePitch(playerId, pitchType){
       overlapXwOBA: Math.round(overlapXwOBA*1000)/1000,
       zoneNames: hotOverlap.map(z=>ZONE_LABELS[z]||`Z${z}`),
       score: hotOverlap.length*3+overlap.length,
-      label: hotOverlap.length>=2?'Zone Domination':hotOverlap.length>=1?'Zone Overlap':'—',
+      label: hotOverlap.length>=2?'Zone Domination':hotOverlap.length>=1?'Zone Overlap':'Soft Zone Match',
+      desc: hotOverlap.length>=2 ? `Power zones (${hotOverlap.map(z=>ZONE_LABELS[z]||`Z${z}`).join(', ')}) align with where SP is vulnerable on ${ptLabel}`
+          : hotOverlap.length>=1 ? `One power zone overlap on ${ptLabel} — moderate HR potential`
+          : overlap.length>=1    ? `Zone overlap on ${ptLabel} but not in prime HR zones`
+          : `No strong zone alignment on ${ptLabel} — neutral matchup`,
       fromRealData: !!(batZoneData && throwLoc),
       pitchType,
     };
@@ -10713,7 +11233,7 @@ async function selectZonePitch(playerId, pitchType){
 
 function _renderZoneWrap(wrap, grids, zm){
   const clr = zm.hotOverlap?.length>=2?'#ffd700':zm.hotOverlap?.length>=1?'var(--green)':zm.antiOverlap?.length>=2?'var(--red)':'var(--t4)';
-  const label = zm.hotOverlap?.length>=2?'🎯 Zone Domination':zm.hotOverlap?.length>=1?'📍 Zone Overlap':zm.antiOverlap?.length>=2?'🚫 Zone Mismatch':'—';
+  const label = zm.hotOverlap?.length>=2?'🎯 Zone Domination':zm.hotOverlap?.length>=1?'📍 Zone Overlap':zm.antiOverlap?.length>=2?'🚫 Zone Mismatch':zm.label==='Soft Zone Match'?'〰 Soft Match':'〰 Neutral';
   wrap.innerHTML = `
     <div style="flex:0 0 auto">
       <div style="font-size:.60rem;color:var(--t4);margin-bottom:4px;text-align:center">Batter Power${zm.pitchType?' — '+(zm.pitchType):''}</div>
@@ -10743,10 +11263,12 @@ function _recomputeZoneIfOpen(playerId, side){
                                    : String(playerId)===spId;
   if(!relevant) return;
 
-  // Always recompute zone matchup with newly available real data
+  // Upgrade zone matchup only when new result has better (real) data
   if(batPid && spId){
     const zm = calcZoneMatchup(batPid, spId, r.batHand);
-    if(zm) r._zoneMatch = zm;
+    if(zm && (!r._zoneMatch || (zm.fromRealData && !r._zoneMatch.fromRealData))){
+      r._zoneMatch = zm;
+    }
   }
 
   // Only do full re-render if user is on "All" — pitch-specific view handles its own DOM
@@ -10794,22 +11316,27 @@ function populatePitcherZoneFromThrowLoc(spId, pitchType, throwLoc){
   // Store per-pitch zones separately — never average, never mutate aggregate
   const zoneNums = [[7,8,9],[4,5,6],[1,2,3]];
   const ptZones = {};
+  const ptLoc   = {}; // throw frequency (sum of overlapping 5x5 pct cells)
   for(let r=0;r<3;r++) for(let c=0;c<3;c++){
     const z = zoneNums[r][c];
-    let sum=0, n=0;
+    let dSum=0, lSum=0, n=0;
     for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
       const r5=r+1+dr, c5=c+1+dc;
-      if(r5>=0&&r5<5&&c5>=0&&c5<5&&throwLoc.dmg5avg[r5]?.[c5]>0){
-        sum+=throwLoc.dmg5avg[r5][c5]; n++;
+      if(r5>=0&&r5<5&&c5>=0&&c5<5){
+        if((throwLoc.dmg5avg[r5]?.[c5]||0)>0){ dSum+=throwLoc.dmg5avg[r5][c5]; n++; }
+        if((throwLoc.loc5pct?.[r5]?.[c5]||0)>0) lSum+=throwLoc.loc5pct[r5][c5];
       }
     }
-    if(n>0) ptZones[z] = sum/n;
+    if(n>0)    ptZones[z] = dSum/n;
+    if(lSum>0) ptLoc[z]   = lSum; // higher = pitcher throws here more often
   }
   // Cache per-pitch (stable, never changes after first fetch)
-  if(Object.keys(ptZones).length) _pitcherZoneMap[ptKey] = ptZones;
+  if(Object.keys(ptZones).length) _pitcherZoneMap[ptKey]        = ptZones;
+  if(Object.keys(ptLoc).length)   _pitcherZoneMap[`${ptKey}_loc`] = ptLoc;
 
   // Rebuild aggregate from ALL cached pitch types (weighted average by pitch usage)
-  const pitchKeys = Object.keys(_pitcherZoneMap).filter(k=>k.startsWith(`${key}_pt_`));
+  // Exclude _loc keys from damage aggregate
+  const pitchKeys = Object.keys(_pitcherZoneMap).filter(k=>k.startsWith(`${key}_pt_`)&&!k.endsWith('_loc'));
   if(pitchKeys.length){
     const agg = {};
     pitchKeys.forEach(pk=>{
@@ -10823,6 +11350,37 @@ function populatePitcherZoneFromThrowLoc(spId, pitchType, throwLoc){
     Object.entries(agg).forEach(([z,{sum,n}])=>{ aggFinal[z]=sum/n; });
     _pitcherZoneMap[key] = aggFinal;
   }
+}
+
+// Applies zone-overlap adjustment and normalizes labels for any Zone Fit result.
+// zone3xwoba score (PATH A/B/C) + _zoneMatch alignment bonus/penalty → final Pitch Dom/Fit/N badge.
+function _wrapZoneResult(r, rawScore, fromBvP, fromRealZones, tooltip=''){
+  const zm = r._zoneMatch;
+  let adj = 0, withZoneOverlap = false;
+  if(zm){
+    withZoneOverlap = true;
+    if     (zm.hotOverlap?.length >= 2) adj =  12;   // batter's power zones hit SP's weak spots
+    else if(zm.hotOverlap?.length >= 1) adj =   6;   // partial power-zone overlap
+    else if(zm.antiOverlap?.length >= 2) adj = -10;  // batter's power zones hit SP's strongest areas
+  }
+  const s = Math.max(10, Math.min(95, rawScore + adj));
+  const base = {score:s, fromBvP, fromRealZones, withZoneOverlap, tooltip};
+  if(s >= 76) return{...base, label:'🎯 Pitch Dom', bg:'rgba(255,215,0,.3)',    color:'#ffd700'};
+  if(s >= 63) return{...base, label:'📍 Pitch Fit', bg:'rgba(34,201,94,.2)',   color:'var(--green)'};
+  return{...base};
+}
+
+// Returns top-N [row,col] zone cells for a specific pitch type from actual SP throw data.
+// Sorted most-frequented first. Returns null if real location data not yet available.
+const _ZONE_TO_RC = {7:[0,0],8:[0,1],9:[0,2],4:[1,0],5:[1,1],6:[1,2],1:[2,0],2:[2,1],3:[2,2]};
+function _getPitcherActualCells(spId, pt, topN=3){
+  const locData = (_pitcherZoneMap||{})[`${spId}_pt_${pt}_loc`];
+  if(!locData || !Object.keys(locData).length) return null;
+  return Object.entries(locData)
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,topN)
+    .map(([z])=>_ZONE_TO_RC[z])
+    .filter(Boolean);
 }
 
 async function ensureBatterZoneMap(){
@@ -10839,7 +11397,159 @@ async function ensurePitcherZoneMap(){
   // Populated from fetchPitcherThrowLocation data as detail cards are opened
 }
 
+// ==================================================================
+//  ZONE FIT SCORE  — "Does this batter hit well in the zones the SP
+//  throws to the most?"
+//
+//  For each pitch in the SP's mix:
+//    1. Find which zone cells that pitch targets (by pitch type + pitcher hand)
+//    2. Look up batter's zone3xwoba at those cells (from BvP data)
+//    3. Compare to league-avg xwOBA for that pitch — weighted by usage%
+//
+//  PATH A (fromBvP=true): zone3xwoba cell data available — most accurate
+//  PATH B (fromBvP=true): only overall pitch-type xwOBA available
+//  PATH C (proxy, no BvP): batted-ball profile × pitch mix heuristic
+//
+//  Upgrade rule: PATH C → PATH A/B exactly once when BvP first loads.
+//  Returns {label,bg,color,score,fromBvP,tooltip} or null (no badge).
+// ==================================================================
+const LG_XWOBA_BY_PT = {FF:.345,SI:.295,FC:.310,SL:.305,ST:.300,CU:.285,CH:.295,FS:.275,KC:.270,SV:.290};
+const PITCH_FULL = {FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Changeup',FS:'Splitter',KC:'K-Curve'};
 
+// Returns [row,col] zone cells (catcher view) that this pitch type targets.
+// row 0=top, row 2=bottom; col 0=catcher's left, col 2=catcher's right.
+// RHP arm-side = col 0; LHP arm-side = col 2.
+function _pitchTargetCells(pt, spHand){
+  const arm = spHand==='R' ? 0 : 2;  // pitcher arm-side column
+  const glv = spHand==='R' ? 2 : 0;  // pitcher glove-side column
+  switch(pt){
+    case 'FF':          return [[0,0],[0,1],[0,2]];           // 4-Seam: rides up — high zones
+    case 'SI':          return [[2,arm],[2,1],[1,arm]];       // Sinker: low, arm-side
+    case 'FC':          return [[0,glv],[1,glv]];             // Cutter: high, glove-side edge
+    case 'SL':          return [[2,glv],[2,1],[1,glv]];       // Slider: low & glove-side
+    case 'ST':          return [[2,glv],[1,glv],[2,1]];       // Sweeper: horizontal, low glove
+    case 'CU': case 'KC': return [[2,0],[2,1],[2,2]];         // Curve: drops down — all low
+    case 'CH':          return [[2,arm],[2,1],[1,arm]];       // Changeup: arm-side low
+    case 'FS':          return [[2,1],[2,arm],[2,glv]];       // Splitter: bottom of zone
+    default:            return [[0,1],[1,1],[2,1]];           // center column fallback
+  }
+}
+
+function computeZoneFit(r){
+  const ps  = r._pitcherStats || {};
+  const mix = ps.arsenal?.mix || {};
+  const cleanMix = Object.entries(mix).filter(([k,v])=>!k.startsWith('_')&&v>=5);
+  if(!cleanMix.length) return null;
+
+  const bvp    = r._bvp || {};
+  const spHand = r.oppHand || 'R';
+
+  const spIdKey = r._spId ? String(r._spId) : null;
+
+  if(Object.keys(bvp).length){
+    // PATH A/B — BvP data available
+    let wRatio=0, wT=0;
+    const edges=[], struggles=[];
+    let usedRealZones = false; // true when real SP throw-frequency data was used
+
+    for(const [pt,pct] of cleanMix){
+      const pd = bvp[pt];
+      if(!pd || pct<5) continue;
+      const lgXw = LG_XWOBA_BY_PT[pt] || 0.310;
+      let batXwoba=null, sampleN=0;
+
+      // PATH A: zone-cell xwOBA at pitcher's throw-frequency cells, blended with
+      //         overall pitch xwOBA for stability. Zone data weighted by pitcher
+      //         frequency (all 9 cells); cells with <3 ABs excluded to filter noise.
+      //         Blend: zone result phased in from 0→100% as zone ABs grow 0→30.
+      if(pd.zone3xwoba){
+        const locData = spIdKey ? (_pitcherZoneMap||{})[`${spIdKey}_pt_${pt}_loc`] : null;
+        let zoneXwoba=null, zoneABs=0;
+        if(locData && Object.keys(locData).length){
+          usedRealZones = true;
+          let zSum=0, wSum=0;
+          for(const [zNum,freq] of Object.entries(locData)){
+            const rc = _ZONE_TO_RC[zNum];
+            if(!rc) continue;
+            const xw = pd.zone3xwoba[rc[0]]?.[rc[1]];
+            const ab = pd.zone3ab?.[rc[0]]?.[rc[1]]??0;
+            if(xw && xw>0 && ab>=3){ zSum+=xw*freq; wSum+=freq; zoneABs+=ab; }
+          }
+          if(wSum>0) zoneXwoba = zSum/wSum;
+        } else {
+          const cells = _pitchTargetCells(pt, spHand);
+          let zSum=0, zN=0;
+          for(const [row,col] of cells){
+            const xw = pd.zone3xwoba[row]?.[col];
+            const ab = pd.zone3ab?.[row]?.[col]??0;
+            if(xw && xw>0 && ab>=3){ zSum+=xw; zN++; zoneABs+=ab; }
+          }
+          if(zN>0) zoneXwoba = zSum/zN;
+        }
+        // Blend zone + overall: full zone trust at 30 ABs, fades toward overall below that
+        if(zoneXwoba!=null && pd.xwoba!=null){
+          const zConf = Math.min(zoneABs/30, 1.0);
+          batXwoba = zoneXwoba*zConf + pd.xwoba*(1-zConf);
+          sampleN  = zoneABs;
+        } else if(zoneXwoba!=null){
+          batXwoba = zoneXwoba; sampleN = zoneABs;
+        }
+        // else: batXwoba stays null, falls to overall pd.xwoba below
+      }
+      // PATH B: fall back to overall pitch-type xwOBA
+      if(batXwoba==null && pd.xwoba!=null && (pd.pa||0)>=5){
+        batXwoba=pd.xwoba; sampleN=pd.pa||0;
+      }
+      if(batXwoba==null) continue;
+
+      const ratio = batXwoba/lgXw;
+      const conf  = Math.min(sampleN/15, 1.0);
+      const w     = (pct/100)*Math.max(conf,0.25);
+      wRatio += ratio*w; wT += w;
+
+      if(ratio>=1.22&&sampleN>=5) edges.push(`${PITCH_FULL[pt]||pt} ${batXwoba.toFixed(3)}`);
+      if(ratio<=0.78&&sampleN>=5) struggles.push(PITCH_FULL[pt]||pt);
+    }
+
+    if(wT>=0.04){
+      const avg    = wRatio/wT;
+      const platAdj= (r.platoon||1)>=1.12?8:(r.platoon||1)>=1.06?4:(r.platoon||1)<=0.90?-8:(r.platoon||1)<=0.95?-4:0;
+      const s      = Math.max(10,Math.min(95,Math.round(50+(avg-1.0)*130)+platAdj));
+      const tooltip= edges.length?`Hits SP zones well: ${edges.slice(0,2).join(', ')}`:
+                     struggles.length?`Weak in SP zones: ${struggles.slice(0,2).join(', ')}`:'';
+      return _wrapZoneResult(r, s, true, usedRealZones, tooltip);
+    }
+  }
+  return _zoneFitProxy(r); // PATH C — no BvP yet
+}
+
+// PATH C: proxy when no BvP data — batted-ball profile × SP pitch tendency
+function _zoneFitProxy(r){
+  const bs  = r._batterStats||{};
+  const mix = r._pitcherStats?.arsenal?.mix||{};
+  const pull   = r.pull_pct  ||bs.pull_pct  ||0;
+  const gb     = r.gb_pct    ||bs.gb_pct    ||0;
+  const fb     = r.fb_pct    ||bs.fb_pct    ||0;
+  const hrFB   = r.hr_fb_pct ||bs.hr_fb_pct ||0;
+  const barrel = bs.barrelPct||bs.barrel_pct||bs.barrel||0;
+  const platoon= r.platoon||1.0;
+  const same   = (r.oppHand||'R')===(r.batHand||'R');
+  const FC=mix.FC||0,FF=mix.FF||0,SI=mix.SI||0,SL=mix.SL||0,ST=mix.ST||0;
+  const CU=(mix.CU||0)+(mix.KC||0),CH=(mix.CH||0)+(mix.FS||0);
+  let s=50;
+  if     (platoon>=1.12)s+=20; else if(platoon>=1.06)s+=12;
+  else if(platoon>=1.01)s+=5;  else if(platoon<=0.90)s-=14;
+  else if(platoon<=0.95)s-=7;
+  const inner=FC*(same?0.4:1.0)+SI*(same?1.0:0.4);
+  if(pull>=50&&inner>=20)s+=14; else if(pull>=45&&inner>=15)s+=9; else if(pull>=42&&inner>=10)s+=4;
+  if(fb>=42&&FF>=50)s+=12;     else if(fb>=38&&FF>=44)s+=6;
+  const brk=SL+ST+CU+CH;
+  if(gb>=52&&brk>=45)s-=12;   else if(gb>=47&&brk>=38)s-=6;
+  if(barrel>=14)s+=10;          else if(barrel>=10)s+=5;
+  if(hrFB>=20)s+=8;             else if(hrFB>=15)s+=4;
+  const sc=Math.max(10,Math.min(95,Math.round(s)));
+  return _wrapZoneResult(r, sc, false, false);
+}
 
 // ==================================================================
 //  ZONE MATCHUP SCORER
@@ -10911,20 +11621,48 @@ function calcZoneMatchupFromBvP(bvp, spId, batHand){
     }
   }
 
-  if(bestOverlapScore === 0) return null;
-
   const PITCH_FULL={FF:'4-Seam',SI:'Sinker',FC:'Cutter',SL:'Slider',ST:'Sweeper',CU:'Curve',CH:'Changeup',FS:'Split'};
   const ptName = PITCH_FULL[bestPitchType]||bestPitchType||'';
+
+  // Build batter's top zones across SP's full pitch mix (for grid display in "All" view)
+  const _batZoneXw = {};
+  const _RC_TO_ZONE = [[7,8,9],[4,5,6],[1,2,3]];
+  for(const [pt,pct] of Object.entries(arsenal.mix)){
+    if(pct<5||pt.startsWith('_')) continue;
+    const bd=bvp[pt]; if(!bd?.zone3xwoba) continue;
+    for(let ri=0;ri<3;ri++) for(let ci=0;ci<3;ci++){
+      const z=_RC_TO_ZONE[ri][ci];
+      const xw=bd.zone3xwoba[ri]?.[ci]||0;
+      if(xw>0) _batZoneXw[z]=(_batZoneXw[z]||0)+xw*pct;
+    }
+  }
+  const batTop3fromBvP = Object.entries(_batZoneXw).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([z])=>parseInt(z));
+
+  // SP zone vulnerability data (for pitcher weak/strong grid)
+  const _spZonesB = (_pitcherZoneMap||{})[String(spId)];
+  const _spSortedB = _spZonesB ? Object.entries(_spZonesB).filter(([z])=>parseInt(z)<=14).sort((a,b)=>b[1]-a[1]) : [];
+  const spVuln3fromBvP  = _spSortedB.slice(0,3).map(([z])=>parseInt(z));
+  const spStrong3fromBvP = _spSortedB.slice(-3).map(([z])=>parseInt(z));
+
+  if(!topPitches.length && batTop3fromBvP.length === 0) return null;
 
   return {
     score: bestOverlapScore,
     overlap: hotZoneNames,
     hotOverlap: bestOverlapScore>=3 ? hotZoneNames : bestOverlapScore>=2 ? hotZoneNames.slice(0,1) : [],
+    antiOverlap: [],
     zoneNames: hotZoneNames.length ? [`${ptName} (xwOBA ${topXwOBA.toFixed(3)})`] : [],
     overlapXwOBA: topXwOBA,
+    batTop3: batTop3fromBvP,
+    spVuln3: spVuln3fromBvP,
+    spStrong3: spStrong3fromBvP,
     fromRealData: true,
+    fromBvP: true,
     label: bestOverlapScore>=3 ? 'Zone Domination' :
            bestOverlapScore>=2 ? 'Zone Overlap' : 'Soft Zone Match',
+    desc: bestOverlapScore>=3 ? `Power zones (${hotZoneNames.join(', ')}) hit where ${ptName} is vulnerable`
+        : bestOverlapScore>=2 ? `One power zone overlap on ${ptName} — moderate HR potential`
+        : `No strong zone alignment found — neutral matchup`,
   };
 }
 
@@ -10993,8 +11731,6 @@ function calcZoneMatchup(batPid, spPid, batHand){
   const score = hotOverlap.length * 3 + overlap.length;
   const zoneNames = hotOverlap.map(z=>ZONE_LABELS[z]||`Z${z}`);
 
-  if(score === 0 && antiOverlap.length === 0) return null;
-
   const result = {
     score,
     overlap,
@@ -11027,11 +11763,15 @@ function refreshZoneMatchup(id){
   if(!r) return;
   const batPid = r._batPid||r.id;
   const spId   = r._spId;
-  // Force clear cached zone match so it recomputes with freshest data
-  r._zoneMatch = null;
-  // Ensure zone maps loaded, then recompute and re-render
+  // Ensure zone maps loaded, then upgrade (not wipe) cached zone match
+  // Only upgrade r._zoneMatch when new result has real Statcast data the old one lacked
   Promise.all([ensureBatterZoneMap(), ensurePitcherZoneMap()]).then(()=>{
-    if(batPid && spId) r._zoneMatch = calcZoneMatchup(batPid, spId, r.batHand);
+    if(batPid && spId){
+      const fresh = calcZoneMatchup(batPid, spId, r.batHand);
+      if(fresh && (!r._zoneMatch || (fresh.fromRealData && !r._zoneMatch.fromRealData))){
+        r._zoneMatch = fresh;
+      }
+    }
     if(document.getElementById('page-detail')?.classList.contains('active')){
       renderDetail(r);
     }
@@ -11119,10 +11859,10 @@ function showHotZoneCell(el, ri, ci){
   const spNote = z.spMark && z.spTendencyLabel
     ? `<div style="margin-top:6px;padding:5px 8px;border-radius:6px;background:rgba(96,165,250,.10);
         border:1px solid rgba(96,165,250,.25);color:#60a5fa;font-size:.60rem">
-        📍 SP tendency: <b>${z.spTendencyLabel}</b></div>`
+        📍 SP tends to work <b>${z.spTendencyLabel}</b> — this is the target zone</div>`
     : z.spTendencyLabel
-      ? `<div style="margin-top:6px;font-size:.58rem;color:var(--t4)">SP tendency is <b>${z.spTendencyLabel}</b> — does not target this zone</div>`
-      : `<div style="margin-top:6px;font-size:.58rem;color:var(--t4)">No SP tendency detected (mixed arsenal)</div>`;
+      ? `<div style="margin-top:6px;font-size:.58rem;color:var(--t4)">SP pitches <b>${z.spTendencyLabel}</b> — see highlighted zone ⬛</div>`
+      : '';
 
   const contribHTML = z.contribs.length
     ? z.contribs.map(c=>`
@@ -11493,6 +12233,7 @@ async function loadGame(g){
     umpData,
     schedLineups,
     wx,
+    awVeloTrend, hmVeloTrend,
   ] = await Promise.all([
     _withSlot(()=>getPitcherHand(g.awaySpId)),
     _withSlot(()=>getPitcherHand(g.homeSpId)),
@@ -11503,6 +12244,8 @@ async function loadGame(g){
     _withSlot(()=>getUmpire(g.pk)),
     _withSlot(()=>fetchJSON(PROXY + encodeURIComponent(`${MLB}/schedule?sportId=1&gamePk=${g.pk}&hydrate=lineups,players,teams`)).catch(()=>null)),
     getWeather(g.venue, g.gameTime||g.gameDate),
+    _withSlot(()=>getSPVeloTrend(g.awaySpId)),
+    _withSlot(()=>getSPVeloTrend(g.homeSpId)),
   ]);
   lap('after all fetches');
 
@@ -11625,6 +12368,7 @@ async function loadGame(g){
       pitHand:            oppHand,
       hr9_recent:         pitLog?.hr9_recent  ?? null,
       hr9_season:         pitLog?.hr9_season  ?? null,
+      hr9_last3:          pitLog?.hr9_last3   ?? null,
       recentK9:           pitLog?.recentK9    ?? null,
       seasonK9:           pitLog?.seasonK9    ?? null,
       recentERA:          pitLog?.recentERA   ?? null,
@@ -11641,7 +12385,7 @@ async function loadGame(g){
       whiffPct:           (_pitcherWhiffMap||{})[String(spId)]?.whiffPct ?? null,
       runValue:           (_pitcherWhiffMap||{})[String(spId)]?.runValue  ?? null,
       fgStats:            (_fgPitcherMap||{})[String(spId)]               || null,
-      veloTrend:          null,
+      veloTrend:          (key.endsWith('_away') ? hmVeloTrend : awVeloTrend) || null,
       _arsenalMult:       null,
       _arsenalDesc:       null,
       _arsenalStrengths:  [],
@@ -11780,7 +12524,14 @@ async function loadGame(g){
         pull_air_pct:    savH.pull_air_pct  ?? null,
         sweet_spot_pct:  savH.sweetSpot     ?? savH.sweet_spot_pct ?? null,
         gb_pct:          savH.gb_pct        ?? null,
-        hr_fb_pct:       savH.hr_fb_pct     ?? null,
+        hr_fb_pct:       savH.hr_fb_pct     ?? fgH.hr_fb ?? (()=>{
+          // Compute from season HR + fly-ball rate when API sources unavailable.
+          // fb_pct is % of batted balls that are fly balls (from Savant batted-ball).
+          // ~71% of PA become balls in play (MLB average BIP/PA factor).
+          const fb = savH.fb_pct;
+          if(fb==null||fb<=0||(szHR??null)==null||(szPA||0)<20) return null;
+          return Math.round(szHR/(szPA*0.71*(fb/100))*1000)/10;
+        })(),
         pull_pct:        savH.pull_pct      ?? null,
         fb_pct:          savH.fb_pct        ?? null,
         batVsPitch:      vsPitchMap[pid]    || null,
@@ -11883,7 +12634,8 @@ async function loadGame(g){
         szAVG:        batterStats.avg  || null,
         szSLG:        batterStats.slg  || null,
         szOBP:        batterStats.obp  || null,
-        pull_air_pct: batterStats.pull_air_pct,
+        pull_air_pct:   batterStats.pull_air_pct,
+        sweet_spot_pct: batterStats.sweet_spot_pct ?? null,
         hr_fb_pct:    batterStats.hr_fb_pct,
         pull_pct:     batterStats.pull_pct,
         fb_pct:       batterStats.fb_pct,
@@ -11915,8 +12667,12 @@ async function loadGame(g){
     S.cache[key] = rows;
     queueForAutoTrack(rows);
 
-    // Background: batch recent Statcast (L30 barrel/EV/hard-hit) — one fetch for whole team
-    const pids = hitters.map(h=>String(h.id));
+    // Background: recent game-log for every batter.
+    // Re-renders progressively every 4 completions so streak/momentum signals
+    // (On Fire, Back-to-Back, L7 Pace Surge) appear quickly rather than waiting
+    // for the single slowest batter's fetch to finish.
+    let _rgDone = 0;
+    const _rgTotal = hitters.length;
     Promise.allSettled(
       hitters.map(h=>getBatterRecentGames(String(h.id)).then(recent=>{
         const row=rows.find(r=>String(r.id)===String(h.id));
@@ -11924,41 +12680,24 @@ async function loadGame(g){
           row._recentGames=recent;
           const l14HR=recent.slice(0,14).reduce((s,x)=>s+(x.hr||0),0);
           const l14PA=recent.slice(0,14).reduce((s,x)=>s+(x.pa||x.ab||0),0);
-          // Sync l14hr so tags/angles always match the displayed L14 stats
           row.l14hr=l14HR;
-          // Also update batterStats so calcHRProb is accurate on next detail open
+          // HR in last 7 calendar days — powers the Recent Form signal
+          const _7dAgo = new Date(Date.now() - 7*24*60*60*1000);
+          row.recentHR7 = recent.filter(g=>g.date && new Date(g.date)>=_7dAgo).reduce((s,x)=>s+(x.hr||0),0);
           if(row._batterStats){ row._batterStats.l14HR=l14HR; row._batterStats.l14PA=l14PA; }
-          // Recalculate momentum now that we have real game-log data
-          // (rows are built before recent-game fetches complete, so momentum was 1.00 at build time)
           const anchor = row.anchor || 0;
-          let adj = 0;
-          if(l14PA >= 15 && anchor > 0){
-            const l14Rate = l14HR / l14PA;
-            const l14Ratio = l14Rate / anchor;
-            if(l14Ratio > 1.4 || l14Ratio < 0.5){
-              adj = clamp((l14Ratio - 1.0) * 0.15, -0.06, 0.06);
-            }
-          }
-          const bs = row._batterStats || {};
-          if(bs.rollingXwoba!=null && bs.xwoba!=null && bs.xwoba>0.200){
-            const xr = bs.rollingXwoba / bs.xwoba;
-            if(xr > 1.10 || xr < 0.88){
-              adj = clamp(adj + (xr - 1.0) * 0.30, -0.14, 0.14);
-            }
-          }
-          if(bs.rollingEV!=null && bs.avg_ev!=null && bs.avg_ev>85){
-            const evDiff = bs.rollingEV - bs.avg_ev;
-            if(Math.abs(evDiff) >= 1.5){
-              adj = clamp(adj + evDiff * 0.018, -0.16, 0.16);
-            }
-          }
-          if(adj !== 0) row.momentum = clamp(+Math.exp(adj).toFixed(3), 0.80, 1.25);
+          const bs = { ...(row._batterStats || {}), l14HR, l14PA };
+          const { momentum: newMomentum } = calcMomentum(bs, anchor);
+          if(newMomentum !== 1.0) row.momentum = newMomentum;
+        }
+        _rgDone++;
+        // Re-render every 4 completions and on the final one so streak signals
+        // surface as each batter's data arrives, not all-or-nothing at the end.
+        if(S.selPks.has(pk) && S.allRows.length){
+          if(_rgDone % 4 === 0 || _rgDone === _rgTotal) renderSlate();
         }
       }))
-    ).then(()=>{
-      // Only re-render if this game is still selected
-      if(S.selPks.has(pk) && S.allRows.length) renderSlate();
-    }).catch(()=>{});
+    ).catch(()=>{});
   }
   console.log(`[loadGame] DONE ${g.away}@${g.home}`);
 
@@ -11984,7 +12723,9 @@ function setSort(key,el){
 }
 
 function setFilter(key){
-  S.activeFilter = (S.activeFilter===key) ? null : key;
+  if(key==='all'){ S.activeFilters.clear(); }
+  else if(S.activeFilters.has(key)){ S.activeFilters.delete(key); }
+  else { S.activeFilters.add(key); }
   renderSlate();
 }
 
@@ -12133,6 +12874,7 @@ function renderScout(){
       if(r.barrel_pct==null && sb.barrel_pct!=null)  r.barrel_pct  = sb.barrel_pct;
       if(r.hard_hit_pct==null && sb.hard_hit_pct!=null) r.hard_hit_pct= sb.hard_hit_pct;
       if(r.pull_air_pct==null && sb.pull_air_pct!=null) r.pull_air_pct= sb.pull_air_pct;
+      if(r.sweet_spot_pct==null && (sb.sweetSpot??sb.sweet_spot_pct)!=null) r.sweet_spot_pct=sb.sweetSpot??sb.sweet_spot_pct;
       if(r.avg_ev==null && sb.avg_ev!=null)          r.avg_ev      = sb.avg_ev;
     }
   }
@@ -12899,25 +13641,23 @@ function renderSlate(){
     return;
   }
 
-  // ── BUILD FILTER CHIPS ───────────────────────────────────────────────────
+  // ── BUILD FILTER CHIPS (multi-select — tap to toggle, combine freely) ────
   const FILTERS = [
-    { key:'all',       icon:'⚾', label:'All',        tip:'All players sorted by HR%' },
-    { key:'sharp',     icon:'🎯', label:'Sharp',      tip:'Elite power profile (Barrel%≥11 or Pull-Air%≥16 or ISO≥.220), PA≥60, HR%≥7%' },
-    { key:'value',     icon:'💰', label:'Value',      tip:'Model prob > book implied (edge≥3%)' },
-    { key:'elite',     icon:'⭐', label:'Elite Spot', tip:'Elite Spot or Prime Spot tag' },
-    { key:'barrel',    icon:'🛢️', label:'Barrel',     tip:'Barrel%≥11% power hitters' },
-    { key:'platoon',   icon:'🔀', label:'Platoon',    tip:'Favorable platoon matchup ≥1.15×' },
-    { key:'windy',     icon:'💨', label:'Wind Out',   tip:'Wind blowing out ≥12 mph' },
-    { key:'park',      icon:'🏟️', label:'HR Park',    tip:'Park factor ≥1.08×' },
-    { key:'due',       icon:'🌋', label:'Due',        tip:'Due or Regression Due tag' },
-    { key:'confirmed', icon:'✅', label:'Confirmed',  tip:'Lineup confirmed' },
+    { key:'all',        icon:'⚾', label:'All',            tip:'Clear all filters — show everyone sorted by HR%' },
+    { key:'elite',      icon:'⭐', label:'Elite Spot',     tip:'Elite Spot or Prime Spot tag — all 5 gates cleared' },
+    { key:'pullAir',    icon:'🎯', label:'Pull-Air King',  tip:'Pull-Air% ≥18% — elite pull-fly rate, core of HR model' },
+    { key:'platoonAdv', icon:'🔀', label:'Platoon Adv',   tip:'Platoon multiplier ≥1.10× — favourable handedness matchup' },
+    { key:'heating',    icon:'🌡️', label:'Heating Up',    tip:'Heating Up tag — momentum building in last 14 days' },
+    { key:'hardHit',    icon:'💥', label:'HH%≥40',        tip:'Hard hit rate ≥40% — elite contact quality (HR hitters avg 42%+)' },
+    { key:'sharp',      icon:'🔬', label:'Sharp',         tip:'Elite power profile (Barrel%≥11 or Pull-Air%≥16 or ISO≥.220), PA≥60, HR%≥7%' },
+    { key:'value',      icon:'💰', label:'Value',         tip:'Model prob > book implied odds (edge ≥3%)' },
+    { key:'sp',         icon:'🔥', label:'SP Hittable',   tip:'Opposing SP is HR-prone (pitcher mult ≥1.10×) — good matchup for power hitters' },
+    { key:'confirmed',  icon:'✅', label:'Confirmed',     tip:'Lineup confirmed for today' },
   ];
   const fr = document.getElementById('filter-row');
   if(fr){
-    const af = S.activeFilter||'all';
     fr.innerHTML = FILTERS.map(f=>{
-      const active = af===f.key;
-      const count = f.key==='all' ? S.allRows.length : null; // could add count per filter
+      const active = f.key==='all' ? S.activeFilters.size===0 : S.activeFilters.has(f.key);
       return `<button class="chip ${active?'active':''}" onclick="setFilter('${f.key}')" title="${f.tip}"
         style="flex-shrink:0;white-space:nowrap">
         ${f.icon} ${f.label}
@@ -12937,81 +13677,96 @@ function renderSlate(){
 
   let rows=[...S.allRows];
 
-  const af = S.activeFilter;
+  // Multi-select filter helper — all active filters are ANDed together
+  const hasF = key => S.activeFilters.has(key);
+  const anyF  = S.activeFilters.size > 0;
 
-  // Sharp filter: strong power profile
-  if(af==='sharp' || S.noiseFilter){
+  // Sharp / noise-reduction (also respects noiseFilter toggle)
+  if(hasF('sharp') || S.noiseFilter){
     rows=rows.filter(r=>{
       if((r.szPA||0)<60) return false;
       const hasRealPower=(r.barrel_pct!=null&&r.barrel_pct>=11)
         ||(r.pull_air_pct!=null&&r.pull_air_pct>=16)
         ||(r.iso!=null&&r.iso>=0.220);
-      if(!hasRealPower) return false;
-      if(r.prob<0.07) return false;
-      return true;
+      return hasRealPower && r.prob>=0.07;
     });
   }
 
-  if(af==='value'){
+  // Value: model edge vs book
+  if(hasF('value')){
     rows=rows.filter(r=>{
       const odds=getFDOdds(r.name)||getOddsEntry(r.name)?.odds;
       if(!odds) return false;
       const edge=calcEdgePct(r.prob,odds);
       return edge!=null && edge>=3;
     });
-    rows.sort((a,b)=>{
-      const ea=calcEdgePct(a.prob,getFDOdds(a.name)||getOddsEntry(a.name)?.odds)||0;
-      const eb=calcEdgePct(b.prob,getFDOdds(b.name)||getOddsEntry(b.name)?.odds)||0;
-      return eb-ea;
-    });
   }
 
-  if(af==='elite'){
+  // Elite Spot / Prime Spot tag
+  if(hasF('elite')){
     rows=rows.filter(r=>{
       const tags=detectAngles(r).map(a=>a.label.toLowerCase());
       return tags.some(t=>t.includes('elite')||t.includes('prime'));
     });
   }
 
-  if(af==='barrel'){
-    rows=rows.filter(r=>(r.barrel_pct||0)>=11);
-    rows.sort((a,b)=>(b.barrel_pct||0)-(a.barrel_pct||0));
+  // Pull-Air King: pull_air_pct ≥ 18%
+  if(hasF('pullAir')){
+    rows=rows.filter(r=>(r.pull_air_pct||0)>=18);
   }
 
-  if(af==='platoon'){
-    rows=rows.filter(r=>(r.platoon||1)>=1.15);
-    rows.sort((a,b)=>(b.platoon||1)-(a.platoon||1));
-  }
-
-  if(af==='windy'){
-    rows=rows.filter(r=>{
-      const wx=r._wx||r.wx||{};
-      const spd=wx.wind||0;
-      const dir=wx.wdir||0;
-      // Wind out = blowing toward outfield (roughly 315-45 or within 90deg of out)
-      return spd>=12 && (dir<=45||dir>=315||Math.abs(dir-180)<=30===false);
-    });
-    rows.sort((a,b)=>((b._wx||{}).wind||0)-((a._wx||{}).wind||0));
-  }
-
-  if(af==='park'){
-    rows=rows.filter(r=>(r.pf||1)>=1.08);
-    rows.sort((a,b)=>(b.pf||1)-(a.pf||1));
-  }
-
-  if(af==='due'){
+  // Platoon Edge or Platoon King tag must be present
+  if(hasF('platoonAdv')){
     rows=rows.filter(r=>{
       const tags=detectAngles(r).map(a=>a.label.toLowerCase());
-      return tags.some(t=>t.includes('due')||t.includes('regression'));
+      return tags.some(t=>t.includes('platoon edge')||t.includes('platoon king'));
     });
   }
 
-  if(af==='confirmed'){
+  // Heating Up tag
+  if(hasF('heating')){
+    rows=rows.filter(r=>{
+      const tags=detectAngles(r).map(a=>a.label.toLowerCase());
+      return tags.some(t=>t.includes('heating'));
+    });
+  }
+
+  // Hard hit rate ≥ 40%
+  if(hasF('hardHit')){
+    rows=rows.filter(r=>(r.hard_hit_pct||0)>=40);
+  }
+
+  // Confirmed lineup
+  if(hasF('confirmed')){
     rows=rows.filter(r=>r.lineupConfirmed===true);
   }
 
-  if(af!=='value' && af!=='barrel' && af!=='platoon' && af!=='windy' && af!=='park'){
-    rows.sort(sortFn);
+  // SP Hittable — batters facing an HR-prone SP (pitcher mult ≥1.10×)
+  if(hasF('sp')){
+    rows=rows.filter(r=>(r.pitcher||1)>=1.10);
+  }
+
+  // Precompute signal counts for secondary sort
+  rows.forEach(r=>{ if(r._sigCount==null) r._sigCount=detectAngles(r).filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length; });
+
+  // Sort: value filter sorts by edge, pullAir sorts by pull_air_pct,
+  // platoonAdv sorts by platoon mult, hardHit sorts by HH% — when
+  // multiple filters are active use prob as primary sort (most useful combined view)
+  if(S.activeFilters.size===1 && hasF('value')){
+    rows.sort((a,b)=>{
+      const ea=calcEdgePct(a.prob,getFDOdds(a.name)||getOddsEntry(a.name)?.odds)||0;
+      const eb=calcEdgePct(b.prob,getFDOdds(b.name)||getOddsEntry(b.name)?.odds)||0;
+      return eb-ea;
+    });
+  } else if(S.activeFilters.size===1 && hasF('pullAir')){
+    rows.sort((a,b)=>(b.pull_air_pct||0)-(a.pull_air_pct||0));
+  } else if(S.activeFilters.size===1 && hasF('platoonAdv')){
+    rows.sort((a,b)=>(b.platoon||1)-(a.platoon||1));
+  } else if(S.activeFilters.size===1 && hasF('hardHit')){
+    rows.sort((a,b)=>(b.hard_hit_pct||0)-(a.hard_hit_pct||0));
+  } else {
+    // Default: prob primary, signal count secondary
+    rows.sort((a,b)=>sortFn(a,b)||(b._sigCount||0)-(a._sigCount||0));
   }
 
   if(q) rows=rows.filter(r=>r.name.toLowerCase().includes(q)||r.team.toLowerCase().includes(q));
@@ -13020,12 +13775,11 @@ function renderSlate(){
   const clearBtn = document.getElementById('search-clear');
   if(clearBtn) clearBtn.style.display = q ? 'block' : 'none';
 
-  // Show count badge on active filter
-  if(fr && af && af!=='all'){
-    const activeBtn = fr.querySelector('.chip.active');
-    if(activeBtn && rows.length>0){
-      activeBtn.innerHTML += ` <span style="background:rgba(255,255,255,.2);border-radius:99px;padding:1px 6px;font-size:.55rem">${rows.length}</span>`;
-    }
+  // Show result count on each active chip
+  if(fr && anyF){
+    fr.querySelectorAll('.chip.active').forEach(btn=>{
+      if(!btn.querySelector('span')) btn.innerHTML += ` <span style="background:rgba(255,255,255,.2);border-radius:99px;padding:1px 6px;font-size:.55rem">${rows.length}</span>`;
+    });
   }
 
   const multiGame=S.selPks.size>1;
@@ -13250,7 +14004,25 @@ function renderSlate(){
 
   let hitterHTML = '';
   try{
-    hitterHTML = rows.map(r=>renderHitterCard(r,multiGame)).join('');
+    const _eliteRows = rows.filter(r=>detectAngles(r).some(a=>a.label==='Elite Spot'));
+    const _otherRows = rows.filter(r=>!detectAngles(r).some(a=>a.label==='Elite Spot'));
+    if(_eliteRows.length){
+      hitterHTML += `<div style="margin:8px 0 6px;padding:8px 12px;border-radius:10px;
+        background:linear-gradient(90deg,rgba(255,215,0,.14),rgba(255,215,0,.03));
+        border:1px solid rgba(255,215,0,.4);display:flex;align-items:center;gap:10px">
+        <span style="font-size:1.2rem;flex-shrink:0">⭐</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.70rem;font-weight:900;color:#ffd700;letter-spacing:.06em">ELITE SPOTS TODAY</div>
+          <div style="font-size:.58rem;color:rgba(255,215,0,.65)">All 5 gates cleared · highest-conviction plays on the slate</div>
+        </div>
+        <div style="font-size:1.4rem;font-weight:900;color:#ffd700;flex-shrink:0">${_eliteRows.length}</div>
+      </div>`;
+      hitterHTML += _eliteRows.map(r=>renderHitterCard(r,multiGame)).join('');
+      if(_otherRows.length) hitterHTML += `<div style="margin:10px 0 5px;font-size:.62rem;font-weight:700;
+        color:var(--t4);text-transform:uppercase;letter-spacing:.07em;padding:0 2px">
+        All Players (${_otherRows.length})</div>`;
+    }
+    hitterHTML += _otherRows.map(r=>renderHitterCard(r,multiGame)).join('');
   }catch(cardErr){
     console.error('[renderHitterCard] crash:', cardErr.message, cardErr.stack);
     hitterHTML = `<div class="card" style="color:var(--red);padding:12px;font-size:.75rem">
@@ -13346,6 +14118,47 @@ function calc2TBProb(r){
   return Math.min(80, Math.max(5, Math.round(p2tb * 1000) / 10)); // returns as % e.g. 42.5
 }
 
+// Combines power-zone overlap quality (primary) + pitch domain fit (secondary)
+// into a single 0-100 Zone Fit score with letter grade.
+function calcZoneFitScore(r){
+  const zm = r._zoneMatch;
+  if(!zm) return null;
+  let pts = 50;
+  const hot  = zm.hotOverlap?.length  || 0;
+  const anti = zm.antiOverlap?.length || 0;
+  const ovlp = zm.overlap?.length     || 0;
+  const xw   = zm.overlapXwOBA        || 0;
+  // Zone alignment (primary: -25 to +30)
+  if(hot >= 2)       pts += 30;
+  else if(hot >= 1)  pts += 15;
+  else if(anti >= 2) pts -= 25;
+  else if(anti >= 1) pts -= 12;
+  // Non-HR zone overlap partial credit
+  if(hot === 0 && ovlp >= 2) pts += 6;
+  else if(hot === 0 && ovlp === 1) pts += 3;
+  // xwOBA quality in overlap zones (-5 to +12)
+  if(xw >= 0.420)      pts += 12;
+  else if(xw >= 0.380) pts +=  7;
+  else if(xw >= 0.340) pts +=  3;
+  else if(xw > 0 && xw < 0.260) pts -= 5;
+  // Pitch domain fit: 20% secondary weight (-10 to +9)
+  const zf = r._zoneFit;
+  if(zf?.score != null) pts += Math.round((zf.score - 52) * 0.20);
+  pts = Math.max(0, Math.min(100, Math.round(pts)));
+  const grade = pts >= 90 ? 'S'  : pts >= 82 ? 'A+' : pts >= 72 ? 'A'
+              : pts >= 62 ? 'B+' : pts >= 50 ? 'B'  : pts >= 38 ? 'C' : 'D';
+  const clr   = pts >= 85 ? '#ffd700'       : pts >= 70 ? 'var(--green)'
+              : pts >= 55 ? 'var(--amber)'   : pts >= 38 ? 'var(--t3)' : 'var(--red)';
+  const bg    = pts >= 85 ? 'rgba(255,215,0,.15)' : pts >= 70 ? 'rgba(34,201,94,.15)'
+              : pts >= 55 ? 'rgba(240,165,0,.12)'  : pts >= 38 ? 'rgba(255,255,255,.06)' : 'rgba(224,80,74,.15)';
+  const tip   = hot >= 2 ? `${hot} hot zones align — xwOBA ${xw.toFixed(3)} in zone`
+              : hot >= 1 ? `1 hot zone overlap — xwOBA ${xw.toFixed(3)}`
+              : anti >= 2 ? 'Power zones hit SP strongest areas — tough matchup'
+              : ovlp >= 1 ? `${ovlp} zone overlap (outside prime HR zones)`
+              : 'No strong zone alignment';
+  return { score: pts, grade, clr, bg, tip };
+}
+
 function renderHitterCard(r,showGame){
   const pct=(r.prob*100).toFixed(1);
   const [grd,gc,gCls]=probGrade(r.prob);
@@ -13375,19 +14188,15 @@ function renderHitterCard(r,showGame){
       })()
     : '';
 
-  // Compute zone matchup fresh using fallback estimation if needed
-  const _zm = r._zoneMatch || calcZoneMatchup(r._batPid||r.id, r._spId, r.batHand);
-  const zoneBadge = _zm && _zm.hotOverlap && _zm.hotOverlap.length >= 1
-    ? `<span style="font-size:.55rem;padding:1px 5px;border-radius:4px;margin-left:3px;
-        background:${_zm.hotOverlap.length>=2?'rgba(255,215,0,.3)':'rgba(34,201,94,.2)'};
-        color:${_zm.hotOverlap.length>=2?'#ffd700':'var(--green)'}"
-        title="${_zm.fromRealData?'Statcast zone data: ':'Estimated: '}${(_zm.zoneNames||[]).join(', ')}">
-        ${_zm.hotOverlap.length>=2?'🎯 Zone Dom':'📍 Zone'}${_zm.fromRealData?' ✦':''}</span>`
+  const zfs = calcZoneFitScore(r);
+  const zoneFitBadge = zfs
+    ? `<span style="font-size:.55rem;padding:1px 5px;border-radius:4px;margin-left:3px;background:${zfs.bg};color:${zfs.clr}" title="${zfs.tip}">Zone ${zfs.grade}</span>`
     : '';
 
   // Angles — top 3 only, positive signals
   const angles = detectAngles(r);
   const cardAngles = angles.filter(a => a.tier <= 2 && !a.label.endsWith('(-)')).slice(0, 3);
+  const totalPosAngles = angles.filter(a => a.tier <= 2 && !a.label.endsWith('(-)')).length;
   const negAngles = detectNegativeAngles(r);
   const angleRow = cardAngles.length
     ? `<div style="display:flex;gap:4px;flex-wrap:nowrap;margin-top:6px;overflow:hidden">
@@ -13418,6 +14227,7 @@ function renderHitterCard(r,showGame){
       </div>
       <div style="flex:1;min-width:0">
         <div style="font-size:1.0rem;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}${(()=>{const td=ds();const st=JSON.parse(localStorage.getItem('hr_hub_results')||'[]');const al=st.find(x=>x.id===r.id&&x.date===td&&x.manualBet);if(al&&al.actual!==undefined)return`<span style="font-size:.58rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(34,201,94,.15);color:var(--green)">${al.actual>0?'✅':'❌'}</span>`;if(al)return`<span style="font-size:.58rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.1);color:var(--amber)">📌</span>`;return'';})()}${(_injuredSet&&_injuredSet.has(r._batPid||r.id))?'<span style="font-size:.56rem;margin-left:4px;padding:1px 5px;border-radius:99px;background:rgba(224,80,74,.15);color:var(--red)">🤕 IL</span>':''}${(_recentILReturn&&_recentILReturn.has(r._batPid||r.id))?'<span style="font-size:.56rem;margin-left:4px;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.12);color:var(--amber)">⚕️ IL Ret</span>':''}</div>
+        ${(edgeBadge||zoneFitBadge)?`<div style="display:flex;align-items:center;gap:2px;flex-wrap:wrap;margin-top:2px">${edgeBadge}${zoneFitBadge}</div>`:''}
         <div style="font-size:.63rem;color:var(--t4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <b style="color:var(--amber)">Bat ${r.lineupPos}</b>`:''}${gameTag?` · ${gameTag}`:''}${!r.lineupConfirmed?' <span style="color:var(--red)">⚠ unconfirmed</span>':''}${r.postponeRisk>=0.45?` <span style="color:#60a5fa">🌧 ${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
       </div>
       <div style="flex-shrink:0;text-align:center;min-width:56px">
@@ -13426,13 +14236,14 @@ function renderHitterCard(r,showGame){
         ${fdOdds!=null?`<div style="font-size:.63rem;font-weight:700;margin-top:1px;color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'}">${fdOdds>0?'+':''}${fdOdds}</div>`:''}
       </div>
     </div>
-    ${cardAngles.length?`<div style="display:flex;gap:4px;margin-bottom:8px;overflow:hidden">${cardAngles.map(a=>`<span style="font-size:.63rem;font-weight:600;padding:2px 9px;border-radius:99px;background:${a.color}20;border:1px solid ${a.color}${a.tier===1?'60':'30'};color:${a.color};white-space:nowrap" title="${a.tip}">${a.icon} ${a.label}</span>`).join('')}${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length>3?`<span style="font-size:.60rem;color:var(--t4);align-self:center"> +${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length-3}</span>`:''}</div>`:''}
+    ${cardAngles.length?`<div style="display:flex;gap:4px;margin-bottom:8px;overflow:hidden;align-items:center">${cardAngles.map(a=>`<span style="font-size:.63rem;font-weight:600;padding:2px 9px;border-radius:99px;background:${a.color}20;border:1px solid ${a.color}${a.tier===1?'60':'30'};color:${a.color};white-space:nowrap" title="${a.tip}">${a.icon} ${a.label}</span>`).join('')}<span style="font-size:.60rem;font-weight:700;padding:2px 7px;border-radius:99px;background:${totalPosAngles>=5?'rgba(34,201,94,.18)':totalPosAngles>=3?'rgba(240,165,0,.15)':'rgba(255,255,255,.06)'};color:${totalPosAngles>=5?'var(--green)':totalPosAngles>=3?'var(--amber)':'var(--t4)'};flex-shrink:0;margin-left:auto">${totalPosAngles}⚡</span></div>`:''}
     <div style="display:flex;gap:3px;margin-bottom:7px">
-      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',(r.platoon??1).toFixed(2)+'×',r.platoon??1],['SP',(r.pitcher??1).toFixed(2)+'×',r.pitcher??1],['Park',(r.parkwx??1).toFixed(2)+'×',r.parkwx??1],['Form',(r.momentum??1).toFixed(2)+'×',r.momentum??1]].map(([lbl,val,m])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div></div>`).join('')}
+      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',(r.platoon??1).toFixed(2)+'×',r.platoon??1],['SP',(r.pitcher??1).toFixed(2)+'×',r.pitcher??1,(r.pitcher??1)>=1.00?'✅ Hittable':(r.pitcher??1)<0.80?'⚠ Weak SP':''],['Park',(r.parkwx??1).toFixed(2)+'×',r.parkwx??1],['Form',(r.momentum??1).toFixed(2)+'×',r.momentum??1]].map(([lbl,val,m,sub])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div>${sub?('<div style="font-size:.44rem;font-weight:800;margin-top:1px;letter-spacing:.02em;color:'+(sub.startsWith('⚠')?'var(--red)':'var(--green)')+'">'+sub+'</div>'):''}` + '</div>').join('')}
+      ${zfs?`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${zfs.clr}40" title="${zfs.tip}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Zone</div><div style="font-size:.72rem;font-weight:800;color:${zfs.clr};font-variant-numeric:tabular-nums">${zfs.grade}</div><div style="font-size:.44rem;font-weight:700;margin-top:1px;color:${zfs.clr};opacity:.75">${zfs.score}</div></div>`:''}
     </div>
     <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;justify-content:center;margin-bottom:6px">
       <span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;opacity:.55">Szn</span>
-      ${statChip('Brl%',r.barrel_pct,4,16,'%')}${statChip('Hard%',r.hard_hit_pct,32,55,'%')}${statChip('EV',r.avg_ev,87,95,' mph')}${statChip('Pull%',r.pull_air_pct,8,22,'%')}${statChip('HR/FB',r.hr_fb_pct,8,28,'%')}
+      ${statChip('Brl%',r.barrel_pct,4,16,'%')}${statChip('Hard%',r.hard_hit_pct,32,55,'%')}${statChip('EV',r.avg_ev,87,95,' mph')}${statChip('Pull%',r.pull_air_pct,8,22,'%')}${r.hr_fb_pct!=null?statChip('HR/FB',r.hr_fb_pct,8,28,'%'):'<div class="stat-chip"><span>HR/FB</span><span class="val" style="color:#475569">—</span></div>'}
       ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)}xw</span></div>`:''}
       <div class="stat-chip"><span>xHR</span><span class="val" style="color:${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return r.prob*e>=0.35?'var(--green)':r.prob*e>=0.20?'var(--amber)':'var(--t3)'})()}">${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return(r.prob*e).toFixed(2)})()}</span></div>
     </div>
@@ -13448,6 +14259,139 @@ function statChip(lbl,v,lo,hi,suf,dec=1){
   return`<div class="stat-chip ${cls}"><span>${lbl}</span><span class="val">${v.toFixed(dec)}${suf}</span></div>`;
 }
 
+// Signal meter — 6 canonical HR signal types
+// Tap the bar to expand and see each signal's threshold vs player's actual value
+function signalMeterHTML(r){
+  const _isCoors=!!(r.game?.includes('@COL')||(r.team==='COL'&&r.isHome));
+  // Statcast metrics (barrel%, EV, hard hit%, pull-air%) require sufficient PA to be stable.
+  // Hard hit% stabilises ~65 PA, barrel% ~130 PA. 60 PA is practical minimum floor.
+  const szPA = r.szPA || 0;
+  const paOK = szPA >= 60;   // enough PA for batter Statcast signals to be meaningful
+  const paLow = szPA > 0 && szPA < 60;
+  const paMsg = paLow ? `Only ${szPA} PA — need 60+ for stable Statcast` : null;
+
+  // HR/FB% color helper — shows green/amber/red based on value
+  const hrfb = r.hr_fb_pct;
+  const hrfbClr = hrfb==null?'#475569':hrfb>=18?'#22c95e':hrfb>=12?'#f59e0b':hrfb>=8?'#94a3b8':'#ef4444';
+  const hrfbStr = hrfb!=null
+    ? `<span style="color:${hrfbClr};font-weight:800">${hrfb}%</span>`
+    : `<span style="color:#475569">—</span>`;
+
+  const SIG = [
+    { id:'barrel',  icon:'🛢️', label:'Barrel / EV',
+      thresh:'Barrel% ≥10 or Avg EV ≥92 mph',
+      val: paMsg || `Brl <b>${r.barrel_pct!=null?r.barrel_pct+'%':'—'}</b> · EV <b>${r.avg_ev!=null?r.avg_ev+' mph':'—'}</b>`,
+      why:'Best single HR predictor in Statcast era',
+      locked: paLow,
+      met: paOK && ((r.barrel_pct||0)>=10||(r.avg_ev||0)>=92) },
+    { id:'pullair', icon:'🎯', label:'Pull-Air Pipeline',
+      thresh:'Pull-air% ≥15 AND HR/FB% ≥12',
+      val: paMsg || `Pull <b>${r.pull_air_pct!=null?r.pull_air_pct+'%':'—'}</b> · HR/FB ${hrfbStr}`,
+      why:'Hits to power alley AND converts fly balls to HRs',
+      locked: paLow,
+      met: paOK && (r.pull_air_pct||0)>=15&&(r.hr_fb_pct||0)>=12 },
+    { id:'hardHit', icon:'💥', label:'Hard Contact',
+      thresh:'Hard hit% ≥40',
+      val: paMsg || `Hard% <b>${r.hard_hit_pct!=null?r.hard_hit_pct+'%':'—'}</b>`,
+      why:'Elite contact quality — independent of barrel direction',
+      locked: paLow,
+      met: paOK && (r.hard_hit_pct||0)>=40 },
+    { id:'iso',     icon:'💪', label:'ISO Power',
+      thresh:'Isolated Power ≥0.200',
+      val:(()=>{
+        // ISO: use r.iso if available, else compute from season SLG/AVG on the row
+        const iso=r.iso ?? (r.szSLG!=null&&r.szAVG!=null ? Math.round((r.szSLG-r.szAVG)*1000)/1000 : null);
+        const clr=iso==null?'#475569':iso>=0.240?'#ffd700':iso>=0.210?'#22c95e':iso>=0.180?'#f59e0b':'#94a3b8';
+        const tier=iso==null?'':iso>=0.240?' · elite':iso>=0.210?' · great':iso>=0.180?' · above avg':'';
+        return `ISO <span style="color:${clr};font-weight:800">${iso!=null?'.'+String(Math.round(iso*1000)).padStart(3,'0'):'—'}</span>${tier}`;
+      })(),
+      why:'Isolated Power (SLG − AVG) measures raw extra-base power. Stable after ~100 PA. One of the 3 most predictive HR metrics.',
+      locked: false,
+      met:(()=>{
+        const iso=r.iso ?? (r.szSLG!=null&&r.szAVG!=null ? Math.round((r.szSLG-r.szAVG)*1000)/1000 : null);
+        return (iso||0)>=0.200;
+      })() },
+    { id:'sweetsp', icon:'🍬', label:'Sweet Spot %',
+      thresh:'Sweet spot contact% ≥36',
+      val: paMsg || (()=>{
+        // Sweet spot: r.sweet_spot_pct set by backfill; fall back to _savB directly
+        const ss=r.sweet_spot_pct ?? (_savB?.[String(r._batPid||r.id)]?.sweetSpot ?? _savB?.[String(r._batPid||r.id)]?.sweet_spot_pct ?? null);
+        const clr=ss==null?'#475569':ss>=42?'#ffd700':ss>=38?'#22c95e':ss>=34?'#f59e0b':'#94a3b8';
+        return `Sweet spot <span style="color:${clr};font-weight:800">${ss!=null?ss.toFixed(1)+'%':'—'}</span>`;
+      })(),
+      why:'Launch angle 8–32° on contact — the HR-producing zone. Complements barrel% by catching hard line drives that aren\'t barrels.',
+      locked: paLow,
+      met: paOK && (()=>{
+        const ss=r.sweet_spot_pct ?? (_savB?.[String(r._batPid||r.id)]?.sweetSpot ?? _savB?.[String(r._batPid||r.id)]?.sweet_spot_pct ?? null);
+        return (ss||0)>=36;
+      })() },
+    { id:'pitcher', icon:'⚾', label:'SP Vulnerable',
+      thresh:'SP mult ≥1.10×',
+      val:`<b>${(r.pitcher||1).toFixed(2)}×</b> (recent HR/9 factored in)`,
+      why:"Today's pitcher is HR-prone — game-day variable",
+      locked: false,
+      met:(r.pitcher||1)>=1.10 },
+    { id:'env',     icon:'🏟️', label:'Environment',
+      thresh:'Park+weather ≥1.05× or Coors',
+      val:`<b>${(r.parkwx||1).toFixed(2)}×</b>${_isCoors?' · Coors Field':''}`,
+      why:'Ball carries farther — park factor + wind + temp',
+      locked: false,
+      met:(r.parkwx||1)>=1.05||_isCoors },
+    { id:'form', icon:'🔥', label:'Recent Form',
+      thresh:'≥2 HR in last 7 days',
+      val: paMsg || (()=>{
+        const n = r.recentHR7 ?? null;
+        if(n==null) return '<span style="color:#475569">Loading…</span>';
+        const clr = n>=3?'#ffd700':n>=2?'#22c95e':n>=1?'#f59e0b':'#94a3b8';
+        return `<span style="color:${clr};font-weight:800">${n} HR</span> <span style="color:#64748b">last 7 days</span>`;
+      })(),
+      why:'Hot bat right now — hit ≥2 HR in the last 7 calendar days.',
+      locked: false,
+      met: (r.recentHR7??0)>=2 },
+  ];
+  const count = SIG.filter(s=>s.met).length;
+  // 8-signal thresholds: 6+ = elite (gold), 4-5 = strong (amber), 2-3 = present (slate)
+  const clrHex  = count>=6?'#ffd700':count>=4?'#f59e0b':count>=2?'#64748b':'#475569';
+  const clrText = count>=6?'#ffd700':count>=4?'#f59e0b':count>=2?'#94a3b8':'#64748b';
+  const bgClr   = count>=6?'rgba(255,215,0,.07)':count>=4?'rgba(245,158,11,.07)':'rgba(100,116,139,.04)';
+  const bdrClr  = count>=6?'rgba(255,215,0,.22)':count>=4?'rgba(245,158,11,.18)':'rgba(100,116,139,.15)';
+  const uid = 'sm_'+(r._batPid||r.id||'x').toString().replace(/[^a-z0-9]/gi,'');
+  // Locked dots (insufficient PA) get a muted amber ring — data exists but too small sample
+  const dots = SIG.map(s=>
+    s.locked
+      ? `<div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:transparent;border:1.5px dashed #78350f" title="Low PA — data not stable"></div>`
+      : `<div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:${s.met?clrHex:'#2d3748'};border:1.5px solid ${s.met?clrHex:'#4a5568'}"></div>`
+  ).join('');
+  // Detail panel — each signal as a row with icon, name, threshold, actual value, pass/fail
+  const detailRows = SIG.map(s=>`
+    <div style="display:grid;grid-template-columns:18px 1fr auto;gap:4px;align-items:start;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <span style="font-size:.70rem">${s.icon}</span>
+      <div>
+        <div style="font-size:.60rem;font-weight:700;color:${s.met?clrText:s.locked?'#78350f':'#64748b'}">${s.label}${s.locked?' <span style="font-size:.48rem;color:#f59e0b">⚠️ Low PA</span>':''}</div>
+        <div style="font-size:.52rem;color:#475569;margin-top:1px">${s.thresh}</div>
+        <div style="font-size:.55rem;color:${s.met?clrText:'#475569'};margin-top:1px;font-weight:600">${s.val}</div>
+        <div style="font-size:.50rem;color:#475569;margin-top:1px;font-style:italic">${s.why}</div>
+      </div>
+      <span style="font-size:.75rem;font-weight:900;color:${s.locked?'#78350f':s.met?'#22c95e':'#ef4444'};margin-top:1px">${s.locked?'?':s.met?'✓':'✗'}</span>
+    </div>`).join('');
+  const paWarningBadge = paLow ? `<span style="font-size:.48rem;font-weight:700;color:#f59e0b;flex-shrink:0">⚠️ ${szPA}PA</span>` : '';
+  return `
+  <div onclick="event.stopPropagation();(function(){const d=document.getElementById('${uid}');if(d)d.style.display=d.style.display==='none'?'block':'none';})()" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:8px;background:${bgClr};border:1px solid ${bdrClr};margin-bottom:0">
+    <span style="font-size:.50rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;flex-shrink:0">⚡ Signals</span>
+    <div style="display:flex;gap:4px;align-items:center">${dots}</div>
+    ${paWarningBadge}
+    <div style="margin-left:auto;display:flex;align-items:baseline;gap:1px;flex-shrink:0">
+      <span style="font-size:.82rem;font-weight:900;color:${clrText};line-height:1">${count}</span>
+      <span style="font-size:.52rem;font-weight:600;color:#64748b">/8</span>
+    </div>
+    <span style="font-size:.52rem;color:#64748b;flex-shrink:0">▾</span>
+  </div>
+  <div id="${uid}" style="display:none;padding:6px 8px 2px;border-radius:0 0 8px 8px;background:${bgClr};border:1px solid ${bdrClr};border-top:none;margin-bottom:7px">
+    ${detailRows}
+  </div>
+  <div id="${uid}_gap" style="height:7px"></div>`;
+}
+
 function _newRenderHitterCard(r,showGame){
   const pct=(r.prob*100).toFixed(1);
   const [grd,gc,gCls]=probGrade(r.prob);
@@ -13455,8 +14399,8 @@ function _newRenderHitterCard(r,showGame){
   const fdOdds=getFDOdds(r.name);
   const edgeData=fdOdds!=null?calcEdge(r.prob,fdOdds):null;
   const edgeBadge=edgeData?(()=>{const tier=getEdgeTier(r.prob,fdOdds);if(!tier||tier.tier==='C'||tier.tier==='F')return'';const bg=tier.tier==='S'?'rgba(255,215,0,.2)':tier.tier==='A'?'rgba(34,201,94,.15)':'rgba(255,165,0,.15)';const clr=tier.tier==='S'?'#ffd700':tier.tier==='A'?'var(--green)':'var(--amber)';return`<span style="font-size:.60rem;font-weight:800;padding:2px 6px;border-radius:4px;background:${bg};color:${clr}">${tier.tier} ${tier.kelly?.units>=0.5?tier.kelly.units+'u':''}</span>`;})():'';
-  const _zm=r._zoneMatch||calcZoneMatchup(r._batPid||r.id,r._spId,r.batHand);
-  const zoneBadge=_zm&&_zm.hotOverlap&&_zm.hotOverlap.length>=1?`<span style="font-size:.55rem;padding:1px 5px;border-radius:4px;background:${_zm.hotOverlap.length>=2?'rgba(255,215,0,.3)':'rgba(34,201,94,.2)'};color:${_zm.hotOverlap.length>=2?'#ffd700':'var(--green)'}">${_zm.hotOverlap.length>=2?'🎯 Zone Dom':'📍 Zone'}</span>`:'';
+  const zfs=calcZoneFitScore(r);
+  const zoneFitBadge=zfs?`<span style="font-size:.55rem;padding:1px 5px;border-radius:4px;background:${zfs.bg};color:${zfs.clr}" title="${zfs.tip}">Zone ${zfs.grade}</span>`:'';
   const angles=detectAngles(r);
   const cardAngles=angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).slice(0,3);
   const pulseClass=r.prob>=0.12?'pulse-gold':r.prob>=0.09?'pulse-green':'';
@@ -13466,6 +14410,7 @@ function _newRenderHitterCard(r,showGame){
   const _trackId = String(r._batPid||r.id);
   (window._trackerRowCache=window._trackerRowCache||{})[_trackId]={name:r.name,team:r.team,opp:r.game||'',batHand:r.batHand||'R',oppHand:r.oppHand||'R',prob:r.prob||0,barrelPct:r.barrel_pct||null,avgEV:r.avg_ev||null};
   const _isTracked = typeof trackerIsTrackedId==='function' && trackerIsTrackedId(_trackId);
+  const [cvxGrd,cvxClr]=calcConvictionGrade(r);
 
   return`<div class="hitter-card grade-${gCls} ${pulseClass}" onclick="showDetail('${r.id}')">
 
@@ -13478,7 +14423,7 @@ function _newRenderHitterCard(r,showGame){
       <div style="flex:1;min-width:0">
         <div style="font-size:1.10rem;font-weight:800;color:var(--t1);line-height:1.2;word-break:break-word">${r.name}${(_injuredSet&&_injuredSet.has(r._batPid||r.id))?'<span style="font-size:.56rem;margin-left:5px;padding:1px 5px;border-radius:99px;background:rgba(224,80,74,.15);color:var(--red);vertical-align:middle">🤕 IL</span>':''}${(_recentILReturn&&_recentILReturn.has(r._batPid||r.id))?'<span style="font-size:.56rem;margin-left:4px;padding:1px 5px;border-radius:99px;background:rgba(255,165,0,.12);color:var(--amber);vertical-align:middle">⚕️ IL Ret</span>':''}</div>
         <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:2px">
-          ${edgeBadge}${zoneBadge}${trackTag}
+          ${edgeBadge}${zoneFitBadge}${trackTag}
         </div>
         <div style="font-size:.60rem;color:var(--t4);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.team} · ${r.batHand}HB vs ${r.oppHand}HP${r.lineupPos?` · <b style="color:var(--amber)">#${r.lineupPos}</b>`:''}${gameTag?` · ${gameTag}`:''}${!r.lineupConfirmed?' <span style="color:var(--red)">⚠</span>':''}${r.postponeRisk>=0.45?` <span style="color:#60a5fa">🌧${Math.round(r.postponeRisk*100)}%</span>`:''}</div>
       </div>
@@ -13491,6 +14436,7 @@ function _newRenderHitterCard(r,showGame){
         <div style="font-size:1.60rem;font-weight:900;line-height:1;color:${gc}">${pct}%</div>
         ${(()=>{const pL=r.probLow?Math.round(r.probLow*100):null,pH=r.probHigh?Math.round(r.probHigh*100):null;return pL&&pH&&pL!==pH?`<div style="font-size:.44rem;color:${gc};opacity:.55;margin-top:1px">${pL}–${pH}%</div>`:''})()}
         <div style="font-size:.50rem;color:${gc};opacity:.85;margin-top:2px">${grd}</div>
+        <div style="font-size:.46rem;font-weight:800;color:${cvxClr};margin-top:1px;letter-spacing:.04em">Cvx ${cvxGrd}</div>
         ${fdOdds!=null?`<div style="font-size:.60rem;font-weight:700;margin-top:2px;color:${edgeData&&edgeData.edge>=2?'var(--green)':edgeData&&edgeData.edge<=-2?'var(--red)':'var(--t4)'}">${fdOdds>0?'+':''}${fdOdds}${(()=>{if(!_fdOddsBaseline)return'';const bk=normName(r.name);const bOdds=_fdOddsBaseline[bk]?.odds;if(bOdds==null)return'';const d=fdOdds-bOdds;if(Math.abs(d)<10)return'';return`<span style="font-size:.46rem;font-weight:900;margin-left:2px;color:${d>0?'var(--green)':'var(--red)'}">${d>0?'▲':'▼'}${Math.abs(d)}</span>`;})()}</div>`:''}
       </div>
       ${(()=>{ const t=calc2TBProb(r); if(!t) return ''; const c=t>=55?'#22c95e':t>=42?'#4ade80':t>=30?'#94a3b8':'#64748b'; return `<div style="flex:1;background:${c}10;border:1px solid ${c}30;border-radius:10px;padding:8px 4px;text-align:center"><div style="font-size:.46rem;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">2+ Bases</div><div style="font-size:1.60rem;font-weight:900;line-height:1;color:${c}">${t}%</div><div style="font-size:.50rem;color:${c};opacity:.85;margin-top:3px">2+TB</div></div>`; })()}
@@ -13500,15 +14446,19 @@ function _newRenderHitterCard(r,showGame){
     <!-- ROW 3: angle tags -->
     ${cardAngles.length?`<div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap">${cardAngles.map(a=>`<span style="font-size:.62rem;font-weight:600;padding:2px 9px;border-radius:99px;background:${a.color}20;border:1px solid ${a.color}${a.tier===1?'60':'30'};color:${a.color};white-space:nowrap" title="${a.tip}">${a.icon} ${a.label}</span>`).join('')}${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length>3?`<span style="font-size:.60rem;color:var(--t4);align-self:center"> +${angles.filter(a=>a.tier<=2&&!a.label.endsWith('(-)')).length-3}</span>`:''}</div>`:''}
 
+    <!-- ROW 3b: signal meter — N/6 canonical HR signals firing -->
+    ${signalMeterHTML(r)}
+
     <!-- ROW 4: model multiplier tiles -->
     <div style="display:flex;gap:3px;margin-bottom:7px">
-      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',(r.platoon??1).toFixed(2)+'×',r.platoon??1],['SP',(r.pitcher??1).toFixed(2)+'×',r.pitcher??1],['Park',(r.parkwx??1).toFixed(2)+'×',r.parkwx??1],['Form',(r.momentum??1).toFixed(2)+'×',r.momentum??1]].map(([lbl,val,m])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div></div>`).join('')}
+      ${[['Anchor',(r.anchor*100).toFixed(1)+'%',r.anchor/MLB_AVG],['Platoon',(r.platoon??1).toFixed(2)+'×',r.platoon??1],['SP',(r.pitcher??1).toFixed(2)+'×',r.pitcher??1,(r.pitcher??1)>=1.00?'✅ Hittable':(r.pitcher??1)<0.80?'⚠ Weak SP':''],['Park',(r.parkwx??1).toFixed(2)+'×',r.parkwx??1],['Form',(r.momentum??1).toFixed(2)+'×',r.momentum??1]].map(([lbl,val,m,sub])=>`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${m>=1.10?'rgba(34,201,94,.25)':m>=0.95?'transparent':'rgba(224,80,74,.25)'}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">${lbl}</div><div style="font-size:.72rem;font-weight:800;color:${m>=1.10?'var(--green)':m>=0.95?'var(--t2)':'var(--red)'};font-variant-numeric:tabular-nums">${val}</div>${sub?('<div style="font-size:.44rem;font-weight:800;margin-top:1px;letter-spacing:.02em;color:'+(sub.startsWith('⚠')?'var(--red)':'var(--green)')+'">'+sub+'</div>'):''}` + '</div>').join('')}
+      ${zfs?`<div style="flex:1;background:var(--bg3);border-radius:8px;padding:5px 3px 4px;text-align:center;border:1px solid ${zfs.clr}40" title="${zfs.tip}"><div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">Zone</div><div style="font-size:.72rem;font-weight:800;color:${zfs.clr};font-variant-numeric:tabular-nums">${zfs.grade}</div><div style="font-size:.44rem;font-weight:700;margin-top:1px;color:${zfs.clr};opacity:.75">${zfs.score}</div></div>`:''}
     </div>
 
     <!-- ROW 5: season stat chips -->
     <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;justify-content:center;margin-bottom:6px">
       <span style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;opacity:.55">Szn</span>
-      ${statChip('Brl%',r.barrel_pct,4,16,'%')}${statChip('Hard%',r.hard_hit_pct,32,55,'%')}${statChip('EV',r.avg_ev,87,95,' mph')}${statChip('Pull%',r.pull_air_pct,8,22,'%')}${statChip('HR/FB',r.hr_fb_pct,8,28,'%')}
+      ${statChip('Brl%',r.barrel_pct,4,16,'%')}${statChip('Hard%',r.hard_hit_pct,32,55,'%')}${statChip('EV',r.avg_ev,87,95,' mph')}${statChip('Pull%',r.pull_air_pct,8,22,'%')}${r.hr_fb_pct!=null?statChip('HR/FB',r.hr_fb_pct,8,28,'%'):'<div class="stat-chip"><span>HR/FB</span><span class="val" style="color:#475569">—</span></div>'}
       ${r.xwobaDiff!=null&&Math.abs(r.xwobaDiff)>=0.020?`<div class="stat-chip"><span class="val" style="color:${r.xwobaDiff>0?'var(--green)':'var(--red)'}">${r.xwobaDiff>0?'+':''}${Math.round(r.xwobaDiff*1000)}xw</span></div>`:''}
       <div class="stat-chip"><span>xHR</span><span class="val" style="color:${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return r.prob*e>=0.35?'var(--green)':r.prob*e>=0.20?'var(--amber)':'var(--t3)'})()}">${(()=>{const e=r.lineupPos?Math.max(3.5,Math.min(4.8,4.8-(r.lineupPos-1)*0.15)):4.1;return(r.prob*e).toFixed(2)})()}</span></div>
     </div>
@@ -14089,6 +15039,15 @@ function showDetail(id){
       const loc = _playerCache[k];
       if(loc?.dmg5avg) populatePitcherZoneFromThrowLoc(_spIdZ, k.split('_')[2], loc);
     }
+    // Upgrade Zone Fit for all batters facing this SP from estimated → real zones
+    if(_pitcherZoneMap[_spIdZ] && S.allRows){
+      S.allRows.forEach(row=>{
+        if(String(row._spId)===_spIdZ && row._zoneFit?.fromBvP && !row._zoneFit?.fromRealZones){
+          const upgraded = computeZoneFit(row);
+          if(upgraded) row._zoneFit = upgraded;
+        }
+      });
+    }
   }
 
   const batPid = r._batPid||r.id;
@@ -14168,6 +15127,11 @@ function showDetail(id){
         r._bvp = bvp;
         const realZM = calcZoneMatchupFromBvP(bvp, r._spId, r.batHand);
         if(realZM) r._zoneMatch = realZM;
+        // Upgrade Pitch Fit badge: proxy → BvP xwOBA, and again when zone overlap is newly available
+        if(!r._zoneFit?.fromBvP || !r._zoneFit?.withZoneOverlap){
+          const upgraded = computeZoneFit(r);
+          if(upgraded) r._zoneFit = upgraded;
+        }
         const cur = S.allRows.find(x=>x.id===id);
         if(cur && document.getElementById('page-detail')?.classList.contains('active')){
           renderDetail(cur);
@@ -14595,7 +15559,8 @@ function renderDetail(r){
                 zoneMatch.antiOverlap?.length>=2?'var(--red)':'var(--t4)'}">
                 ${zoneMatch.hotOverlap?.length>=2?'🎯 Zone Domination':
                   zoneMatch.hotOverlap?.length>=1?'📍 Zone Overlap':
-                  zoneMatch.antiOverlap?.length>=2?'🚫 Zone Mismatch':'—'}
+                  zoneMatch.antiOverlap?.length>=2?'🚫 Zone Mismatch':
+                  zoneMatch.label==='Soft Zone Match'?'〰 Soft Match':'〰 Neutral'}
               </div>` : '<div></div>'}
               <button onclick="refreshZoneMatchup('${r.id}')"
                 style="padding:2px 7px;border-radius:6px;border:1px solid var(--bdr);
@@ -15048,30 +16013,32 @@ function renderDetail(r){
               function zoneColor(s){
                 return s>=0.70?'rgba(34,201,94,.55)':s>=0.50?'rgba(240,165,0,.45)':s>=0.35?'rgba(224,80,74,.35)':'rgba(224,80,74,.55)';
               }
-              // SP tendency: guess zone emphasis by pitch mix
-              // Derive SP tendency from actual pitch-type mix codes (FF, FC, SL, ST, CU, SI, CH…)
+              // SP tendency: derive from actual pitch-type mix codes (FF, FC, SL, ST, CU, SI, CH…)
               const mix = r._pitcherStats?.arsenal?.mix || {};
               const FC=(mix.FC||0), CU=(mix.CU||0)+(mix.KC||0), ST=(mix.ST||0);
               const SL=(mix.SL||0), SI=(mix.SI||0), CH=(mix.CH||0)+(mix.FS||0), FF=(mix.FF||0);
-              // Priority: most distinctive pitch drives tendency
+              // Direction: cutter/sweeper/change run to pitcher's glove-side.
+              // Glove-side = outer for same-handed matchup, inner for opposite-handed.
+              // spHand===hand → same-handed → pitch runs outer (away); opposite → inner (in)
+              const sameHanded = spHand === hand;
               const spTendency =
-                FC>=12 ? (hand==='R'?'outer-high':'inner-high')  // cutter: glove-side edge
-              : ST>=15 ? (hand==='R'?'low-outer':'low-inner')    // sweeper: low & away
+                FC>=12 ? (sameHanded?'outer-high':'inner-high')  // cutter: glove-side edge
+              : ST>=15 ? (sameHanded?'low-outer':'low-inner')    // sweeper: low & away (glove-side)
               : CU>=12 ? 'low-down'                               // curve: drops straight down
-              : SL>=20 ? (hand==='R'?'low-outer':'low-inner')    // slider: low & away
-              : SI>=25 ? 'low-inner'                              // sinker: low & in
-              : CH>=18 ? (hand==='R'?'low-outer':'low-inner')    // changeup: arm-side low
+              : SL>=20 ? (sameHanded?'low-outer':'low-inner')    // slider: low & away
+              : SI>=25 ? (sameHanded?'low-inner':'low-outer')    // sinker: arm-side low
+              : CH>=18 ? (sameHanded?'low-outer':'low-inner')    // changeup: arm-side low
               : FF>=50 ? 'up-middle'                              // FB-heavy: elevated heat
               : null;                                             // no clear tendency
-              // Describe tendency in readable form for popup
+              // Human-readable label
               const spTendencyLabel = spTendency
                 ? ({
-                    'outer-high':'Cutter — glove-side edge (high)',
-                    'inner-high':'Cutter — arm-side edge (high)',
-                    'low-outer':'Sweeper/Slider — low & away',
-                    'low-inner':'Sinker — low & in',
-                    'low-down':'Curveball — drops straight down',
-                    'up-middle':'Fastball-heavy — elevated heat',
+                    'outer-high': FC>=12?'Cutter — glove-side edge (high)':'High & away',
+                    'inner-high': FC>=12?'Cutter — arm-side edge (high)':'High & in',
+                    'low-outer':  ST>=15?'Sweeper — low & away':SL>=20?'Slider — low & away':'Low & away',
+                    'low-inner':  SI>=25?'Sinker — low & in':CH>=18?'Changeup — arm-side low':'Low & in',
+                    'low-down':   'Curveball — straight down',
+                    'up-middle':  'Fastball-heavy — elevated heat',
                   }[spTendency]||spTendency)
                 : null;
               function spZoneMark(row,col){
@@ -17371,7 +18338,25 @@ function initApp(){
     const btn = document.getElementById('tracker-copy-today-btn');
     if(btn){ btn.textContent='⏳ Building…'; btn.disabled=true; }
     try{
-      const rows = (S.allRows||[]).slice().sort((a,b)=>(b.prob||0)-(a.prob||0));
+      // Use same merged source as renderTracker: stored today (deselected games) + live S.allRows
+      const _todayStr = ds();
+      const _storedToday = (()=>{try{return JSON.parse(localStorage.getItem('diq_pred_log')||'[]').filter(p=>p.date===_todayStr);}catch{return[];}})();
+      const _todayMap = new Map(_storedToday.map(p=>[p.uid||`${p.id}_${_todayStr}`, p]));
+      for(const r of (S.allRows||[])){
+        const uid=`${r.id}_${_todayStr}`;
+        const ex=_todayMap.get(uid)||{};
+        _todayMap.set(uid,{...ex, uid, id:String(r.id), name:r.name,
+          prob:r.prob||0, grade:r.grade||ex.grade||'',
+          team:r.team||ex.team||'', game:r.game||ex.game||'',
+          batHand:r.batHand||ex.batHand||'', oppHand:r.oppHand||ex.oppHand||'',
+          barrel_pct:r.barrel_pct??ex.barrel_pct??null, avg_ev:r.avg_ev??ex.avg_ev??null,
+          avg_la:r.avg_la??ex.avg_la??null, hard_hit_pct:r.hard_hit_pct??ex.hard_hit_pct??null,
+          pull_pct:r.pull_pct??ex.pull_pct??null,
+          iso:r.iso??ex.iso??null, xwoba:r.xwoba??ex.xwoba??null,
+          platoon:r.platoon??ex.platoon??null, pitcher:r.pitcher??ex.pitcher??null,
+          tags:r.tags||ex.tags||'', spNm:r.spNm||ex.spNm||''});
+      }
+      const rows = [..._todayMap.values()].sort((a,b)=>(b.prob||0)-(a.prob||0));
       if(!rows.length){
         if(btn){ btn.textContent='📋 Copy Today'; btn.disabled=false; }
         showToast('No players loaded — tap game chips on Slate tab first',null,3500);
@@ -17386,7 +18371,7 @@ function initApp(){
       txt += `Players: ${rows.length}  |  Games: ${[...new Set(rows.map(r=>r.game).filter(Boolean))].join(', ')}\n\n`;
       txt += `HOW TO USE: After games finish, fill in who hit home runs, then ask:\n`;
       txt += `"What signals/tags did the HR hitters share vs the non-hitters?"\n\n`;
-      txt += `${SEP}\nCOLUMNS: Grade | Model% | Barrel% | AvgEV | ISO | xwOBA | Platoon× | Pitcher× | Matchup | Tags\n${SEP}\n\n`;
+      txt += `${SEP}\nCOLUMNS: Grade | Model% | Barrel% | AvgEV | LA° | HH% | Pull% | ISO | xwOBA | Platoon× | Pitcher× | Matchup | Tags\n${SEP}\n\n`;
       const byGame={};
       rows.forEach(r=>{ const g=r.game||'?'; (byGame[g]=byGame[g]||[]).push(r); });
       for(const [game,players] of Object.entries(byGame)){
@@ -17399,12 +18384,15 @@ function initApp(){
           const cols=[(r.grade||'—').padEnd(3),fp(r.prob).padStart(6),
             r.barrel_pct!=null?r.barrel_pct.toFixed(1)+'%':'—',
             r.avg_ev!=null?r.avg_ev.toFixed(1)+' mph':'—',
+            r.avg_la!=null?r.avg_la.toFixed(1)+'°':'—',
+            r.hard_hit_pct!=null?r.hard_hit_pct.toFixed(1)+'%':'—',
+            r.pull_pct!=null?r.pull_pct.toFixed(1)+'%':'—',
             f3(r.iso),f3(r.xwoba),fm(r.platoon),fm(r.pitcher),matchup,tags||'—'];
           txt+=`${(r.name||'?').padEnd(22)} | ${cols.join(' | ')}\n`;
         }
         txt+='\n';
       }
-      txt+=`${SEP}\nSUGGESTED PROMPT:\n"These players hit home runs: [names]. What Grade, Barrel%, EV, ISO, xwOBA,\n Platoon×, Pitcher× and Tags did HR hitters share vs non-hitters? Give me a rule for future slates."\n`;
+      txt+=`${SEP}\nSUGGESTED PROMPT:\n"These players hit home runs: [names]. What Grade, Barrel%, EV, LA°, HH%, Pull%,\n ISO, xwOBA, Platoon× and Tags did HR hitters share vs non-hitters? Give me a rule for future slates."\n`;
       try{
         await navigator.clipboard.writeText(txt);
         if(btn){ btn.textContent='✅ Copied!'; setTimeout(()=>{btn.textContent='📋 Copy Today';btn.disabled=false;},2500); }
@@ -17469,6 +18457,9 @@ function initApp(){
           fp(p.prob),
           p.barrel_pct!=null ? p.barrel_pct.toFixed(1)+'%' : '—',
           p.avg_ev!=null ? p.avg_ev.toFixed(1)+' mph' : '—',
+          p.avg_la!=null ? p.avg_la.toFixed(1)+'°' : '—',
+          p.hard_hit_pct!=null ? p.hard_hit_pct.toFixed(1)+'%' : '—',
+          p.pull_pct!=null ? p.pull_pct.toFixed(1)+'%' : '—',
           f3(p.iso),
           f3(p.xwoba),
           fm(p.platoon),
@@ -17478,7 +18469,7 @@ function initApp(){
         return parts.join(' | ');
       };
 
-      const HDR = 'Date | Player | Team/Pos/Matchup | Grade | Prob | Barrel% | AvgEV | ISO | xwOBA | Platoon | Pitcher | Tags';
+      const HDR = 'Date | Player | Team/Pos/Matchup | Grade | Prob | Barrel% | AvgEV | LA° | HH% | Pull% | ISO | xwOBA | Platoon | Pitcher | Tags';
       const SEP = '─'.repeat(90);
 
       let txt = `=== DingerIQ 7-Day HR Tracker Export ===\n`;
@@ -17586,27 +18577,220 @@ function initApp(){
     return { rows, hits, misses, hCross, mCross, gradePct };
   }
 
+  // ── Signal Lift Report ───────────────────────────────────────
+  // Computes per-bucket calibration + per-tag HR rate lift from resolved outcomes.
+  // Requires ≥15 resolved entries to produce anything useful.
+  function buildSignalLiftReport(resolved){
+    if(!resolved || resolved.length < 15) return null;
+
+    const hits  = resolved.filter(r=>r.actual===1);
+    const total = resolved.length;
+    const overallRate = hits.length / total;
+
+    // ── Probability bucket calibration ──────────────────────────
+    const probBuckets = [
+      { label:'<8%',    min:0,    max:0.08 },
+      { label:'8–12%',  min:0.08, max:0.12 },
+      { label:'12–16%', min:0.12, max:0.16 },
+      { label:'16–20%', min:0.16, max:0.20 },
+      { label:'20%+',   min:0.20, max:1.0  },
+    ];
+    for(const b of probBuckets){
+      const inB = resolved.filter(r=>r.prob>=b.min && r.prob<b.max);
+      b.n          = inB.length;
+      b.hitCount   = inB.filter(r=>r.actual===1).length;
+      b.modelAvg   = inB.length ? inB.reduce((s,r)=>s+(r._rawProb||r.prob),0)/inB.length : null;
+      b.actualRate = inB.length ? b.hitCount/inB.length : null;
+    }
+
+    // ── Per-signal tag lift ──────────────────────────────────────
+    // Tags known to appear in detectAngles output
+    const SIGNAL_TAGS = [
+      'Elite Spot','Prime Spot',
+      'Platoon King','Platoon Edge',
+      'Dinger Machine','Dingers vs SP',
+      'On Fire','Back-to-Back','Streak Starter','L7 Pace Surge',
+      'Power Profile','Pull Power',
+      'Quality Hot Streak',
+      'Sweet Spot Machine',
+      'Park Boost','Wind Boost',
+      'Favorable Ump',
+    ];
+
+    const parseTagSet = p => {
+      if(!p.tags) return new Set();
+      if(Array.isArray(p.tags)) return new Set(p.tags.filter(t=>!t.endsWith('(-)')));
+      return new Set(p.tags.split(',').map(t=>t.trim()).filter(t=>t&&!t.endsWith('(-)')));
+    };
+
+    const tagLifts = [];
+    for(const tag of SIGNAL_TAGS){
+      const tagged   = resolved.filter(r=>parseTagSet(r).has(tag));
+      const untagged = resolved.filter(r=>!parseTagSet(r).has(tag));
+      if(tagged.length < 3) continue;
+      const taggedRate   = tagged.filter(r=>r.actual===1).length / tagged.length;
+      const untaggedRate = untagged.length ? untagged.filter(r=>r.actual===1).length/untagged.length : overallRate;
+      const lift = untaggedRate > 0 ? taggedRate / untaggedRate : null;
+      tagLifts.push({ tag, n:tagged.length, taggedRate, untaggedRate, lift });
+    }
+    tagLifts.sort((a,b)=>(b.lift||0)-(a.lift||0));
+
+    return { probBuckets, tagLifts, overallRate, n:total, hitCount:hits.length };
+  }
+
+  function renderSignalLiftHTML(resolved){
+    const data = buildSignalLiftReport(resolved);
+    if(!data) return '';
+    const { probBuckets, tagLifts, overallRate, n, hitCount } = data;
+
+    const pct  = v => v!=null ? (v*100).toFixed(1)+'%' : '—';
+    const lftC = v => v==null ? 'var(--t4)' : v>=1.5?'#ffd700':v>=1.15?'var(--green)':v>=0.85?'var(--amber)':'var(--red)';
+    const lftL = v => v==null ? '—' : v.toFixed(2)+'×';
+
+    // Calibration bars
+    const activeBuckets = probBuckets.filter(b=>b.n>=3);
+    const calRows = activeBuckets.map(b=>{
+      const diff = b.actualRate!=null && b.modelAvg!=null ? b.actualRate - b.modelAvg : null;
+      const clr  = diff==null ? 'var(--t4)' : Math.abs(diff)<0.03?'var(--green)':Math.abs(diff)<0.06?'var(--amber)':'var(--red)';
+      const arrow= diff==null ? '' : diff>0.005?'▲':diff<-0.005?'▼':'≈';
+      const note = diff==null ? '' : Math.abs(diff)<0.02?'on target':diff>0?'under-pred':'over-pred';
+      const barW = b.actualRate!=null ? Math.round(b.actualRate*100*3) : 0; // scale to max ~60px for 20%
+      const modW = b.modelAvg!=null   ? Math.round(b.modelAvg*100*3)  : 0;
+      return `
+        <div style="display:grid;grid-template-columns:56px 1fr 58px 54px;gap:4px 8px;align-items:center;margin-bottom:5px">
+          <div style="font-size:.58rem;color:var(--t4)">${b.label} <span style="color:var(--t4);font-size:.52rem">(${b.n})</span></div>
+          <div style="position:relative;height:14px;background:var(--bg3);border-radius:4px;overflow:hidden">
+            <div style="position:absolute;top:0;left:0;height:100%;width:${Math.min(modW,100)}%;background:rgba(99,179,237,.30);border-radius:4px"></div>
+            <div style="position:absolute;top:0;left:0;height:100%;width:${Math.min(barW,100)}%;background:${clr}60;border-radius:4px;border-right:2px solid ${clr}"></div>
+          </div>
+          <div style="font-size:.60rem;text-align:right">
+            <span style="color:var(--t4)">Mdl ${pct(b.modelAvg)}</span>
+          </div>
+          <div style="font-size:.60rem;font-weight:700;color:${clr};text-align:right">
+            ${arrow} ${pct(b.actualRate)} <span style="font-size:.50rem;font-weight:400;color:var(--t4)">${note}</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Signal lift rows
+    const liftRows = tagLifts.length
+      ? tagLifts.map(t=>`
+        <div style="display:grid;grid-template-columns:1fr 32px 50px 50px 42px;gap:4px 8px;align-items:center;margin-bottom:4px">
+          <div style="font-size:.60rem;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.tag}</div>
+          <div style="font-size:.56rem;color:var(--t4);text-align:right">${t.n}x</div>
+          <div style="font-size:.60rem;color:var(--t4);text-align:right">${pct(t.untaggedRate)}</div>
+          <div style="font-size:.60rem;font-weight:700;color:var(--green);text-align:right">${pct(t.taggedRate)}</div>
+          <div style="font-size:.62rem;font-weight:800;color:${lftC(t.lift)};text-align:right">${lftL(t.lift)}</div>
+        </div>`).join('')
+      : `<div style="font-size:.62rem;color:var(--t4);padding:8px 0">Not enough tagged plays yet — load more slates with active signals.</div>`;
+
+    // Overall calibration health — checks BOTH global average AND slope pattern
+    const totalModel  = probBuckets.reduce((s,b)=>s+(b.modelAvg||0)*b.n, 0);
+    const nTotal      = probBuckets.reduce((s,b)=>s+b.n, 0);
+    const globalModel = nTotal>0 ? totalModel/nTotal : null;
+    const globalDiff  = globalModel!=null ? overallRate - globalModel : null;
+    // Slope bias: low buckets over-predicted AND high buckets under-predicted (or vice versa)
+    // This is more dangerous than a uniform shift — it means the model compresses toward the middle
+    const sortedB = [...activeBuckets].sort((a,b)=>a.modelAvg-b.modelAvg);
+    const lowBucket  = sortedB[0];   // lowest-prob bucket
+    const highBucket = sortedB[sortedB.length-1]; // highest-prob bucket
+    const lowDiff  = lowBucket?.actualRate!=null&&lowBucket?.modelAvg!=null ? lowBucket.actualRate-lowBucket.modelAvg : null;
+    const highDiff = highBucket?.actualRate!=null&&highBucket?.modelAvg!=null ? highBucket.actualRate-highBucket.modelAvg : null;
+    const hasSlopeBias = sortedB.length>=3 && lowDiff!=null && highDiff!=null
+      && lowDiff < -0.02 && highDiff > 0.02; // low bucket over-pred AND high bucket under-pred
+    const hasReverseSlopeBias = sortedB.length>=3 && lowDiff!=null && highDiff!=null
+      && lowDiff > 0.02 && highDiff < -0.02; // opposite pattern
+    const calHealth   = globalDiff==null ? '' :
+      hasSlopeBias
+        ? `⚠️ Slope bias — low plays over-predicted, high plays under-predicted. Platt recalibration recommended.`
+      : hasReverseSlopeBias
+        ? `⚠️ Reverse slope bias — low plays under-predicted, high plays over-predicted.`
+      : Math.abs(globalDiff)<0.015 ? '✅ Well calibrated'
+      : globalDiff>0 ? `📈 Under-predicting by ${(globalDiff*100).toFixed(1)}pp — model is conservative`
+      : `📉 Over-predicting by ${(Math.abs(globalDiff)*100).toFixed(1)}pp — reduce sizing`;
+
+    return `
+    <details style="margin-bottom:16px">
+      <summary style="list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+        padding:10px 13px;border-radius:12px;background:var(--bg2);border:1px solid var(--bdr)">
+        <div>
+          <span style="font-size:.76rem;font-weight:800;color:var(--t1)">📈 Signal Lift Report</span>
+          <span style="font-size:.58rem;color:var(--t4);margin-left:8px">${n} resolved · ${hitCount} HR · ${(overallRate*100).toFixed(1)}% hit rate</span>
+        </div>
+        <span style="font-size:.65rem;color:var(--t4)">▾ tap to expand</span>
+      </summary>
+
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:10px">
+
+        <!-- Calibration curve -->
+        <div style="background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;padding:12px">
+          <div style="font-size:.70rem;font-weight:800;color:var(--t1);margin-bottom:4px">🎯 Model vs Actual by Probability Bucket</div>
+          <div style="font-size:.58rem;color:var(--t4);margin-bottom:10px">
+            Blue bar = model avg · colored bar = actual HR rate · Bold = direction &amp; note
+            ${calHealth ? `<br><b style="color:var(--amber)">${calHealth}</b>` : ''}
+          </div>
+          ${activeBuckets.length>=2 ? calRows : '<div style="font-size:.62rem;color:var(--t4)">Need 3+ players in at least 2 prob buckets — keep loading slates.</div>'}
+        </div>
+
+        <!-- Signal lift table -->
+        <div style="background:var(--bg2);border:1px solid var(--bdr);border-radius:10px;padding:12px">
+          <div style="font-size:.70rem;font-weight:800;color:var(--t1);margin-bottom:4px">🏷️ Signal Tag Lift</div>
+          <div style="font-size:.58rem;color:var(--t4);margin-bottom:8px">
+            Lift = (tagged HR rate) ÷ (untagged HR rate). &gt;1.5× = signal earns its weight. &lt;0.85× = signal may be noise.
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 32px 50px 50px 42px;gap:2px 8px;margin-bottom:6px">
+            <div style="font-size:.52rem;color:var(--t4);font-weight:700;text-transform:uppercase;letter-spacing:.04em">Signal</div>
+            <div style="font-size:.52rem;color:var(--t4);font-weight:700;text-align:right">Plays</div>
+            <div style="font-size:.52rem;color:var(--t4);font-weight:700;text-align:right">No Tag%</div>
+            <div style="font-size:.52rem;color:var(--green);font-weight:700;text-align:right">Tagged%</div>
+            <div style="font-size:.52rem;color:var(--t4);font-weight:700;text-align:right">Lift</div>
+          </div>
+          ${liftRows}
+          <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--bdr);font-size:.56rem;color:var(--t4);line-height:1.7">
+            <b style="color:var(--t2)">How to use:</b> Signals with lift &gt;1.5× are outperforming — model already rewards them but you can prioritize these plays.
+            Signals below 0.85× either have small samples or may need weight reduction in the model. Share this data after 30+ days for a proper tune-up.
+          </div>
+        </div>
+
+      </div>
+    </details>`;
+  }
+
   // ── main render ──────────────────────────────────────────────
   window.renderTracker = function(){
     const el = document.getElementById('tracker-content');
     if(!el) return;
 
-    // TODAY: pull directly from S.allRows — no localStorage dependency needed
-    const todayStr = ds();
-    const liveToday = (S.allRows||[]).map(r=>({
-      uid:`${r.id}_${todayStr}`, id:String(r.id), name:r.name,
-      prob:r.prob||0, rawProb:r._rawProb||r.prob||0, date:todayStr,
-      actual:null, resolvedAt:null,
-      team:r.team||'', pos:r.pos||'', game:r.game||'',
-      batHand:r.batHand||'', oppHand:r.oppHand||'',
-      grade:r.grade||'', tags:r.tags||'',
-      barrel_pct:r.barrel_pct??null, avg_ev:r.avg_ev??null,
-      iso:r.iso??null, xwoba:r.xwoba??null,
-      platoon:r.platoon??null, pitcher:r.pitcher??null,
-      szHR:r.szHR??null, szPA:r.szPA??null,
-    }));
-    // PAST DAYS: from localStorage only (today's live data takes precedence)
-    const pastStored = load().filter(p=>p.date!==todayStr);
+    // TODAY: merge stored entries (covers deselected games) + live S.allRows (fresher data)
+    const slateDate  = ds();               // current Slate date (may be a past date)
+    const actualToday = ds(new Date());    // wall-clock today — always used for labels
+    const todayStr = slateDate;            // alias used in merge logic below
+    const allStored = load();
+    const storedToday = allStored.filter(p=>p.date===todayStr);
+    // Build map from stored: uid → entry (preserves resolved outcomes)
+    const todayMap = new Map(storedToday.map(p=>[p.uid||`${p.id}_${todayStr}`, {...p}]));
+    // Override/add with live S.allRows — currently selected games have freshest data
+    for(const r of (S.allRows||[])){
+      const uid = `${r.id}_${todayStr}`;
+      const ex = todayMap.get(uid)||{};
+      todayMap.set(uid, {
+        uid, id:String(r.id), name:r.name,
+        prob:r.prob||0, rawProb:r._rawProb||r.prob||0, date:todayStr,
+        actual:ex.actual??null, resolvedAt:ex.resolvedAt??null,
+        team:r.team||ex.team||'', pos:r.pos||ex.pos||'', game:r.game||ex.game||'',
+        batHand:r.batHand||ex.batHand||'', oppHand:r.oppHand||ex.oppHand||'',
+        grade:r.grade||ex.grade||'', tags:r.tags||ex.tags||'',
+        barrel_pct:r.barrel_pct??ex.barrel_pct??null, avg_ev:r.avg_ev??ex.avg_ev??null,
+        avg_la:r.avg_la??ex.avg_la??null, hard_hit_pct:r.hard_hit_pct??ex.hard_hit_pct??null,
+        pull_pct:r.pull_pct??ex.pull_pct??null,
+        iso:r.iso??ex.iso??null, xwoba:r.xwoba??ex.xwoba??null,
+        platoon:r.platoon??ex.platoon??null, pitcher:r.pitcher??ex.pitcher??null,
+        szHR:r.szHR??ex.szHR??null, szPA:r.szPA??ex.szPA??null,
+      });
+    }
+    const liveToday = [...todayMap.values()];
+    // PAST DAYS: from localStorage only
+    const pastStored = allStored.filter(p=>p.date!==todayStr);
     const all = [...liveToday, ...pastStored];
 
     if(!all.length){
@@ -17629,7 +18813,7 @@ function initApp(){
       return;
     }
 
-    const today = todayStr;
+    const today = actualToday;  // wall-clock today — used for labels only
     const byDate = {};
     all.forEach(p=>{ (byDate[p.date]=byDate[p.date]||[]).push(p); });
     const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
@@ -17711,7 +18895,36 @@ function initApp(){
         Load Best Bets each day — all players auto-save.
         After games end, tap <b style="color:var(--amber)">🔄 Check Results</b> to pull HR outcomes.
         After a few days, tap <b style="color:#63b3ed">📋 Export 7-Day</b> to copy a report you can paste into
-        an AI (ChatGPT, Claude, etc.) to find which tags &amp; signals predict HRs in your sample+= cfHTML;
+        an AI (ChatGPT, Claude, etc.) to find which tags &amp; signals predict HRs in your sample.
+      </div>
+    </div>`;
+
+    h += cfHTML;
+
+    // Signal Lift Report (collapsed by default, renders when ≥15 resolved entries)
+    h += renderSignalLiftHTML(totalResolved);
+
+    // ── Date chips nav ──
+    if(dates.length > 1){
+      h += `<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:4px;scrollbar-width:none;-webkit-overflow-scrolling:touch">`;
+      for(const d of dates){
+        const isT = d===today;
+        const lbl = isT ? 'Today'
+          : d===new Date(Date.now()-864e5).toISOString().slice(0,10) ? 'Yesterday'
+          : new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        const dp2 = byDate[d];
+        const hitsD = dp2.filter(p=>p.actual===1).length;
+        const resD  = dp2.filter(p=>p.actual!=null).length;
+        h += `<button onclick="jumpTrackerDate('${d}')"
+          style="flex-shrink:0;padding:5px 11px;border-radius:20px;cursor:pointer;white-space:nowrap;
+          border:1px solid ${isT?'rgba(240,165,0,.5)':'var(--bdr)'};
+          background:${isT?'rgba(240,165,0,.12)':'var(--bg3)'};
+          color:${isT?'var(--amber)':'var(--t3)'};font-size:.62rem;font-weight:700">
+          ${lbl}${resD?` &nbsp;✅${hitsD}/${resD}`:''}
+        </button>`;
+      }
+      h += `</div>`;
+    }
 
     // ── Per-day sections ──
     for(const date of dates){
@@ -17729,7 +18942,7 @@ function initApp(){
       const yesterday = new Date(Date.now()-864e5).toISOString().slice(0,10);
       const openAttr  = (isToday || date===yesterday) ? 'open' : '';
 
-      h += `<details ${openAttr} style="margin-bottom:12px">
+      h += `<details id="tracker-day-${date}" ${openAttr} style="margin-bottom:12px">
         <summary style="list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
           padding:9px 11px;border-radius:10px;background:var(--bg2);border:1px solid var(--bdr)">
           <div style="font-size:.74rem;font-weight:800;color:var(--t2)">${dLabel}</div>
@@ -17755,18 +18968,22 @@ function initApp(){
           ? `<span style="font-size:.60rem;color:var(--t4)">⏳</span>`
           : `<span style="font-size:.60rem;color:var(--amber)">?</span>`;
         const pc  = p.prob>=0.12?'var(--green)':p.prob>=0.08?'var(--amber)':'var(--t3)';
-        const gBg = p.grade==='A+'?'rgba(255,215,0,.18)':p.grade==='A'?'rgba(34,201,94,.15)':p.grade==='B'?'rgba(56,189,248,.12)':'var(--bg3)';
-        const gCl = p.grade==='A+'?'#ffd700':p.grade==='A'?'var(--green)':p.grade==='B'?'#38bdf8':'var(--t4)';
+        const _g  = Array.isArray(p.grade)?p.grade[0]:(typeof p.grade==='string'?p.grade.split(',')[0]:'');
+        const gBg = _g==='A+'?'rgba(255,215,0,.18)':_g==='A'?'rgba(34,201,94,.15)':_g==='B+'?'rgba(34,201,94,.10)':_g==='B'?'rgba(56,189,248,.12)':'var(--bg3)';
+        const gCl = _g==='A+'?'#ffd700':_g==='A'?'var(--green)':_g==='B+'?'#5fffb0':_g==='B'?'#38bdf8':'var(--t4)';
         const sub = [
           p.team||'',
           p.batHand&&p.oppHand?`${p.batHand}HB vs ${p.oppHand}HP`:'',
           p.barrel_pct!=null?`Brl ${p.barrel_pct.toFixed(0)}%`:'',
-          p.avg_ev!=null?`EV ${p.avg_ev.toFixed(0)}`:''
+          p.avg_ev!=null?`EV ${p.avg_ev.toFixed(0)}`:'',
+          p.avg_la!=null?`LA ${p.avg_la.toFixed(1)}°`:'',
+          p.hard_hit_pct!=null?`HH ${p.hard_hit_pct.toFixed(0)}%`:'',
+          p.pull_pct!=null?`Pull ${p.pull_pct.toFixed(0)}%`:''
         ].filter(Boolean).join(' · ');
 
         h += `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;
           background:${bg};border:1px solid ${bdr};margin-bottom:4px">
-          ${p.grade?`<div style="font-size:.60rem;font-weight:800;color:${gCl};background:${gBg};padding:2px 5px;border-radius:4px;flex-shrink:0">${p.grade}</div>`:''}
+          ${_g?`<div style="font-size:.60rem;font-weight:800;color:${gCl};background:${gBg};padding:2px 5px;border-radius:4px;flex-shrink:0">${_g}</div>`:''}
           <div style="flex:1;min-width:0">
             <div style="font-size:.75rem;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div>
             <div style="font-size:.58rem;color:var(--t4);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sub}</div>
